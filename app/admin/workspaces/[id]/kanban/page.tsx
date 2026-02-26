@@ -3,7 +3,7 @@ import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import KanbanBoard from '@/components/kanban/Board'
-import type { KanbanPriority } from '@/lib/types/database'
+import type { KanbanPriority, CardLabel, CardAttachment } from '@/lib/types/database'
 
 interface Props {
   params: Promise<{ id: string }>
@@ -65,7 +65,7 @@ export default async function AdminWorkspaceKanbanPage({ params }: Props) {
     .select(`
       id, title, color, order_index,
       kanban_cards(
-        id, title, description, priority, due_date, assignee_id, column_id, order_index, is_archived,
+        id, title, description, priority, due_date, assignee_id, column_id, order_index, is_archived, labels, attachments,
         profiles:assignee_id(name),
         card_comments(id, content, created_at, profiles:user_id(name))
       )
@@ -95,6 +95,8 @@ export default async function AdminWorkspaceKanbanPage({ params }: Props) {
       column_id: string
       order_index: number
       is_archived: boolean
+      labels: unknown
+      attachments: unknown
       profiles: { name: string } | null
       card_comments: {
         id: string
@@ -127,6 +129,8 @@ export default async function AdminWorkspaceKanbanPage({ params }: Props) {
         assignee_id: c.assignee_id,
         column_id: c.column_id,
         position: c.order_index,
+        labels: (Array.isArray(c.labels) ? c.labels : []) as CardLabel[],
+        attachments: (Array.isArray(c.attachments) ? c.attachments : []) as CardAttachment[],
         profiles: c.profiles,
         comments: c.card_comments ?? [],
       })),

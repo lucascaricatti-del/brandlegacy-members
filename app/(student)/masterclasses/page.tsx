@@ -26,26 +26,6 @@ export default async function MasterclassesPage() {
     .select('lesson_id')
     .eq('user_id', user.id)
 
-  // Busca os workspaces ativos do aluno para checar acesso via adminClient (bypass RLS)
-  const { data: memberships } = await adminSupabase
-    .from('workspace_members')
-    .select('workspace_id')
-    .eq('user_id', user.id)
-    .eq('is_active', true)
-
-  const workspaceIds = (memberships ?? []).map((m) => m.workspace_id)
-
-  // Masterclasses liberadas para os workspaces do aluno
-  let grantedModuleIds = new Set<string>()
-  if (workspaceIds.length > 0) {
-    const { data: access } = await adminSupabase
-      .from('content_access')
-      .select('module_id')
-      .in('workspace_id', workspaceIds)
-      .is('revoked_at', null)
-    grantedModuleIds = new Set((access ?? []).map((a) => a.module_id))
-  }
-
   const completedIds = new Set((progressData ?? []).map((p) => p.lesson_id))
   const mcs = masterclasses ?? []
 
@@ -54,7 +34,7 @@ export default async function MasterclassesPage() {
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-text-primary">Masterclasses</h1>
         <p className="text-text-secondary mt-1">
-          Conteúdo exclusivo liberado para o seu workspace.
+          Conteúdos exclusivos para mentorados.
         </p>
       </div>
 
@@ -66,35 +46,10 @@ export default async function MasterclassesPage() {
       ) : (
         <div className="space-y-4">
           {mcs.map((mc, index) => {
-            const hasAccess = grantedModuleIds.has(mc.id)
             const total = mc.lessons?.length ?? 0
             const done = mc.lessons?.filter((l: { id: string }) => completedIds.has(l.id)).length ?? 0
             const pct = total > 0 ? Math.round((done / total) * 100) : 0
             const isCompleted = total > 0 && done === total
-
-            if (!hasAccess) {
-              return (
-                <div
-                  key={mc.id}
-                  className="flex items-start gap-5 bg-bg-card border border-border rounded-xl p-6 opacity-60 cursor-not-allowed relative overflow-hidden"
-                >
-                  <div className="absolute inset-0 bg-bg-base/40 backdrop-blur-[1px] flex items-center justify-end pr-6">
-                    <span className="text-xs text-text-muted bg-bg-surface border border-border px-3 py-1.5 rounded-full">
-                      Bloqueado — solicite ao seu gestor
-                    </span>
-                  </div>
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-sm font-bold bg-bg-surface text-text-muted">
-                    {String(index + 1).padStart(2, '0')}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h2 className="font-semibold text-text-muted mb-1">{mc.title}</h2>
-                    {mc.description && (
-                      <p className="text-text-muted text-sm line-clamp-2">{mc.description}</p>
-                    )}
-                  </div>
-                </div>
-              )
-            }
 
             return (
               <Link

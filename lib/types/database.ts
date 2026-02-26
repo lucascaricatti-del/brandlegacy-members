@@ -16,10 +16,14 @@ export type ContentType = 'course' | 'masterclass' | 'webinar'
 export type PlanType = 'free' | 'tracao' | 'club'
 export type WorkspaceRole = 'owner' | 'admin' | 'manager' | 'collaborator' | 'viewer'
 export type KanbanPriority = 'low' | 'medium' | 'high' | 'urgent'
+export type CardLabel = { id: string; text: string; color: string }
+export type CardAttachment = { id: string; title: string; url: string; created_at: string }
 export type ContractStatus = 'active' | 'paused' | 'cancelled' | 'completed' | 'renewing'
 export type FinancialStatus = 'pending' | 'paid' | 'overdue' | 'cancelled'
 export type DeliveryStatus = 'pending' | 'scheduled' | 'completed'
 export type ContactType = 'call' | 'email' | 'whatsapp' | 'meeting' | 'note'
+export type SessionStatus = 'pending' | 'analyzing' | 'completed' | 'error'
+export type SessionTaskPriority = 'baixa' | 'media' | 'alta' | 'urgente'
 
 // ============================================================
 // Database — tipo completo Supabase
@@ -655,6 +659,8 @@ export type Database = {
           priority: KanbanPriority
           order_index: number
           is_archived: boolean
+          labels: Json
+          attachments: Json
           created_by: string | null
           created_at: string
           updated_at: string
@@ -669,6 +675,8 @@ export type Database = {
           priority?: KanbanPriority
           order_index?: number
           is_archived?: boolean
+          labels?: Json
+          attachments?: Json
           created_by?: string | null
           created_at?: string
           updated_at?: string
@@ -683,6 +691,8 @@ export type Database = {
           priority?: KanbanPriority
           order_index?: number
           is_archived?: boolean
+          labels?: Json
+          attachments?: Json
           created_by?: string | null
           created_at?: string
           updated_at?: string
@@ -782,6 +792,111 @@ export type Database = {
           }
         ]
       }
+      sessions: {
+        Row: {
+          id: string
+          workspace_id: string
+          title: string
+          session_date: string | null
+          transcript: string | null
+          summary: string | null
+          decisions: string | null
+          risks: string | null
+          status: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          title: string
+          session_date?: string | null
+          transcript?: string | null
+          summary?: string | null
+          decisions?: string | null
+          risks?: string | null
+          status?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          title?: string
+          session_date?: string | null
+          transcript?: string | null
+          summary?: string | null
+          decisions?: string | null
+          risks?: string | null
+          status?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'sessions_workspace_id_fkey'
+            columns: ['workspace_id']
+            isOneToOne: false
+            referencedRelation: 'workspaces'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      session_tasks: {
+        Row: {
+          id: string
+          session_id: string
+          workspace_id: string | null
+          title: string
+          responsible: string | null
+          due_date: string | null
+          priority: string
+          kanban_card_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          session_id: string
+          workspace_id?: string | null
+          title: string
+          responsible?: string | null
+          due_date?: string | null
+          priority?: string
+          kanban_card_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          session_id?: string
+          workspace_id?: string | null
+          title?: string
+          responsible?: string | null
+          due_date?: string | null
+          priority?: string
+          kanban_card_id?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'session_tasks_session_id_fkey'
+            columns: ['session_id']
+            isOneToOne: false
+            referencedRelation: 'sessions'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'session_tasks_workspace_id_fkey'
+            columns: ['workspace_id']
+            isOneToOne: false
+            referencedRelation: 'workspaces'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'session_tasks_kanban_card_id_fkey'
+            columns: ['kanban_card_id']
+            isOneToOne: false
+            referencedRelation: 'kanban_cards'
+            referencedColumns: ['id']
+          }
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -841,6 +956,8 @@ export type CardComment = Database['public']['Tables']['card_comments']['Row']
 export type InternalContact = Database['public']['Tables']['internal_contacts']['Row']
 export type Delivery = Database['public']['Tables']['deliveries']['Row']
 export type DeliveryMaterial = Database['public']['Tables']['delivery_materials']['Row']
+export type Session = Database['public']['Tables']['sessions']['Row']
+export type SessionTask = Database['public']['Tables']['session_tasks']['Row']
 
 // ============================================================
 // Tipos compostos para uso em componentes

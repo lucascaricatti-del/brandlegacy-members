@@ -134,15 +134,28 @@ export default async function AdminWorkspacePage({ params }: Props) {
             </div>
           </div>
         </div>
-        <Link
-          href={`/admin/workspaces/${id}/entregas`}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-gold/15 text-brand-gold border border-brand-gold/30 hover:bg-brand-gold/25 text-sm font-medium transition-colors shrink-0"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
-          </svg>
-          Entregas
-        </Link>
+        <div className="flex items-center gap-2 shrink-0">
+          <Link
+            href={`/admin/workspaces/${id}/sessoes`}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-bg-surface text-text-secondary border border-border hover:bg-bg-hover hover:text-text-primary text-sm font-medium transition-colors"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2a4 4 0 0 0-4 4v6a4 4 0 0 0 8 0V6a4 4 0 0 0-4-4z" />
+              <path d="M12 18.5V22" />
+              <path d="M7 22h10" />
+            </svg>
+            Sessões IA
+          </Link>
+          <Link
+            href={`/admin/workspaces/${id}/entregas`}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-gold/15 text-brand-gold border border-brand-gold/30 hover:bg-brand-gold/25 text-sm font-medium transition-colors"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+            </svg>
+            Entregas
+          </Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

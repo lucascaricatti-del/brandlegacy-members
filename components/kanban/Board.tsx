@@ -1,29 +1,34 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useRef, useTransition, useCallback } from 'react'
 import {
   DndContext,
   DragOverlay,
   closestCorners,
   PointerSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
   type DragStartEvent,
+  type DragOverEvent,
 } from '@dnd-kit/core'
 import { arrayMove } from '@dnd-kit/sortable'
 import KanbanColumn from './Column'
+import KanbanCard from './Card'
 import { moveCard } from '@/app/actions/kanban'
-import type { KanbanPriority } from '@/lib/types/database'
+import type { KanbanPriority, CardLabel, CardAttachment } from '@/lib/types/database'
 
-interface Comment {
+// ── Shared interfaces ──────────────────────────────────────
+
+export interface Comment {
   id: string
   content: string
   created_at: string
   profiles: { name: string } | null
 }
 
-interface CardData {
+export interface CardData {
   id: string
   title: string
   description: string | null
@@ -32,22 +37,31 @@ interface CardData {
   assignee_id: string | null
   column_id: string
   position: number
-  comments?: Comment[]
-  profiles?: { name: string } | null
+  labels: CardLabel[]
+  attachments: CardAttachment[]
+  comments: Comment[]
+  profiles: { name: string } | null
 }
 
-interface Member {
+export interface Member {
   user_id: string
   profiles: { id: string; name: string } | null
 }
 
-interface ColumnData {
+export interface ColumnData {
   id: string
   title: string
   color: string | null
   position: number
   cards: CardData[]
 }
+
+export interface ColumnMeta {
+  id: string
+  title: string
+}
+
+// ── Board Component ────────────────────────────────────────
 
 interface Props {
   columns: ColumnData[]
@@ -60,71 +74,120 @@ export default function KanbanBoard({ columns: initialColumns, workspaceId, memb
   const [activeCardId, setActiveCardId] = useState<string | null>(null)
   const [, startTransition] = useTransition()
 
+  // Ref for latest columns state (accessible in event handlers without stale closures)
+  const columnsRef = useRef(columns)
+  columnsRef.current = columns
+
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } })
   )
 
-  function findColumnByCardId(cardId: string) {
-    return columns.find((col) => col.cards.some((c) => c.id === cardId))
-  }
+  const isColumnId = useCallback(
+    (id: string) => columnsRef.current.some((col) => col.id === id),
+    []
+  )
 
+  const findColumnOfCard = useCallback(
+    (cardId: string) => columnsRef.current.find((col) => col.cards.some((c) => c.id === cardId)),
+    []
+  )
+
+  // ── Drag start ──
   function handleDragStart({ active }: DragStartEvent) {
     setActiveCardId(active.id as string)
   }
 
+  // ── Drag over: handle cross-column movement live ──
+  function handleDragOver({ active, over }: DragOverEvent) {
+    if (!over) return
+    const activeId = active.id as string
+    const overId = over.id as string
+    if (activeId === overId) return
+
+    const sourceCol = findColumnOfCard(activeId)
+    if (!sourceCol) return
+
+    const destCol = isColumnId(overId)
+      ? columnsRef.current.find((c) => c.id === overId)
+      : findColumnOfCard(overId)
+
+    if (!destCol || sourceCol.id === destCol.id) return
+
+    // Move card from source to dest
+    setColumns((prev) => {
+      const srcCards = prev.find((c) => c.id === sourceCol.id)?.cards
+      const card = srcCards?.find((c) => c.id === activeId)
+      if (!card) return prev
+
+      return prev.map((col) => {
+        if (col.id === sourceCol.id) {
+          return { ...col, cards: col.cards.filter((c) => c.id !== activeId) }
+        }
+        if (col.id === destCol.id) {
+          // If over a card, insert at that position; if over column, append
+          const overIdx = isColumnId(overId)
+            ? col.cards.length
+            : col.cards.findIndex((c) => c.id === overId)
+          const idx = overIdx >= 0 ? overIdx : col.cards.length
+          const newCards = [...col.cards]
+          newCards.splice(idx, 0, { ...card, column_id: col.id })
+          return { ...col, cards: newCards }
+        }
+        return col
+      })
+    })
+  }
+
+  // ── Drag end: handle within-column reorder + persist ──
   function handleDragEnd({ active, over }: DragEndEvent) {
     setActiveCardId(null)
     if (!over) return
 
-    const cardId = active.id as string
+    const activeId = active.id as string
     const overId = over.id as string
-
-    const sourceColumn = findColumnByCardId(cardId)
-    if (!sourceColumn) return
-
-    // Determina coluna de destino
-    const destColumn = columns.find((col) => col.id === overId)
-      ?? findColumnByCardId(overId)
-
-    if (!destColumn) return
-
-    if (sourceColumn.id === destColumn.id) {
-      // Reorder dentro da mesma coluna
-      const oldIndex = sourceColumn.cards.findIndex((c) => c.id === cardId)
-      const newIndex = sourceColumn.cards.findIndex((c) => c.id === overId)
-      if (oldIndex === newIndex) return
-
-      const newCards = arrayMove(sourceColumn.cards, oldIndex, newIndex)
-      setColumns((prev) =>
-        prev.map((col) =>
-          col.id === sourceColumn.id ? { ...col, cards: newCards } : col
-        )
-      )
-      startTransition(() => {
-        moveCard(workspaceId, cardId, destColumn.id, newIndex)
-      })
-    } else {
-      // Mover para outra coluna
-      const card = sourceColumn.cards.find((c) => c.id === cardId)!
-      const newPosition = destColumn.cards.length
-
-      setColumns((prev) =>
-        prev.map((col) => {
-          if (col.id === sourceColumn.id) {
-            return { ...col, cards: col.cards.filter((c) => c.id !== cardId) }
-          }
-          if (col.id === destColumn.id) {
-            return { ...col, cards: [...col.cards, { ...card, column_id: destColumn.id }] }
-          }
-          return col
-        })
-      )
-
-      startTransition(() => {
-        moveCard(workspaceId, cardId, destColumn.id, newPosition)
-      })
+    if (activeId === overId) {
+      // Persist current position (dropped in same spot)
+      const col = findColumnOfCard(activeId)
+      if (col) {
+        const idx = col.cards.findIndex((c) => c.id === activeId)
+        startTransition(() => { moveCard(workspaceId, activeId, col.id, idx) })
+      }
+      return
     }
+
+    const column = findColumnOfCard(activeId)
+    if (!column) return
+
+    // Within-column reorder
+    if (!isColumnId(overId) && column.cards.some((c) => c.id === overId)) {
+      const oldIndex = column.cards.findIndex((c) => c.id === activeId)
+      const newIndex = column.cards.findIndex((c) => c.id === overId)
+      if (oldIndex !== newIndex) {
+        setColumns((prev) =>
+          prev.map((col) =>
+            col.id === column.id
+              ? { ...col, cards: arrayMove(col.cards, oldIndex, newIndex) }
+              : col
+          )
+        )
+      }
+    }
+
+    // Persist final position (read from latest ref after state update)
+    setTimeout(() => {
+      const latestCol = columnsRef.current.find((c) => c.cards.some((card) => card.id === activeId))
+      if (latestCol) {
+        const idx = latestCol.cards.findIndex((c) => c.id === activeId)
+        startTransition(() => { moveCard(workspaceId, activeId, latestCol.id, idx) })
+      }
+    }, 0)
   }
+
+  // ── Render ──
+
+  const sortedColumns = [...columns].sort((a, b) => a.position - b.position)
+  const allColumns: ColumnMeta[] = sortedColumns.map((col) => ({ id: col.id, title: col.title }))
 
   const activeCard = activeCardId
     ? columns.flatMap((c) => c.cards).find((c) => c.id === activeCardId)
@@ -135,25 +198,31 @@ export default function KanbanBoard({ columns: initialColumns, workspaceId, memb
       sensors={sensors}
       collisionDetection={closestCorners}
       onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
     >
-      <div className="flex gap-5 overflow-x-auto pb-4">
-        {columns
-          .sort((a, b) => a.position - b.position)
-          .map((col) => (
-            <KanbanColumn
-              key={col.id}
-              column={col}
-              workspaceId={workspaceId}
-              members={members}
-            />
-          ))}
+      <div className="flex gap-4 overflow-x-auto pb-4 items-start">
+        {sortedColumns.map((col) => (
+          <KanbanColumn
+            key={col.id}
+            column={col}
+            workspaceId={workspaceId}
+            members={members}
+            allColumns={allColumns}
+          />
+        ))}
       </div>
 
-      <DragOverlay>
+      <DragOverlay dropAnimation={null}>
         {activeCard && (
-          <div className="p-3 bg-bg-card border border-brand-gold/40 rounded-lg shadow-xl rotate-1 opacity-90 w-72">
-            <p className="text-sm text-text-primary font-medium">{activeCard.title}</p>
+          <div className="w-[272px] opacity-90 rotate-2">
+            <KanbanCard
+              card={activeCard}
+              workspaceId={workspaceId}
+              members={members}
+              allColumns={allColumns}
+              isOverlay
+            />
           </div>
         )}
       </DragOverlay>

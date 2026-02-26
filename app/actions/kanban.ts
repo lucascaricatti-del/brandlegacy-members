@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import type { KanbanPriority } from '@/lib/types/database'
+import type { KanbanPriority, CardLabel, CardAttachment, Json } from '@/lib/types/database'
 
 async function requireWorkspaceMember(workspaceId: string) {
   const supabase = await createClient()
@@ -129,6 +129,95 @@ export async function addComment(workspaceId: string, cardId: string, content: s
   })
 
   if (insertError) return { error: insertError.message }
+
+  revalidatePath(`/workspace/kanban`)
+  return { success: true }
+}
+
+// ============================================================
+// LABELS (JSONB em kanban_cards)
+// ============================================================
+
+export async function updateCardLabels(workspaceId: string, cardId: string, labels: CardLabel[]) {
+  const { error, adminSupabase } = await requireWorkspaceMember(workspaceId)
+  if (error || !adminSupabase) return { error: error ?? 'Erro de autenticação' }
+
+  const { error: updateError } = await adminSupabase
+    .from('kanban_cards')
+    .update({ labels: labels as unknown as Json })
+    .eq('id', cardId)
+
+  if (updateError) return { error: updateError.message }
+
+  revalidatePath(`/workspace/kanban`)
+  return { success: true }
+}
+
+// ============================================================
+// ATTACHMENTS (JSONB em kanban_cards)
+// ============================================================
+
+export async function addCardAttachment(
+  workspaceId: string,
+  cardId: string,
+  title: string,
+  url: string,
+) {
+  const { error, adminSupabase } = await requireWorkspaceMember(workspaceId)
+  if (error || !adminSupabase) return { error: error ?? 'Erro de autenticação' }
+
+  if (!title.trim()) return { error: 'Título é obrigatório' }
+  if (!url.trim()) return { error: 'URL é obrigatória' }
+
+  // Busca attachments atuais
+  const { data: card } = await adminSupabase
+    .from('kanban_cards')
+    .select('attachments')
+    .eq('id', cardId)
+    .single()
+
+  const current = (Array.isArray(card?.attachments) ? card.attachments : []) as CardAttachment[]
+  const newAttachment: CardAttachment = {
+    id: crypto.randomUUID(),
+    title: title.trim(),
+    url: url.trim(),
+    created_at: new Date().toISOString(),
+  }
+
+  const { error: updateError } = await adminSupabase
+    .from('kanban_cards')
+    .update({ attachments: [...current, newAttachment] as unknown as Json })
+    .eq('id', cardId)
+
+  if (updateError) return { error: updateError.message }
+
+  revalidatePath(`/workspace/kanban`)
+  return { success: true }
+}
+
+export async function removeCardAttachment(
+  workspaceId: string,
+  cardId: string,
+  attachmentId: string,
+) {
+  const { error, adminSupabase } = await requireWorkspaceMember(workspaceId)
+  if (error || !adminSupabase) return { error: error ?? 'Erro de autenticação' }
+
+  const { data: card } = await adminSupabase
+    .from('kanban_cards')
+    .select('attachments')
+    .eq('id', cardId)
+    .single()
+
+  const current = (Array.isArray(card?.attachments) ? card.attachments : []) as CardAttachment[]
+  const updated = current.filter((a) => a.id !== attachmentId)
+
+  const { error: updateError } = await adminSupabase
+    .from('kanban_cards')
+    .update({ attachments: updated as unknown as Json })
+    .eq('id', cardId)
+
+  if (updateError) return { error: updateError.message }
 
   revalidatePath(`/workspace/kanban`)
   return { success: true }

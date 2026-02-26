@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 async function requireAdmin() {
   const supabase = await createClient()
@@ -140,6 +141,55 @@ export async function deleteDeliveryMaterial(materialId: string, workspaceId: st
   if (error) return { error: error.message }
 
   revalidatePath(`/admin/workspaces/${workspaceId}/entregas`)
+  revalidatePath('/entregas')
+  return { success: true }
+}
+
+// ============================================================
+// AGENDAR ENTREGA (ação do mentorado)
+// ============================================================
+
+export async function scheduleDeliveryDate(
+  deliveryId: string,
+  scheduledDate: string,
+) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado' }
+
+  const adminSupabase = createAdminClient()
+
+  // Busca a entrega para pegar workspace_id
+  const { data: delivery } = await adminSupabase
+    .from('deliveries')
+    .select('id, workspace_id')
+    .eq('id', deliveryId)
+    .single()
+
+  if (!delivery) return { error: 'Entrega não encontrada' }
+
+  // Verifica se o usuário é membro do workspace
+  const { data: membership } = await adminSupabase
+    .from('workspace_members')
+    .select('id')
+    .eq('workspace_id', delivery.workspace_id)
+    .eq('user_id', user.id)
+    .eq('is_active', true)
+    .single()
+
+  if (!membership) return { error: 'Acesso negado' }
+
+  const { error } = await adminSupabase
+    .from('deliveries')
+    .update({
+      scheduled_date: scheduledDate,
+      status: 'scheduled' as const,
+    })
+    .eq('id', deliveryId)
+
+  if (error) return { error: error.message }
+
+  revalidatePath('/agenda')
   revalidatePath('/entregas')
   return { success: true }
 }

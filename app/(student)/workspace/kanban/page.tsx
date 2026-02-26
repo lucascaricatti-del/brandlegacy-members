@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import KanbanBoard from '@/components/kanban/Board'
+import type { KanbanPriority, CardLabel, CardAttachment } from '@/lib/types/database'
 
 interface Props {
   searchParams: Promise<{ ws?: string }>
@@ -69,6 +70,7 @@ export default async function KanbanPage({ searchParams }: Props) {
     `)
     .eq('board_id', board.id)
     .order('order_index')
+
   // Busca membros do workspace via adminClient
   const { data: membersData } = await adminSupabase
     .from('workspace_members')
@@ -98,6 +100,8 @@ export default async function KanbanPage({ searchParams }: Props) {
       column_id: string
       order_index: number
       is_archived: boolean
+      labels: unknown
+      attachments: unknown
       profiles: { name: string } | null
       card_comments: {
         id: string
@@ -120,11 +124,13 @@ export default async function KanbanPage({ searchParams }: Props) {
         id: c.id,
         title: c.title,
         description: c.description,
-        priority: c.priority as import('@/lib/types/database').KanbanPriority,
+        priority: c.priority as KanbanPriority,
         due_date: c.due_date,
         assignee_id: c.assignee_id,
         column_id: c.column_id,
         position: c.order_index,
+        labels: (Array.isArray(c.labels) ? c.labels : []) as CardLabel[],
+        attachments: (Array.isArray(c.attachments) ? c.attachments : []) as CardAttachment[],
         profiles: c.profiles,
         comments: c.card_comments ?? [],
       })),
