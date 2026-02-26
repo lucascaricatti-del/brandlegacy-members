@@ -69,7 +69,6 @@ export default async function KanbanPage({ searchParams }: Props) {
     `)
     .eq('board_id', board.id)
     .order('order_index')
-    const { data: columns2, error: colErr } = await adminSupabase.from("kanban_columns").select("id,title").eq("board_id", board.id); console.log("[kanban] debug:", JSON.stringify({len: columns2?.length, err: colErr?.message, url: process.env.NEXT_PUBLIC_SUPABASE_URL?.slice(0,30), hasKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY}))
   // Busca membros do workspace via adminClient
   const { data: membersData } = await adminSupabase
     .from('workspace_members')
