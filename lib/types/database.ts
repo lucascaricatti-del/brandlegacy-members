@@ -18,6 +18,7 @@ export type WorkspaceRole = 'owner' | 'admin' | 'manager' | 'collaborator' | 'vi
 export type KanbanPriority = 'low' | 'medium' | 'high' | 'urgent'
 export type ContractStatus = 'active' | 'paused' | 'cancelled' | 'completed' | 'renewing'
 export type FinancialStatus = 'pending' | 'paid' | 'overdue' | 'cancelled'
+export type DeliveryStatus = 'pending' | 'scheduled' | 'completed'
 export type ContactType = 'call' | 'email' | 'whatsapp' | 'meeting' | 'note'
 
 // ============================================================
@@ -475,6 +476,101 @@ export type Database = {
           }
         ]
       }
+      deliveries: {
+        Row: {
+          id: string
+          workspace_id: string
+          contract_id: string | null
+          title: string
+          order_index: number
+          status: DeliveryStatus
+          scheduled_date: string | null
+          completed_date: string | null
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          contract_id?: string | null
+          title: string
+          order_index?: number
+          status?: DeliveryStatus
+          scheduled_date?: string | null
+          completed_date?: string | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          contract_id?: string | null
+          title?: string
+          order_index?: number
+          status?: DeliveryStatus
+          scheduled_date?: string | null
+          completed_date?: string | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'deliveries_workspace_id_fkey'
+            columns: ['workspace_id']
+            isOneToOne: false
+            referencedRelation: 'workspaces'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'deliveries_contract_id_fkey'
+            columns: ['contract_id']
+            isOneToOne: false
+            referencedRelation: 'mentoring_contracts'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      delivery_materials: {
+        Row: {
+          id: string
+          delivery_id: string
+          title: string
+          type: 'video' | 'material'
+          url: string | null
+          file_url: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          delivery_id: string
+          title: string
+          type: 'video' | 'material'
+          url?: string | null
+          file_url?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          delivery_id?: string
+          title?: string
+          type?: 'video' | 'material'
+          url?: string | null
+          file_url?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'delivery_materials_delivery_id_fkey'
+            columns: ['delivery_id']
+            isOneToOne: false
+            referencedRelation: 'deliveries'
+            referencedColumns: ['id']
+          }
+        ]
+      }
       kanban_boards: {
         Row: {
           id: string
@@ -740,6 +836,8 @@ export type KanbanColumn = Database['public']['Tables']['kanban_columns']['Row']
 export type KanbanCard = Database['public']['Tables']['kanban_cards']['Row']
 export type CardComment = Database['public']['Tables']['card_comments']['Row']
 export type InternalContact = Database['public']['Tables']['internal_contacts']['Row']
+export type Delivery = Database['public']['Tables']['deliveries']['Row']
+export type DeliveryMaterial = Database['public']['Tables']['delivery_materials']['Row']
 
 // ============================================================
 // Tipos compostos para uso em componentes

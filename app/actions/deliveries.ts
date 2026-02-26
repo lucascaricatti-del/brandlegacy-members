@@ -69,7 +69,7 @@ export async function updateDelivery(
   deliveryId: string,
   workspaceId: string,
   data: {
-    status?: string
+    status?: import('@/lib/types/database').DeliveryStatus
     scheduled_date?: string | null
     completed_date?: string | null
     notes?: string | null
