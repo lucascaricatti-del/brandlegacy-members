@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import KanbanBoard from '@/components/kanban/Board'
 
 interface Props {
@@ -13,9 +14,11 @@ export default async function KanbanPage({ searchParams }: Props) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  const adminSupabase = createAdminClient()
+
   if (!workspaceId) {
-    // Tenta auto-detectar o único workspace ativo do usuário
-    const { data: memberships } = await supabase
+    // Tenta auto-detectar o único workspace ativo do usuário via adminClient
+    const { data: memberships } = await adminSupabase
       .from('workspace_members')
       .select('workspace_id')
       .eq('user_id', user.id)
@@ -28,8 +31,8 @@ export default async function KanbanPage({ searchParams }: Props) {
     redirect('/workspace')
   }
 
-  // Verifica membership
-  const { data: membership } = await supabase
+  // Verifica membership via adminClient (bypass RLS)
+  const { data: membership } = await adminSupabase
     .from('workspace_members')
     .select('role')
     .eq('workspace_id', workspaceId)
@@ -39,8 +42,8 @@ export default async function KanbanPage({ searchParams }: Props) {
 
   if (!membership) redirect('/workspace')
 
-  // Busca o board do workspace
-  const { data: board } = await supabase
+  // Busca o board do workspace via adminClient
+  const { data: board } = await adminSupabase
     .from('kanban_boards')
     .select('id, title')
     .eq('workspace_id', workspaceId)
@@ -54,29 +57,28 @@ export default async function KanbanPage({ searchParams }: Props) {
     )
   }
 
-  // Busca colunas + cards + comentários + assignee
-  const { data: columns } = await supabase
+  // Busca colunas + cards + comentários + assignee via adminClient
+  const { data: columns } = await adminSupabase
     .from('kanban_columns')
     .select(`
       id, title, color, order_index,
       kanban_cards(
         id, title, description, priority, due_date, assignee_id, column_id, order_index, is_archived,
-        profiles:assignee_id(name),
-        card_comments(id, content, created_at, profiles:user_id(name))
+        card_comments(id, content, created_at)
       )
     `)
     .eq('board_id', board.id)
     .order('order_index')
-
-  // Busca membros do workspace
-  const { data: membersData } = await supabase
+    const { data: columns2, error: colErr } = await adminSupabase.from("kanban_columns").select("id,title").eq("board_id", board.id); console.log("[kanban] debug:", JSON.stringify({len: columns2?.length, err: colErr?.message, url: process.env.NEXT_PUBLIC_SUPABASE_URL?.slice(0,30), hasKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY}))
+  // Busca membros do workspace via adminClient
+  const { data: membersData } = await adminSupabase
     .from('workspace_members')
     .select('user_id, profiles:user_id(id, name)')
     .eq('workspace_id', workspaceId)
     .eq('is_active', true)
 
-  // Busca nome do workspace
-  const { data: workspace } = await supabase
+  // Busca nome do workspace via adminClient
+  const { data: workspace } = await adminSupabase
     .from('workspaces')
     .select('name')
     .eq('id', workspaceId)

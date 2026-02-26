@@ -2,14 +2,17 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import type { KanbanPriority } from '@/lib/types/database'
 
 async function requireWorkspaceMember(workspaceId: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Não autenticado')
+  if (!user) return { error: 'Não autenticado' as const, user: null, adminSupabase: null }
 
-  const { data: membership } = await supabase
+  // Usa adminClient para checar membership — bypass RLS em workspace_members
+  const adminSupabase = createAdminClient()
+  const { data: membership } = await adminSupabase
     .from('workspace_members')
     .select('id, role')
     .eq('workspace_id', workspaceId)
@@ -17,8 +20,9 @@ async function requireWorkspaceMember(workspaceId: string) {
     .eq('is_active', true)
     .single()
 
-  if (!membership) throw new Error('Acesso negado ao workspace')
-  return { supabase, user, membership }
+  if (!membership) return { error: 'Acesso negado ao workspace' as const, user: null, adminSupabase: null }
+
+  return { error: null, user, adminSupabase }
 }
 
 // ============================================================
@@ -26,14 +30,14 @@ async function requireWorkspaceMember(workspaceId: string) {
 // ============================================================
 
 export async function createCard(workspaceId: string, formData: FormData) {
-  const { supabase, user } = await requireWorkspaceMember(workspaceId)
+  const { error, user, adminSupabase } = await requireWorkspaceMember(workspaceId)
+  if (error || !user || !adminSupabase) return { error: error ?? 'Erro de autenticação' }
 
   const columnId = formData.get('column_id') as string
   const title = (formData.get('title') as string).trim()
   if (!title) return { error: 'Título obrigatório' }
 
-  // Busca a posição máxima na coluna
-  const { data: lastCard } = await supabase
+  const { data: lastCard } = await adminSupabase
     .from('kanban_cards')
     .select('order_index')
     .eq('column_id', columnId)
@@ -44,7 +48,7 @@ export async function createCard(workspaceId: string, formData: FormData) {
 
   const order_index = (lastCard?.order_index ?? -1) + 1
 
-  const { error } = await supabase.from('kanban_cards').insert({
+  const { error: insertError } = await adminSupabase.from('kanban_cards').insert({
     column_id: columnId,
     title,
     description: (formData.get('description') as string) || null,
@@ -55,16 +59,17 @@ export async function createCard(workspaceId: string, formData: FormData) {
     created_by: user.id,
   })
 
-  if (error) return { error: error.message }
+  if (insertError) return { error: insertError.message }
 
   revalidatePath(`/workspace/kanban`)
   return { success: true }
 }
 
 export async function updateCard(workspaceId: string, cardId: string, formData: FormData) {
-  const { supabase } = await requireWorkspaceMember(workspaceId)
+  const { error, adminSupabase } = await requireWorkspaceMember(workspaceId)
+  if (error || !adminSupabase) return { error: error ?? 'Erro de autenticação' }
 
-  const { error } = await supabase
+  const { error: updateError } = await adminSupabase
     .from('kanban_cards')
     .update({
       title: formData.get('title') as string,
@@ -75,52 +80,55 @@ export async function updateCard(workspaceId: string, cardId: string, formData: 
     })
     .eq('id', cardId)
 
-  if (error) return { error: error.message }
+  if (updateError) return { error: updateError.message }
 
   revalidatePath(`/workspace/kanban`)
   return { success: true }
 }
 
 export async function moveCard(workspaceId: string, cardId: string, newColumnId: string, newPosition: number) {
-  const { supabase } = await requireWorkspaceMember(workspaceId)
+  const { error, adminSupabase } = await requireWorkspaceMember(workspaceId)
+  if (error || !adminSupabase) return { error: error ?? 'Erro de autenticação' }
 
-  const { error } = await supabase
+  const { error: updateError } = await adminSupabase
     .from('kanban_cards')
     .update({ column_id: newColumnId, order_index: newPosition })
     .eq('id', cardId)
 
-  if (error) return { error: error.message }
+  if (updateError) return { error: updateError.message }
 
   revalidatePath(`/workspace/kanban`)
   return { success: true }
 }
 
 export async function archiveCard(workspaceId: string, cardId: string) {
-  const { supabase } = await requireWorkspaceMember(workspaceId)
+  const { error, adminSupabase } = await requireWorkspaceMember(workspaceId)
+  if (error || !adminSupabase) return { error: error ?? 'Erro de autenticação' }
 
-  const { error } = await supabase
+  const { error: updateError } = await adminSupabase
     .from('kanban_cards')
     .update({ is_archived: true })
     .eq('id', cardId)
 
-  if (error) return { error: error.message }
+  if (updateError) return { error: updateError.message }
 
   revalidatePath(`/workspace/kanban`)
   return { success: true }
 }
 
 export async function addComment(workspaceId: string, cardId: string, content: string) {
-  const { supabase, user } = await requireWorkspaceMember(workspaceId)
+  const { error, user, adminSupabase } = await requireWorkspaceMember(workspaceId)
+  if (error || !user || !adminSupabase) return { error: error ?? 'Erro de autenticação' }
 
   if (!content.trim()) return { error: 'Comentário vazio' }
 
-  const { error } = await supabase.from('card_comments').insert({
+  const { error: insertError } = await adminSupabase.from('card_comments').insert({
     card_id: cardId,
     user_id: user.id,
     content: content.trim(),
   })
 
-  if (error) return { error: error.message }
+  if (insertError) return { error: insertError.message }
 
   revalidatePath(`/workspace/kanban`)
   return { success: true }

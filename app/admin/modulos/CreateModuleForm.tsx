@@ -72,8 +72,7 @@ export default function CreateModuleForm() {
             name="min_plan"
             className="w-full px-4 py-2.5 rounded-lg bg-bg-surface border border-border text-text-primary focus:outline-none focus:border-brand-gold focus:ring-1 focus:ring-brand-gold transition-colors text-sm"
           >
-            <option value="free">Free (todos)</option>
-            <option value="tracao">Tração e Club</option>
+            <option value="tracao">Ambos (Tração + Club)</option>
             <option value="club">Exclusivo Club</option>
           </select>
         </div>

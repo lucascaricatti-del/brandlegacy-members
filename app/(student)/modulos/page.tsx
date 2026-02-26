@@ -1,14 +1,42 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+
+const PLAN_RANK: Record<string, number> = { free: 0, tracao: 1, club: 2 }
 
 export default async function ModulosPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  // DEBUG 1 — user
+  console.log('[modulos] user.id:', user.id)
+
+  // Busca plano do workspace ativo do usuário via adminClient (bypass RLS em workspace_members)
+  const adminSupabase = createAdminClient()
+  type WsMembership = { workspaces: { plan_type: string } | null }
+  const { data: wsMembership, error: wsError } = await adminSupabase
+    .from('workspace_members')
+    .select('workspaces(plan_type)')
+    .eq('user_id', user.id)
+    .eq('is_active', true)
+    .limit(1)
+    .single()
+
+  // DEBUG 2 — workspace_members
+  console.log('[modulos] wsMembership:', JSON.stringify(wsMembership))
+  console.log('[modulos] wsError:', wsError?.message ?? null)
+
+  const userPlan = (wsMembership as unknown as WsMembership)?.workspaces?.plan_type ?? 'club'
+  const userRank = PLAN_RANK[userPlan] ?? 2
+
+  // DEBUG 3 — plano detectado
+  console.log('[modulos] userPlan:', userPlan, '| userRank:', userRank)
+
+  // Usa adminClient para buscar módulos — bypass RLS de plano
   const [modulesRes, progressRes] = await Promise.all([
-    supabase
+    adminSupabase
       .from('modules')
       .select('*, lessons(id)')
       .eq('is_published', true)
@@ -19,7 +47,34 @@ export default async function ModulosPage() {
       .eq('user_id', user.id),
   ])
 
-  const modules = modulesRes.data ?? []
+  // DEBUG 4 — módulos antes do filtro
+  console.log('[modulos] modulesRes.error:', modulesRes.error?.message ?? null)
+  console.log('[modulos] total antes do filtro:', modulesRes.data?.length ?? 0)
+  modulesRes.data?.forEach((mod) => {
+    console.log(`  - "${mod.title}" | content_type: ${mod.content_type} | min_plan: ${mod.min_plan} | is_published: ${mod.is_published}`)
+  })
+
+  // Filtra módulos acessíveis pelo plano do usuário
+  const allModules = modulesRes.data ?? []
+  const modules = allModules.filter((mod) => {
+    if (mod.content_type === 'masterclass') {
+      console.log(`[modulos] REMOVIDO (masterclass): "${mod.title}"`)
+      return false
+    }
+    if (mod.content_type === 'webinar') {
+      const pass = mod.webinar_open_to_all
+      console.log(`[modulos] webinar "${mod.title}" | webinar_open_to_all: ${mod.webinar_open_to_all} → ${pass ? 'PASSOU' : 'REMOVIDO'}`)
+      return pass
+    }
+    const modRank = PLAN_RANK[mod.min_plan] ?? 0
+    const pass = modRank <= userRank
+    console.log(`[modulos] course "${mod.title}" | min_plan: ${mod.min_plan} (rank ${modRank}) <= userRank ${userRank} → ${pass ? 'PASSOU' : 'REMOVIDO'}`)
+    return pass
+  })
+
+  // DEBUG 5 — resultado final
+  console.log('[modulos] módulos após filtro:', modules.length)
+
   const completedIds = new Set((progressRes.data ?? []).map((p) => p.lesson_id))
 
   return (
@@ -40,7 +95,7 @@ export default async function ModulosPage() {
         <div className="space-y-4">
           {modules.map((mod, index) => {
             const total = mod.lessons?.length ?? 0
-            const done = mod.lessons?.filter((l) => completedIds.has(l.id)).length ?? 0
+            const done = mod.lessons?.filter((l: { id: string }) => completedIds.has(l.id)).length ?? 0
             const pct = total > 0 ? Math.round((done / total) * 100) : 0
             const isCompleted = total > 0 && done === total
 
@@ -54,7 +109,6 @@ export default async function ModulosPage() {
                   transition-all duration-200 card-glow group
                 "
               >
-                {/* Número do módulo */}
                 <div
                   className={`
                     w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-sm font-bold

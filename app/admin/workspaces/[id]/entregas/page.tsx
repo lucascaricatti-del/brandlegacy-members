@@ -42,7 +42,7 @@ export default async function AdminWorkspaceEntregasPage({ params }: Props) {
   const { data: deliveries } = await supabase
     .from('deliveries')
     .select(`
-      id, title, order_index, status, scheduled_date, completed_date, notes,
+      id, title, order_index, status, scheduled_date, completed_date, notes, link_call,
       delivery_materials(id, title, type, url, file_url)
     `)
     .eq('workspace_id', id)

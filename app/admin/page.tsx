@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
+import InternalTeamSection from './InternalTeamSection'
 
 export default async function AdminDashboardPage() {
   const supabase = await createClient()
@@ -13,6 +14,7 @@ export default async function AdminDashboardPage() {
     lessonsRes,
     financialRes,
     contractsRes,
+    internalTeamRes,
   ] = await Promise.all([
     supabase.from('workspaces').select('id', { count: 'exact' }).eq('is_active', true),
     supabase.from('modules').select('id, title, is_published, lessons(id)', { count: 'exact' }),
@@ -23,6 +25,11 @@ export default async function AdminDashboardPage() {
       .select('renewal_date, status')
       .eq('status', 'active')
       .not('renewal_date', 'is', null),
+    supabase
+      .from('profiles')
+      .select('id, name, email, role, is_active')
+      .in('role', ['cx', 'financial', 'mentor'])
+      .order('name'),
   ])
 
   const totalCompanies = companiesRes.count ?? 0
@@ -50,6 +57,7 @@ export default async function AdminDashboardPage() {
   }).length
 
   const recentModules = modulesRes.data?.slice(0, 5) ?? []
+  const internalTeam = internalTeamRes.data ?? []
 
   function fmtBrl(value: number) {
     return value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })
@@ -130,6 +138,20 @@ export default async function AdminDashboardPage() {
             </div>
           </div>
         </Link>
+      </div>
+
+      {/* Equipe Interna */}
+      <div className="mb-10">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-text-primary">Equipe Interna</h2>
+            <p className="text-text-muted text-xs mt-0.5">Colaboradores com acesso ao painel interno</p>
+          </div>
+          <span className="text-xs text-text-muted">{internalTeam.length} membro{internalTeam.length !== 1 ? 's' : ''}</span>
+        </div>
+        <div className="bg-bg-card border border-border rounded-xl p-5">
+          <InternalTeamSection members={internalTeam} />
+        </div>
       </div>
 
       {/* Módulos recentes */}

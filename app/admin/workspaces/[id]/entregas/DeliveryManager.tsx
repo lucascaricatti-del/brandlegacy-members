@@ -24,6 +24,7 @@ type Delivery = {
   scheduled_date: string | null
   completed_date: string | null
   notes: string | null
+  link_call: string | null
   delivery_materials: Material[]
 }
 
@@ -116,6 +117,7 @@ function DeliveryCard({
   const [scheduledDate, setScheduledDate] = useState(delivery.scheduled_date ?? '')
   const [completedDate, setCompletedDate] = useState(delivery.completed_date ?? '')
   const [notes, setNotes] = useState(delivery.notes ?? '')
+  const [linkCall, setLinkCall] = useState(delivery.link_call ?? '')
 
   async function handleSave() {
     setError(null)
@@ -126,6 +128,7 @@ function DeliveryCard({
         scheduled_date: scheduledDate || null,
         completed_date: completedDate || null,
         notes: notes || null,
+        link_call: linkCall || null,
       })
       if (res?.error) setError(res.error)
       else setSuccess(true)
@@ -202,9 +205,22 @@ function DeliveryCard({
             </div>
           </div>
 
+          {/* Link da call */}
+          <div>
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">Link da call</label>
+            <input
+              type="url"
+              value={linkCall}
+              onChange={(e) => setLinkCall(e.target.value)}
+              placeholder="https://meet.google.com/... ou https://zoom.us/..."
+              className="w-full px-3 py-2 rounded-lg bg-bg-surface border border-border text-text-primary text-sm focus:outline-none focus:border-brand-gold placeholder:text-text-muted"
+            />
+            <p className="text-xs text-text-muted mt-1">Visível para o mentorado na Agenda e Controle de Entregas.</p>
+          </div>
+
           {/* Observações */}
           <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1.5">Observações internas</label>
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">Observações</label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}

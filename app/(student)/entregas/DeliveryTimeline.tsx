@@ -18,6 +18,7 @@ type Delivery = {
   scheduled_date: string | null
   completed_date: string | null
   notes: string | null
+  link_call: string | null
   delivery_materials: Material[]
 }
 
@@ -132,6 +133,20 @@ export default function DeliveryTimeline({ deliveries }: { deliveries: Delivery[
                       <p className="text-sm text-success mt-1">
                         Concluída em {formatDate(delivery.completed_date)}
                       </p>
+                    )}
+                    {delivery.link_call && delivery.status === 'scheduled' && (
+                      <a
+                        href={delivery.link_call}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="inline-flex items-center gap-1.5 mt-1 text-xs text-brand-gold hover:text-brand-gold-light transition-colors"
+                      >
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M15 10l4.553-2.069A1 1 0 0 1 21 8.845v6.31a1 1 0 0 1-1.447.894L15 14M3 8a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8z"/>
+                        </svg>
+                        Entrar na call
+                      </a>
                     )}
                   </div>
                   <div className="flex items-center gap-3 shrink-0">

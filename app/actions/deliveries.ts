@@ -73,6 +73,7 @@ export async function updateDelivery(
     scheduled_date?: string | null
     completed_date?: string | null
     notes?: string | null
+    link_call?: string | null
   },
 ) {
   const { supabase } = await requireAdmin()

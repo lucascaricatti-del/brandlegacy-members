@@ -1,14 +1,19 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+
+export const metadata = { title: 'Masterclasses — BrandLegacy' }
 
 export default async function MasterclassesPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // Busca masterclasses publicadas
-  const { data: masterclasses } = await supabase
+  const adminSupabase = createAdminClient()
+
+  // Busca masterclasses publicadas via adminClient (bypass RLS)
+  const { data: masterclasses } = await adminSupabase
     .from('modules')
     .select('*, lessons(id)')
     .eq('is_published', true)
@@ -21,8 +26,8 @@ export default async function MasterclassesPage() {
     .select('lesson_id')
     .eq('user_id', user.id)
 
-  // Busca os workspaces ativos do aluno para checar acesso
-  const { data: memberships } = await supabase
+  // Busca os workspaces ativos do aluno para checar acesso via adminClient (bypass RLS)
+  const { data: memberships } = await adminSupabase
     .from('workspace_members')
     .select('workspace_id')
     .eq('user_id', user.id)
@@ -33,7 +38,7 @@ export default async function MasterclassesPage() {
   // Masterclasses liberadas para os workspaces do aluno
   let grantedModuleIds = new Set<string>()
   if (workspaceIds.length > 0) {
-    const { data: access } = await supabase
+    const { data: access } = await adminSupabase
       .from('content_access')
       .select('module_id')
       .in('workspace_id', workspaceIds)
@@ -47,7 +52,7 @@ export default async function MasterclassesPage() {
   return (
     <div className="animate-fade-in">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-text-primary">Master Classes</h1>
+        <h1 className="text-2xl font-bold text-text-primary">Masterclasses</h1>
         <p className="text-text-secondary mt-1">
           Conteúdo exclusivo liberado para o seu workspace.
         </p>
@@ -63,7 +68,7 @@ export default async function MasterclassesPage() {
           {mcs.map((mc, index) => {
             const hasAccess = grantedModuleIds.has(mc.id)
             const total = mc.lessons?.length ?? 0
-            const done = mc.lessons?.filter((l) => completedIds.has(l.id)).length ?? 0
+            const done = mc.lessons?.filter((l: { id: string }) => completedIds.has(l.id)).length ?? 0
             const pct = total > 0 ? Math.round((done / total) * 100) : 0
             const isCompleted = total > 0 && done === total
 
@@ -106,7 +111,7 @@ export default async function MasterclassesPage() {
                       {mc.title}
                     </h2>
                     <span className="text-xs px-2 py-0.5 rounded-full bg-brand-gold/15 text-brand-gold font-medium">
-                      Master Class
+                      Masterclass
                     </span>
                   </div>
                   {mc.description && (

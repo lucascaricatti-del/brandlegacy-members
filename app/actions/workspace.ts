@@ -311,3 +311,63 @@ export async function createMentoradoAccess(
     },
   }
 }
+
+// ============================================================
+// CRIAR ACESSO PARA EQUIPE INTERNA (admin BrandLegacy only)
+// ============================================================
+
+export async function createInternalAccess(
+  name: string,
+  email: string,
+  password: string,
+  role: 'cx' | 'financial' | 'mentor',
+) {
+  await requireAdmin()
+
+  if (!name.trim() || !email.trim() || !password.trim()) {
+    return { error: 'Todos os campos são obrigatórios.' }
+  }
+  if (password.length < 6) {
+    return { error: 'A senha deve ter no mínimo 6 caracteres.' }
+  }
+
+  const adminSupabase = createAdminClient()
+
+  const { data: authData, error: authError } = await adminSupabase.auth.admin.createUser({
+    email: email.trim().toLowerCase(),
+    password,
+    email_confirm: true,
+    user_metadata: { name: name.trim() },
+  })
+
+  if (authError) return { error: authError.message }
+
+  const userId = authData.user.id
+
+  const { error: profileError } = await adminSupabase.from('profiles').upsert(
+    {
+      id: userId,
+      email: email.trim().toLowerCase(),
+      name: name.trim(),
+      role,
+      is_active: true,
+    },
+    { onConflict: 'id' },
+  )
+
+  if (profileError) {
+    await adminSupabase.auth.admin.deleteUser(userId)
+    return { error: `Erro ao criar perfil: ${profileError.message}` }
+  }
+
+  revalidatePath('/admin')
+
+  return {
+    success: true,
+    credentials: {
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
+      password,
+    },
+  }
+}

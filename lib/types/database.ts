@@ -487,6 +487,7 @@ export type Database = {
           scheduled_date: string | null
           completed_date: string | null
           notes: string | null
+          link_call: string | null
           created_at: string
           updated_at: string
         }
@@ -500,6 +501,7 @@ export type Database = {
           scheduled_date?: string | null
           completed_date?: string | null
           notes?: string | null
+          link_call?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -513,6 +515,7 @@ export type Database = {
           scheduled_date?: string | null
           completed_date?: string | null
           notes?: string | null
+          link_call?: string | null
           created_at?: string
           updated_at?: string
         }
