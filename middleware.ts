@@ -2,7 +2,6 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 const PUBLIC_ROUTES = ['/login', '/cadastro']
-const INTERNAL_ROLES = ['admin', 'cx', 'financial', 'mentor']
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -34,7 +33,6 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   const { pathname } = request.nextUrl
-
   const isPublicRoute = PUBLIC_ROUTES.some((r) => pathname.startsWith(r))
 
   // Não autenticado → login
@@ -51,20 +49,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Proteção para rotas /interno — verificar role de equipe interna
-  if (user && pathname.startsWith('/interno')) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile || !INTERNAL_ROLES.includes(profile.role)) {
-      const url = request.nextUrl.clone()
-      url.pathname = '/dashboard'
-      return NextResponse.redirect(url)
-    }
-  }
+  // Nota: a proteção por role das rotas /interno e /admin é feita
+  // nos respectivos layouts (Node.js runtime), não aqui no Edge.
 
   return supabaseResponse
 }
