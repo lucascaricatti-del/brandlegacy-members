@@ -12,7 +12,9 @@ export type Json =
 export type ProfileRole = 'student' | 'admin' | 'cx' | 'financial' | 'mentor'
 /** Roles que o admin de conteúdo pode definir via UI (intencional: restrito) */
 export type AdminManagedRole = 'student' | 'admin'
+export type AdminRole = 'admin' | 'mentor' | 'lideranca' | 'cx' | 'financeiro'
 export type ContentType = 'course' | 'masterclass' | 'webinar'
+export type ModuleCategory = 'mentoria' | 'masterclass' | 'free_class'
 export type PlanType = 'free' | 'tracao' | 'club'
 export type WorkspaceRole = 'owner' | 'admin' | 'manager' | 'collaborator' | 'viewer'
 export type KanbanPriority = 'low' | 'medium' | 'high' | 'urgent'
@@ -23,7 +25,13 @@ export type FinancialStatus = 'pending' | 'paid' | 'overdue' | 'cancelled'
 export type DeliveryStatus = 'pending' | 'scheduled' | 'completed'
 export type ContactType = 'call' | 'email' | 'whatsapp' | 'meeting' | 'note'
 export type SessionStatus = 'pending' | 'analyzing' | 'completed' | 'error'
+export type IntegrationPlatform = 'meta_ads' | 'google_ads' | 'ga4' | 'shopify'
 export type SessionTaskPriority = 'baixa' | 'media' | 'alta' | 'urgente'
+export type TaskPriority = 'baixa' | 'media' | 'alta' | 'urgente'
+export type TaskStatus = 'pendente' | 'em_andamento' | 'concluida'
+export type FinancialInfoStatus = 'active' | 'inadimplente' | 'cancelled' | 'completed'
+export type CrmLeadStatus = 'novo' | 'contatado' | 'qualificado' | 'fechado' | 'perdido'
+export type CrmContactType = 'ligacao' | 'email' | 'whatsapp' | 'nota'
 
 // ============================================================
 // Database — tipo completo Supabase
@@ -37,6 +45,7 @@ export type Database = {
           name: string
           email: string
           role: ProfileRole
+          admin_role: AdminRole
           avatar_url: string | null
           is_active: boolean
           created_at: string
@@ -47,6 +56,7 @@ export type Database = {
           name: string
           email: string
           role?: ProfileRole
+          admin_role?: AdminRole
           avatar_url?: string | null
           is_active?: boolean
           created_at?: string
@@ -57,6 +67,7 @@ export type Database = {
           name?: string
           email?: string
           role?: ProfileRole
+          admin_role?: AdminRole
           avatar_url?: string | null
           is_active?: boolean
           created_at?: string
@@ -73,6 +84,7 @@ export type Database = {
           order_index: number
           is_published: boolean
           content_type: ContentType
+          category: ModuleCategory
           min_plan: PlanType
           webinar_open_to_all: boolean
           created_at: string
@@ -86,6 +98,7 @@ export type Database = {
           order_index?: number
           is_published?: boolean
           content_type?: ContentType
+          category?: ModuleCategory
           min_plan?: PlanType
           webinar_open_to_all?: boolean
           created_at?: string
@@ -99,6 +112,7 @@ export type Database = {
           order_index?: number
           is_published?: boolean
           content_type?: ContentType
+          category?: ModuleCategory
           min_plan?: PlanType
           webinar_open_to_all?: boolean
           created_at?: string
@@ -1036,6 +1050,399 @@ export type Database = {
           }
         ]
       }
+      integrations: {
+        Row: {
+          id: string
+          workspace_id: string
+          platform: IntegrationPlatform
+          access_token: string
+          refresh_token: string | null
+          account_id: string | null
+          extra_config: Json
+          is_active: boolean
+          last_sync: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          platform: IntegrationPlatform
+          access_token: string
+          refresh_token?: string | null
+          account_id?: string | null
+          extra_config?: Json
+          is_active?: boolean
+          last_sync?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          platform?: IntegrationPlatform
+          access_token?: string
+          refresh_token?: string | null
+          account_id?: string | null
+          extra_config?: Json
+          is_active?: boolean
+          last_sync?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'integrations_workspace_id_fkey'
+            columns: ['workspace_id']
+            isOneToOne: false
+            referencedRelation: 'workspaces'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      integration_metrics: {
+        Row: {
+          id: string
+          workspace_id: string
+          platform: IntegrationPlatform
+          metric_date: string
+          data: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          platform: IntegrationPlatform
+          metric_date: string
+          data: Json
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          platform?: IntegrationPlatform
+          metric_date?: string
+          data?: Json
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'integration_metrics_workspace_id_fkey'
+            columns: ['workspace_id']
+            isOneToOne: false
+            referencedRelation: 'workspaces'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      financial_info: {
+        Row: {
+          id: string
+          workspace_id: string
+          plan_name: string | null
+          status: FinancialInfoStatus
+          total_value: number | null
+          installments: number | null
+          entry_value: number | null
+          installment_value: number | null
+          first_payment_date: string | null
+          start_date: string | null
+          renewal_date: string | null
+          notes: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          plan_name?: string | null
+          status?: FinancialInfoStatus
+          total_value?: number | null
+          installments?: number | null
+          entry_value?: number | null
+          installment_value?: number | null
+          first_payment_date?: string | null
+          start_date?: string | null
+          renewal_date?: string | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          plan_name?: string | null
+          status?: FinancialInfoStatus
+          total_value?: number | null
+          installments?: number | null
+          entry_value?: number | null
+          installment_value?: number | null
+          first_payment_date?: string | null
+          start_date?: string | null
+          renewal_date?: string | null
+          notes?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'financial_info_workspace_id_fkey'
+            columns: ['workspace_id']
+            isOneToOne: true
+            referencedRelation: 'workspaces'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      tasks: {
+        Row: {
+          id: string
+          workspace_id: string
+          session_id: string | null
+          title: string
+          description: string | null
+          responsible: string | null
+          assignee_id: string | null
+          due_date: string | null
+          priority: TaskPriority
+          status: TaskStatus
+          is_archived: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          session_id?: string | null
+          title: string
+          description?: string | null
+          responsible?: string | null
+          assignee_id?: string | null
+          due_date?: string | null
+          priority?: TaskPriority
+          status?: TaskStatus
+          is_archived?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          session_id?: string | null
+          title?: string
+          description?: string | null
+          responsible?: string | null
+          assignee_id?: string | null
+          due_date?: string | null
+          priority?: TaskPriority
+          status?: TaskStatus
+          is_archived?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'tasks_workspace_id_fkey'
+            columns: ['workspace_id']
+            isOneToOne: false
+            referencedRelation: 'workspaces'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'tasks_session_id_fkey'
+            columns: ['session_id']
+            isOneToOne: false
+            referencedRelation: 'sessions'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'tasks_assignee_id_fkey'
+            columns: ['assignee_id']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      leads: {
+        Row: {
+          id: string
+          name: string
+          email: string
+          phone: string | null
+          module_id: string | null
+          utm_source: string | null
+          utm_campaign: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          email: string
+          phone?: string | null
+          module_id?: string | null
+          utm_source?: string | null
+          utm_campaign?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          email?: string
+          phone?: string | null
+          module_id?: string | null
+          utm_source?: string | null
+          utm_campaign?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'leads_module_id_fkey'
+            columns: ['module_id']
+            isOneToOne: false
+            referencedRelation: 'modules'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      funnels: {
+        Row: {
+          id: string
+          name: string
+          slug: string
+          product: string
+          description: string | null
+          is_active: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          slug: string
+          product: string
+          description?: string | null
+          is_active?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          slug?: string
+          product?: string
+          description?: string | null
+          is_active?: boolean
+          created_at?: string
+        }
+        Relationships: []
+      }
+      crm_leads: {
+        Row: {
+          id: string
+          funnel_id: string | null
+          name: string
+          email: string
+          whatsapp: string | null
+          revenue_range: string | null
+          business_segment: string | null
+          status: string
+          assigned_to: string | null
+          utm_source: string | null
+          utm_medium: string | null
+          utm_campaign: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          funnel_id?: string | null
+          name: string
+          email: string
+          whatsapp?: string | null
+          revenue_range?: string | null
+          business_segment?: string | null
+          status?: string
+          assigned_to?: string | null
+          utm_source?: string | null
+          utm_medium?: string | null
+          utm_campaign?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          funnel_id?: string | null
+          name?: string
+          email?: string
+          whatsapp?: string | null
+          revenue_range?: string | null
+          business_segment?: string | null
+          status?: string
+          assigned_to?: string | null
+          utm_source?: string | null
+          utm_medium?: string | null
+          utm_campaign?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'crm_leads_funnel_id_fkey'
+            columns: ['funnel_id']
+            isOneToOne: false
+            referencedRelation: 'funnels'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'crm_leads_assigned_to_fkey'
+            columns: ['assigned_to']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      crm_notes: {
+        Row: {
+          id: string
+          lead_id: string
+          author_id: string | null
+          content: string
+          contact_type: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          lead_id: string
+          author_id?: string | null
+          content: string
+          contact_type?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          lead_id?: string
+          author_id?: string | null
+          content?: string
+          contact_type?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'crm_notes_lead_id_fkey'
+            columns: ['lead_id']
+            isOneToOne: false
+            referencedRelation: 'crm_leads'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'crm_notes_author_id_fkey'
+            columns: ['author_id']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          }
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -1100,6 +1507,14 @@ export type SessionTask = Database['public']['Tables']['session_tasks']['Row']
 export type AgentLog = Database['public']['Tables']['agent_logs']['Row']
 export type AgentConfig = Database['public']['Tables']['agent_configs']['Row']
 export type WorkspaceContext = Database['public']['Tables']['workspace_context']['Row']
+export type Integration = Database['public']['Tables']['integrations']['Row']
+export type IntegrationMetric = Database['public']['Tables']['integration_metrics']['Row']
+export type FinancialInfo = Database['public']['Tables']['financial_info']['Row']
+export type Task = Database['public']['Tables']['tasks']['Row']
+export type Lead = Database['public']['Tables']['leads']['Row']
+export type Funnel = Database['public']['Tables']['funnels']['Row']
+export type CrmLead = Database['public']['Tables']['crm_leads']['Row']
+export type CrmNote = Database['public']['Tables']['crm_notes']['Row']
 
 // ============================================================
 // Tipos compostos para uso em componentes

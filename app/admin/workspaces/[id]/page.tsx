@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import EditWorkspaceForm from './EditWorkspaceForm'
 import MentoradoAccessManager from './MentoradoAccessManager'
-import ContractForm from './ContractForm'
+import FinancialInfoForm from './FinancialInfoForm'
 
 interface Props {
   params: Promise<{ id: string }>
@@ -16,9 +16,19 @@ const PLAN_COLORS = {
   tracao: 'bg-info/15 text-info',
   club: 'bg-brand-gold/15 text-brand-gold',
 }
-const ROLE_LABELS: Record<string, string> = {
-  owner: 'Owner', admin: 'Admin', manager: 'Manager',
-  collaborator: 'Colaborador', viewer: 'Visualizador',
+
+const STATUS_LABELS: Record<string, string> = {
+  active: 'Ativo',
+  inadimplente: 'Inadimplente',
+  cancelled: 'Cancelado',
+  completed: 'Concluído',
+}
+
+const STATUS_COLORS: Record<string, string> = {
+  active: 'text-success',
+  inadimplente: 'text-error',
+  cancelled: 'text-text-muted',
+  completed: 'text-info',
 }
 
 export default async function AdminWorkspacePage({ params }: Props) {
@@ -29,25 +39,16 @@ export default async function AdminWorkspacePage({ params }: Props) {
 
   const adminSupabase = createAdminClient()
 
-  const [workspaceRes, contractsRes] = await Promise.all([
-    supabase
-      .from('workspaces')
-      .select('*, workspace_members(*)')
-      .eq('id', id)
-      .single(),
-    supabase
-      .from('mentoring_contracts')
-      .select('*')
-      .eq('workspace_id', id)
-      .order('created_at', { ascending: false }),
-  ])
+  const { data: wsData } = await supabase
+    .from('workspaces')
+    .select('*, workspace_members(*)')
+    .eq('id', id)
+    .single()
 
-  if (!workspaceRes.data) notFound()
+  if (!wsData) notFound()
 
-  const ws = workspaceRes.data
+  const ws = wsData
   const members = ws.workspace_members ?? []
-  const contracts = contractsRes.data ?? []
-  const activeContract = contracts.find((c) => c.status === 'active')
 
   // Busca profiles dos membros separadamente
   const memberIds = members.map((m) => m.user_id)
@@ -59,51 +60,28 @@ export default async function AdminWorkspacePage({ params }: Props) {
     (profilesRes.data ?? []).map((p) => [p.id, p])
   )
 
-  // Busca kanban board + métricas via adminClient (bypass RLS)
-  const { data: board } = await adminSupabase
-    .from('kanban_boards')
-    .select('id')
+  // Busca financial info via adminClient
+  const { data: financialInfo } = await adminSupabase
+    .from('financial_info')
+    .select('*')
     .eq('workspace_id', id)
     .single()
 
-  type RawKanbanCol = {
-    title: string
-    kanban_cards: { is_archived: boolean; due_date: string | null }[]
-  }
+  // Busca tasks summary via adminClient
+  const today = new Date().toISOString().split('T')[0]
+  const { data: tasks } = await adminSupabase
+    .from('tasks')
+    .select('status, due_date, is_archived')
+    .eq('workspace_id', id)
+    .eq('is_archived', false)
 
-  let kanbanStats = {
-    totalCards: 0,
-    overdueCards: 0,
-    columns: [] as { title: string; count: number }[],
-  }
-
-  if (board) {
-    const today = new Date().toISOString().split('T')[0]
-    const { data: cols } = await adminSupabase
-      .from('kanban_columns')
-      .select('title, order_index, kanban_cards(is_archived, due_date)')
-      .eq('board_id', board.id)
-      .order('order_index')
-
-    const rawCols = (cols as unknown as RawKanbanCol[] ?? [])
-    kanbanStats = {
-      totalCards: rawCols.reduce(
-        (sum, col) => sum + (col.kanban_cards ?? []).filter((c) => !c.is_archived).length,
-        0
-      ),
-      overdueCards: rawCols.reduce(
-        (sum, col) =>
-          sum +
-          (col.kanban_cards ?? []).filter(
-            (c) => !c.is_archived && !!c.due_date && c.due_date < today
-          ).length,
-        0
-      ),
-      columns: rawCols.map((col) => ({
-        title: col.title,
-        count: (col.kanban_cards ?? []).filter((c) => !c.is_archived).length,
-      })),
-    }
+  const allTasks = tasks ?? []
+  const taskStats = {
+    total: allTasks.length,
+    completed: allTasks.filter((t) => t.status === 'concluida').length,
+    overdue: allTasks.filter((t) => t.status !== 'concluida' && t.due_date && t.due_date < today).length,
+    pending: allTasks.filter((t) => t.status === 'pendente').length,
+    inProgress: allTasks.filter((t) => t.status === 'em_andamento').length,
   }
 
   return (
@@ -136,14 +114,22 @@ export default async function AdminWorkspacePage({ params }: Props) {
         </div>
         <div className="flex items-center gap-2 shrink-0 flex-wrap">
           <Link
+            href={`/admin/workspaces/${id}/view`}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-gold text-bg-base text-sm font-medium hover:bg-brand-gold-light transition-colors"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
+            </svg>
+            Visualizar como Mentorado
+          </Link>
+          <Link
             href={`/admin/agentes/config/${id}`}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-bg-surface text-text-secondary border border-border hover:bg-bg-hover hover:text-text-primary text-sm font-medium transition-colors"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              <circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
             </svg>
-            Config. Agente
+            Agentes IA
           </Link>
           <Link
             href={`/admin/workspaces/${id}/sessoes`}
@@ -151,10 +137,18 @@ export default async function AdminWorkspacePage({ params }: Props) {
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 2a4 4 0 0 0-4 4v6a4 4 0 0 0 8 0V6a4 4 0 0 0-4-4z" />
-              <path d="M12 18.5V22" />
-              <path d="M7 22h10" />
+              <path d="M12 18.5V22" /><path d="M7 22h10" />
             </svg>
             Sessões IA
+          </Link>
+          <Link
+            href={`/admin/workspaces/${id}/tasks`}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-bg-surface text-text-secondary border border-border hover:bg-bg-hover hover:text-text-primary text-sm font-medium transition-colors"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+            </svg>
+            Tarefas
           </Link>
           <Link
             href={`/admin/workspaces/${id}/entregas`}
@@ -169,28 +163,55 @@ export default async function AdminWorkspacePage({ params }: Props) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Coluna esquerda: edição + contrato */}
+        {/* Coluna esquerda: edição + info financeira */}
         <div className="space-y-6">
           <div className="bg-bg-card border border-border rounded-xl p-6">
             <h2 className="font-semibold text-text-primary mb-4">Editar Empresa</h2>
             <EditWorkspaceForm workspace={ws} />
           </div>
 
-          {/* Contrato */}
+          {/* Informações Financeiras */}
           <div className="bg-bg-card border border-border rounded-xl p-6">
-            <h2 className="font-semibold text-text-primary mb-1">Contrato</h2>
-            {activeContract && (
+            <h2 className="font-semibold text-text-primary mb-1">Informações Financeiras</h2>
+            {financialInfo && (
               <div className="mb-4 p-3 bg-bg-surface rounded-lg border border-border text-xs text-text-secondary space-y-1">
-                <p className="font-medium text-text-primary capitalize">{activeContract.plan_type} — {activeContract.status}</p>
-                <p>Início: {new Date(activeContract.start_date).toLocaleDateString('pt-BR')}</p>
-                <p>Duração: {activeContract.duration_months} meses</p>
-                <p>Deliveries: {activeContract.deliveries_completed}/{activeContract.total_deliveries_promised}</p>
-                <p className="font-medium">
-                  R$ {Number(activeContract.contract_value_brl).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                <p className="font-medium text-text-primary capitalize">
+                  {financialInfo.plan_name} — <span className={STATUS_COLORS[financialInfo.status] ?? ''}>{STATUS_LABELS[financialInfo.status] ?? financialInfo.status}</span>
                 </p>
+                {financialInfo.total_value && (
+                  <p className="font-medium">
+                    R$ {Number(financialInfo.total_value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </p>
+                )}
+                {financialInfo.installments && financialInfo.installment_value && (
+                  <p>{financialInfo.installments}x de R$ {Number(financialInfo.installment_value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                )}
+                {financialInfo.entry_value && Number(financialInfo.entry_value) > 0 && (
+                  <p>Entrada: R$ {Number(financialInfo.entry_value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                )}
+                {financialInfo.first_payment_date && (
+                  <p>1° pagamento: {new Date(financialInfo.first_payment_date + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
+                )}
+                {financialInfo.start_date && (
+                  <p>Início: {new Date(financialInfo.start_date + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
+                )}
+                {financialInfo.renewal_date && (() => {
+                  const today = new Date()
+                  const renewal = new Date(financialInfo.renewal_date + 'T12:00:00')
+                  const diffDays = Math.ceil((renewal.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+                  const badgeColor = diffDays < 15 ? 'text-red-400 bg-red-400/15' : diffDays <= 30 ? 'text-yellow-400 bg-yellow-400/15' : 'text-green-400 bg-green-400/15'
+                  return (
+                    <p className="flex items-center gap-1.5">
+                      Renovação: {renewal.toLocaleDateString('pt-BR')}
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${badgeColor}`}>
+                        {diffDays <= 0 ? 'Vencido' : `${diffDays}d`}
+                      </span>
+                    </p>
+                  )
+                })()}
               </div>
             )}
-            <ContractForm workspaceId={ws.id} existingContract={activeContract ?? null} />
+            <FinancialInfoForm workspaceId={ws.id} existingInfo={financialInfo ?? null} />
           </div>
         </div>
 
@@ -212,61 +233,60 @@ export default async function AdminWorkspacePage({ params }: Props) {
           </div>
         </div>
 
-        {/* Coluna direita: Gestor de Tarefas */}
+        {/* Coluna direita: Tarefas */}
         <div>
           <div className="bg-bg-card border border-border rounded-xl p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="font-semibold text-text-primary">Gestor de Tarefas</h2>
+              <h2 className="font-semibold text-text-primary">Tarefas</h2>
               <Link
-                href={`/admin/workspaces/${id}/kanban`}
+                href={`/admin/workspaces/${id}/tasks`}
                 className="text-xs text-brand-gold hover:text-brand-gold-light transition-colors"
               >
-                Ver board →
+                Ver todas →
               </Link>
             </div>
 
-            {!board ? (
-              <p className="text-text-muted text-sm text-center py-4">Board ainda não criado.</p>
-            ) : kanbanStats.totalCards === 0 ? (
-              <p className="text-text-muted text-sm text-center py-4">Nenhum card criado ainda.</p>
+            {taskStats.total === 0 ? (
+              <p className="text-text-muted text-sm text-center py-4">Nenhuma tarefa criada ainda.</p>
             ) : (
               <div className="space-y-4">
-                {/* Métricas resumidas */}
                 <div className="grid grid-cols-2 gap-2">
                   <div className="bg-bg-surface rounded-lg p-3 text-center">
-                    <p className="text-2xl font-bold text-text-primary">{kanbanStats.totalCards}</p>
-                    <p className="text-xs text-text-muted mt-0.5">Cards ativos</p>
+                    <p className="text-2xl font-bold text-text-primary">{taskStats.total}</p>
+                    <p className="text-xs text-text-muted mt-0.5">Total</p>
                   </div>
                   <div className="bg-bg-surface rounded-lg p-3 text-center">
-                    <p className={`text-2xl font-bold ${kanbanStats.overdueCards > 0 ? 'text-error' : 'text-text-primary'}`}>
-                      {kanbanStats.overdueCards}
+                    <p className={`text-2xl font-bold ${taskStats.overdue > 0 ? 'text-error' : 'text-text-primary'}`}>
+                      {taskStats.overdue}
                     </p>
-                    <p className="text-xs text-text-muted mt-0.5">Em atraso</p>
+                    <p className="text-xs text-text-muted mt-0.5">Atrasadas</p>
                   </div>
                 </div>
-
-                {/* Cards por coluna */}
                 <div className="space-y-1.5">
-                  {kanbanStats.columns
-                    .filter((c) => c.count > 0)
-                    .map((col) => (
-                      <div key={col.title} className="flex items-center justify-between">
-                        <span className="text-sm text-text-secondary truncate">{col.title}</span>
-                        <span className="text-sm text-text-muted ml-2 shrink-0 font-medium">{col.count}</span>
-                      </div>
-                    ))}
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-text-secondary">Pendentes</span>
+                    <span className="text-sm text-text-muted font-medium">{taskStats.pending}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-text-secondary">Em andamento</span>
+                    <span className="text-sm text-text-muted font-medium">{taskStats.inProgress}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-text-secondary">Concluídas</span>
+                    <span className="text-sm text-green-400 font-medium">{taskStats.completed}</span>
+                  </div>
                 </div>
               </div>
             )}
 
             <Link
-              href={`/admin/workspaces/${id}/kanban`}
+              href={`/admin/workspaces/${id}/tasks`}
               className="mt-5 w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-brand-gold/10 border border-brand-gold/20 text-brand-gold text-sm hover:bg-brand-gold/20 transition-colors"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+                <path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
               </svg>
-              Abrir Kanban
+              Abrir Tarefas
             </Link>
           </div>
         </div>

@@ -4,8 +4,8 @@ import { revalidatePath } from 'next/cache'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import type { KanbanPriority } from '@/lib/types/database'
-import { getAgentConfig, buildContextString, DEFAULT_PROMPTS } from './agents'
+import { getAgentConfig, buildContextString } from './agents'
+import { DEFAULT_PROMPTS } from '@/lib/constants/agents'
 
 async function requireAdmin() {
   const supabase = await createClient()
@@ -206,89 +206,54 @@ export async function analyzeTranscript(
 }
 
 // ============================================================
-// ADICIONAR TAREFA AO KANBAN
+// ADICIONAR TAREFA AO TASKFLOW
 // ============================================================
 
-const PRIORITY_MAP: Record<string, KanbanPriority> = {
-  baixa: 'low',
-  media: 'medium',
-  alta: 'high',
-  urgente: 'urgent',
-}
-
-export async function addSessionTaskToKanban(taskId: string, workspaceId: string) {
+export async function addSessionTaskToTaskFlow(taskId: string, workspaceId: string) {
   await requireAdmin()
   const adminSupabase = createAdminClient()
 
-  const { data: task } = await adminSupabase
+  const { data: sessionTask } = await adminSupabase
     .from('session_tasks')
     .select('*')
     .eq('id', taskId)
     .single()
 
-  if (!task) return { error: 'Tarefa não encontrada' }
-  if (task.kanban_card_id) return { error: 'Tarefa já adicionada ao Kanban' }
+  if (!sessionTask) return { error: 'Tarefa não encontrada' }
+  if (sessionTask.kanban_card_id) return { error: 'Tarefa já adicionada ao TaskFlow' }
 
-  const { data: board } = await adminSupabase
-    .from('kanban_boards')
-    .select('id')
-    .eq('workspace_id', workspaceId)
-    .single()
-
-  if (!board) return { error: 'Board Kanban não encontrado. Crie o board primeiro.' }
-
-  const { data: firstCol } = await adminSupabase
-    .from('kanban_columns')
-    .select('id')
-    .eq('board_id', board.id)
-    .order('order_index')
-    .limit(1)
-    .single()
-
-  if (!firstCol) return { error: 'Nenhuma coluna encontrada no board.' }
-
-  const { data: lastCard } = await adminSupabase
-    .from('kanban_cards')
-    .select('order_index')
-    .eq('column_id', firstCol.id)
-    .eq('is_archived', false)
-    .order('order_index', { ascending: false })
-    .limit(1)
-    .single()
-
-  const order_index = (lastCard?.order_index ?? -1) + 1
-
-  const { data: card, error: insertError } = await adminSupabase
-    .from('kanban_cards')
+  const { data: task, error: insertError } = await adminSupabase
+    .from('tasks')
     .insert({
-      column_id: firstCol.id,
-      title: task.title,
-      description: task.responsible ? `Responsável: ${task.responsible}` : null,
-      priority: PRIORITY_MAP[task.priority] || 'medium',
-      due_date: task.due_date || null,
-      order_index,
+      workspace_id: workspaceId,
+      session_id: sessionTask.session_id,
+      title: sessionTask.title,
+      responsible: sessionTask.responsible || null,
+      due_date: sessionTask.due_date || null,
+      priority: (sessionTask.priority || 'media') as 'baixa' | 'media' | 'alta' | 'urgente',
     })
     .select('id')
     .single()
 
-  if (insertError || !card) return { error: insertError?.message ?? 'Erro ao criar card' }
+  if (insertError || !task) return { error: insertError?.message ?? 'Erro ao criar tarefa' }
 
+  // Reaproveita kanban_card_id para marcar como "adicionada"
   await adminSupabase
     .from('session_tasks')
-    .update({ kanban_card_id: card.id })
+    .update({ kanban_card_id: task.id })
     .eq('id', taskId)
 
   revalidatePath(`/admin/workspaces/${workspaceId}/sessoes`)
-  revalidatePath(`/admin/workspaces/${workspaceId}/kanban`)
-  revalidatePath('/workspace/kanban')
+  revalidatePath(`/admin/workspaces/${workspaceId}/tasks`)
+  revalidatePath('/workspace/tasks')
   return { success: true }
 }
 
 // ============================================================
-// ADICIONAR TODAS AS TAREFAS AO KANBAN
+// ADICIONAR TODAS AS TAREFAS AO TASKFLOW
 // ============================================================
 
-export async function addAllSessionTasksToKanban(sessionId: string, workspaceId: string) {
+export async function addAllSessionTasksToTaskFlow(sessionId: string, workspaceId: string) {
   await requireAdmin()
   const adminSupabase = createAdminClient()
 
@@ -303,7 +268,7 @@ export async function addAllSessionTasksToKanban(sessionId: string, workspaceId:
   const results: { taskId: string; success: boolean; error?: string }[] = []
 
   for (const t of tasks) {
-    const result = await addSessionTaskToKanban(t.id, workspaceId)
+    const result = await addSessionTaskToTaskFlow(t.id, workspaceId)
     results.push({
       taskId: t.id,
       success: !('error' in result),
@@ -318,6 +283,76 @@ export async function addAllSessionTasksToKanban(sessionId: string, workspaceId:
 
   revalidatePath(`/admin/workspaces/${workspaceId}/sessoes`)
   return { success: true, count: results.length }
+}
+
+// ============================================================
+// UPDATE SESSION TASK (edição inline)
+// ============================================================
+
+export async function updateSessionTask(
+  taskId: string,
+  workspaceId: string,
+  data: {
+    title?: string
+    responsible?: string | null
+    due_date?: string | null
+    priority?: string
+  },
+) {
+  await requireAdmin()
+  const adminSupabase = createAdminClient()
+
+  const updateData: Record<string, unknown> = {}
+  if (data.title !== undefined) updateData.title = data.title.trim()
+  if (data.responsible !== undefined) updateData.responsible = data.responsible
+  if (data.due_date !== undefined) updateData.due_date = data.due_date
+  if (data.priority !== undefined) updateData.priority = data.priority
+
+  const { error } = await adminSupabase
+    .from('session_tasks')
+    .update(updateData)
+    .eq('id', taskId)
+
+  if (error) return { error: error.message }
+
+  revalidatePath(`/admin/workspaces/${workspaceId}/sessoes`)
+  return { success: true }
+}
+
+// ============================================================
+// CREATE MANUAL SESSION TASK
+// ============================================================
+
+export async function createSessionTask(
+  sessionId: string,
+  workspaceId: string,
+  data: {
+    title: string
+    responsible?: string | null
+    due_date?: string | null
+    priority?: string
+  },
+) {
+  await requireAdmin()
+  const adminSupabase = createAdminClient()
+
+  if (!data.title?.trim()) return { error: 'Título é obrigatório' }
+
+  const { error } = await adminSupabase
+    .from('session_tasks')
+    .insert({
+      session_id: sessionId,
+      workspace_id: workspaceId,
+      title: data.title.trim(),
+      responsible: data.responsible || null,
+      due_date: data.due_date || null,
+      priority: data.priority || 'media',
+    })
+
+  if (error) return { error: error.message }
+
+  revalidatePath(`/admin/workspaces/${workspaceId}/sessoes`)
+  return { success: true }
 }
 
 // ============================================================

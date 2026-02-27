@@ -1,0 +1,75 @@
+import { redirect } from 'next/navigation'
+import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import IntegrationsClient from './IntegrationsClient'
+
+export const metadata = { title: 'Integrações — BrandLegacy' }
+
+export default async function IntegracoesPage() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) redirect('/login')
+
+  const adminSupabase = createAdminClient()
+
+  // Busca workspace ativo
+  const { data: memberships } = await adminSupabase
+    .from('workspace_members')
+    .select('workspace_id, workspaces(id, name)')
+    .eq('user_id', user.id)
+    .eq('is_active', true)
+
+  type WsMembership = {
+    workspace_id: string
+    workspaces: { id: string; name: string } | null
+  }
+
+  const workspaces = ((memberships ?? []) as unknown as WsMembership[])
+    .map((m) => m.workspaces)
+    .filter(Boolean) as { id: string; name: string }[]
+
+  if (workspaces.length === 0) {
+    return (
+      <div className="animate-fade-in">
+        <div className="mb-8">
+          <h1 className="text-2xl font-bold text-text-primary">Integrações</h1>
+          <p className="text-text-secondary mt-1">Conecte suas plataformas de marketing e vendas.</p>
+        </div>
+        <div className="bg-bg-card border border-border rounded-xl p-16 text-center">
+          <p className="text-text-muted">Você ainda não está vinculado a um workspace.</p>
+          <p className="text-text-muted text-sm mt-1">Entre em contato com seu mentor para ser adicionado.</p>
+        </div>
+      </div>
+    )
+  }
+
+  const ws = workspaces[0]
+
+  // Busca integrações ativas (sem access_token)
+  const { data: integrations } = await adminSupabase
+    .from('integrations')
+    .select('id, workspace_id, platform, account_id, extra_config, is_active, last_sync, created_at, updated_at')
+    .eq('workspace_id', ws.id)
+    .eq('is_active', true)
+
+  return (
+    <div className="animate-fade-in">
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-text-primary">Integrações</h1>
+        <p className="text-text-secondary mt-1">
+          Conecte suas plataformas para visualizar métricas e alimentar seus agentes IA.
+        </p>
+      </div>
+      <IntegrationsClient
+        workspaceId={ws.id}
+        integrations={(integrations ?? []) as Array<{
+          id: string
+          platform: string
+          account_id: string | null
+          last_sync: string | null
+          is_active: boolean
+        }>}
+      />
+    </div>
+  )
+}

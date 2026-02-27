@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { saveWorkspaceContext, saveAgentConfig, DEFAULT_PROMPTS } from '@/app/actions/agents'
+import { saveWorkspaceContext, saveAgentConfig } from '@/app/actions/agents'
+import { DEFAULT_PROMPTS } from '@/lib/constants/agents'
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -80,15 +81,15 @@ export default function AgentConfigClient({ workspaceId, context, agentConfigs }
   const [mentorshipStage, setMentorshipStage] = useState(context?.mentorship_stage ?? 'inicio')
   const [extraContext, setExtraContext] = useState(context?.extra_context ?? '')
 
-  // Agent prompts
+  // Agent prompts (fallback '' para segurança caso DEFAULT_PROMPTS falhe)
   const [diagnosticPrompt, setDiagnosticPrompt] = useState(
-    agentConfigs.diagnostic?.system_prompt ?? DEFAULT_PROMPTS.diagnostic
+    agentConfigs.diagnostic?.system_prompt ?? DEFAULT_PROMPTS?.diagnostic ?? ''
   )
   const [planPrompt, setPlanPrompt] = useState(
-    agentConfigs.plan?.system_prompt ?? DEFAULT_PROMPTS.plan
+    agentConfigs.plan?.system_prompt ?? DEFAULT_PROMPTS?.plan ?? ''
   )
   const [mentoringPrompt, setMentoringPrompt] = useState(
-    agentConfigs.mentoring?.system_prompt ?? DEFAULT_PROMPTS.mentoring
+    agentConfigs.mentoring?.system_prompt ?? DEFAULT_PROMPTS?.mentoring ?? ''
   )
 
   const [isPending, startTransition] = useTransition()
@@ -128,8 +129,7 @@ export default function AgentConfigClient({ workspaceId, context, agentConfigs }
   }
 
   function handleResetPrompt(agentType: string) {
-    const defaultPrompt = DEFAULT_PROMPTS[agentType]
-    if (!defaultPrompt) return
+    const defaultPrompt = DEFAULT_PROMPTS?.[agentType] ?? ''
     if (agentType === 'diagnostic') setDiagnosticPrompt(defaultPrompt)
     if (agentType === 'plan') setPlanPrompt(defaultPrompt)
     if (agentType === 'mentoring') setMentoringPrompt(defaultPrompt)
@@ -266,7 +266,7 @@ export default function AgentConfigClient({ workspaceId, context, agentConfigs }
 function AgentPromptEditor({
   agentType,
   label,
-  prompt,
+  prompt = '',
   setPrompt,
   onSave,
   onReset,
@@ -282,7 +282,8 @@ function AgentPromptEditor({
   isPending: boolean
   hasCustomConfig: boolean
 }) {
-  const estimatedTokens = Math.ceil(prompt.length / 4)
+  const safePrompt = prompt ?? ''
+  const estimatedTokens = Math.ceil(safePrompt.length / 4)
 
   const descriptions: Record<string, string> = {
     diagnostic: 'Analisa reuniões de diagnóstico. Gera relatório executivo com pontos fortes, gargalos, oportunidades e riscos. NÃO gera tarefas.',
@@ -319,7 +320,7 @@ function AgentPromptEditor({
             <span className="text-[10px] text-text-muted">~{estimatedTokens.toLocaleString()} tokens</span>
           </div>
           <textarea
-            value={prompt}
+            value={safePrompt}
             onChange={(e) => setPrompt(e.target.value)}
             rows={16}
             className="w-full px-4 py-3 rounded-lg bg-bg-base border border-border text-text-primary text-sm font-mono leading-relaxed focus:outline-none focus:border-brand-gold/60 placeholder:text-text-muted resize-y"
@@ -329,7 +330,7 @@ function AgentPromptEditor({
         <div className="flex items-center gap-3">
           <button
             onClick={onSave}
-            disabled={isPending || !prompt.trim()}
+            disabled={isPending || !safePrompt.trim()}
             className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-brand-gold text-bg-base text-sm font-medium hover:bg-brand-gold-light transition-colors disabled:opacity-60"
           >
             {isPending ? 'Salvando...' : 'Salvar Prompt'}

@@ -2,16 +2,21 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import type { KanbanPriority } from '@/lib/types/database'
+import type { TaskPriority } from '@/lib/types/database'
 
-const PRIORITY_COLORS: Record<KanbanPriority, string> = {
-  low: 'text-success bg-success/10',
-  medium: 'text-info bg-info/10',
-  high: 'text-warning bg-warning/10',
-  urgent: 'text-error bg-error/10',
+const PRIORITY_COLORS: Record<TaskPriority, string> = {
+  baixa: 'text-success bg-success/10',
+  media: 'text-info bg-info/10',
+  alta: 'text-warning bg-warning/10',
+  urgente: 'text-error bg-error/10',
 }
-const PRIORITY_LABELS: Record<KanbanPriority, string> = {
-  low: 'Baixa', medium: 'Média', high: 'Alta', urgent: 'Urgente',
+const PRIORITY_LABELS: Record<TaskPriority, string> = {
+  baixa: 'Baixa', media: 'Média', alta: 'Alta', urgente: 'Urgente',
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  pendente: 'Pendente',
+  em_andamento: 'Em andamento',
 }
 
 export default async function DashboardPage() {
@@ -56,65 +61,47 @@ export default async function DashboardPage() {
     ? Math.round((completedDeliveries / totalDeliveries) * 100)
     : 0
 
-  // Busca tarefas pendentes do kanban (cards que não estão em colunas "Concluído")
-  type PendingCard = {
+  // Busca tarefas pendentes do TaskFlow
+  type PendingTask = {
     id: string
     title: string
-    priority: KanbanPriority
+    priority: TaskPriority
     due_date: string | null
-    column_title: string
+    status: string
   }
-  let pendingCards: PendingCard[] = []
+  let pendingTasks: PendingTask[] = []
 
   if (workspaceId) {
-    // Busca o board do workspace
-    const { data: board } = await adminSupabase
-      .from('kanban_boards')
-      .select('id')
+    const { data: tasks } = await adminSupabase
+      .from('tasks')
+      .select('id, title, priority, due_date, status')
       .eq('workspace_id', workspaceId)
-      .single()
+      .eq('is_archived', false)
+      .in('status', ['pendente', 'em_andamento'])
+      .order('due_date', { ascending: true, nullsFirst: false })
+      .limit(5)
 
-    if (board) {
-      // Busca colunas com seus cards
-      const { data: columns } = await adminSupabase
-        .from('kanban_columns')
-        .select('id, title, kanban_cards(id, title, priority, due_date, is_archived, order_index)')
-        .eq('board_id', board.id)
-        .order('order_index')
+    type RawTask = {
+      id: string
+      title: string
+      priority: string
+      due_date: string | null
+      status: string
+    }
 
-      type RawCol = {
-        id: string
-        title: string
-        kanban_cards: {
-          id: string
-          title: string
-          priority: string
-          due_date: string | null
-          is_archived: boolean
-          order_index: number
-        }[]
-      }
+    const rawTasks = (tasks ?? []) as unknown as RawTask[]
 
-      const rawColumns = (columns ?? []) as unknown as RawCol[]
-
-      // Filtra cards que NÃO estão em colunas "Concluído" e não estão arquivados
-      for (const col of rawColumns) {
-        if (col.title.toLowerCase().includes('concluíd')) continue
-        for (const card of col.kanban_cards) {
-          if (card.is_archived) continue
-          pendingCards.push({
-            id: card.id,
-            title: card.title,
-            priority: card.priority as KanbanPriority,
-            due_date: card.due_date,
-            column_title: col.title,
-          })
-        }
-      }
-
-      // Ordena por prioridade (urgent > high > medium > low), depois por due_date
-      const priorityOrder: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 }
-      pendingCards.sort((a, b) => {
+    // Ordena por prioridade (urgente > alta > media > baixa), depois por due_date
+    const priorityOrder: Record<string, number> = { urgente: 0, alta: 1, media: 2, baixa: 3 }
+    pendingTasks = rawTasks
+      .map((t) => ({
+        id: t.id,
+        title: t.title,
+        priority: t.priority as TaskPriority,
+        due_date: t.due_date,
+        status: t.status,
+      }))
+      .sort((a, b) => {
         const pa = priorityOrder[a.priority] ?? 2
         const pb = priorityOrder[b.priority] ?? 2
         if (pa !== pb) return pa - pb
@@ -123,9 +110,6 @@ export default async function DashboardPage() {
         if (b.due_date) return 1
         return 0
       })
-
-      pendingCards = pendingCards.slice(0, 5)
-    }
   }
 
   const firstName = profile?.name?.split(' ')[0] ?? 'Aluno'
@@ -157,8 +141,8 @@ export default async function DashboardPage() {
         />
         <StatCard
           label="Tarefas pendentes"
-          value={String(pendingCards.length)}
-          sub="no kanban"
+          value={String(pendingTasks.length)}
+          sub="no TaskFlow"
         />
       </div>
 
@@ -187,40 +171,40 @@ export default async function DashboardPage() {
           <h2 className="text-lg font-semibold text-text-primary">Tarefas Pendentes</h2>
           {workspaceId && (
             <Link
-              href={`/workspace/kanban?ws=${workspaceId}`}
+              href="/workspace/tasks"
               className="text-sm text-brand-gold hover:text-brand-gold-light transition-colors"
             >
-              Ver kanban →
+              Ver tarefas →
             </Link>
           )}
         </div>
 
-        {pendingCards.length === 0 ? (
+        {pendingTasks.length === 0 ? (
           <div className="bg-bg-card border border-border rounded-xl p-12 text-center">
             <p className="text-text-muted text-sm">Nenhuma tarefa pendente no momento.</p>
           </div>
         ) : (
           <div className="space-y-3">
-            {pendingCards.map((card) => (
+            {pendingTasks.map((task) => (
               <div
-                key={card.id}
+                key={task.id}
                 className="flex items-center gap-3 p-4 bg-bg-card border border-border rounded-xl hover:border-brand-gold/30 transition-colors"
               >
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-text-primary truncate">{card.title}</p>
-                  <p className="text-xs text-text-muted mt-0.5">{card.column_title}</p>
+                  <p className="text-sm font-medium text-text-primary truncate">{task.title}</p>
+                  <p className="text-xs text-text-muted mt-0.5">{STATUS_LABELS[task.status] ?? task.status}</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${PRIORITY_COLORS[card.priority]}`}>
-                    {PRIORITY_LABELS[card.priority]}
+                  <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${PRIORITY_COLORS[task.priority]}`}>
+                    {PRIORITY_LABELS[task.priority]}
                   </span>
-                  {card.due_date && (
+                  {task.due_date && (
                     <span className={`text-xs px-1.5 py-0.5 rounded ${
-                      new Date(card.due_date) < new Date()
+                      new Date(task.due_date) < new Date()
                         ? 'text-error bg-error/10'
                         : 'text-text-muted bg-bg-surface'
                     }`}>
-                      {new Date(card.due_date).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                      {new Date(task.due_date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
                     </span>
                   )}
                 </div>

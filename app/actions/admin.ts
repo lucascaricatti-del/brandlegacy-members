@@ -2,6 +2,8 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import type { AdminRole } from '@/lib/types/database'
 
 async function requireAdmin() {
   const supabase = await createClient()
@@ -64,9 +66,9 @@ export async function createModule(formData: FormData) {
       description: (formData.get('description') as string) || null,
       order_index: Number(formData.get('order_index') ?? 0),
       is_published: formData.get('is_published') === 'true',
-      content_type: (formData.get('content_type') as 'course' | 'masterclass' | 'webinar') || 'course',
+      content_type: (formData.get('content_type') as 'course' | 'masterclass') || 'course',
       min_plan: (formData.get('min_plan') as 'free' | 'tracao' | 'club') || 'free',
-      webinar_open_to_all: formData.get('webinar_open_to_all') !== 'false',
+      category: (formData.get('category') as 'mentoria' | 'masterclass' | 'free_class') || 'mentoria',
     })
     .select()
     .single()
@@ -87,9 +89,9 @@ export async function updateModule(id: string, formData: FormData) {
       description: (formData.get('description') as string) || null,
       order_index: Number(formData.get('order_index') ?? 0),
       is_published: formData.get('is_published') === 'true',
-      content_type: (formData.get('content_type') as 'course' | 'masterclass' | 'webinar') || 'course',
+      content_type: (formData.get('content_type') as 'course' | 'masterclass') || 'course',
       min_plan: (formData.get('min_plan') as 'free' | 'tracao' | 'club') || 'free',
-      webinar_open_to_all: formData.get('webinar_open_to_all') !== 'false',
+      category: (formData.get('category') as 'mentoria' | 'masterclass' | 'free_class') || 'mentoria',
     })
     .eq('id', id)
 
@@ -252,5 +254,24 @@ export async function deleteMaterial(materialId: string, moduleId?: string) {
   if (error) return { error: error.message }
 
   if (moduleId) revalidatePath(`/admin/modulos/${moduleId}`)
+  return { success: true }
+}
+
+// ============================================================
+// ADMIN ROLE
+// ============================================================
+
+export async function updateAdminRole(userId: string, adminRole: AdminRole) {
+  await requireAdmin()
+  const adminSupabase = createAdminClient()
+
+  const { error } = await adminSupabase
+    .from('profiles')
+    .update({ admin_role: adminRole })
+    .eq('id', userId)
+
+  if (error) return { error: error.message }
+
+  revalidatePath('/admin/equipe')
   return { success: true }
 }

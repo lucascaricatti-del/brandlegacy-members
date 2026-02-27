@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation'
 export default function CreateModuleForm() {
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
-  const [contentType, setContentType] = useState<'course' | 'masterclass' | 'webinar'>('course')
+  const [contentType, setContentType] = useState<'course' | 'masterclass'>('course')
   const router = useRouter()
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -58,9 +58,21 @@ export default function CreateModuleForm() {
           onChange={(e) => setContentType(e.target.value as typeof contentType)}
           className="w-full px-4 py-2.5 rounded-lg bg-bg-surface border border-border text-text-primary focus:outline-none focus:border-brand-gold focus:ring-1 focus:ring-brand-gold transition-colors text-sm"
         >
-          <option value="course">Curso (acesso por plano)</option>
-          <option value="masterclass">Master Class (liberação manual)</option>
-          <option value="webinar">Webinário (gratuito/restrito)</option>
+          <option value="course">Aula (acesso por plano)</option>
+          <option value="masterclass">Masterclass (liberação manual)</option>
+        </select>
+      </div>
+
+      {/* Categoria Academy */}
+      <div>
+        <label className="block text-sm font-medium text-text-secondary mb-1.5">Categoria Academy</label>
+        <select
+          name="category"
+          className="w-full px-4 py-2.5 rounded-lg bg-bg-surface border border-border text-text-primary focus:outline-none focus:border-brand-gold focus:ring-1 focus:ring-brand-gold transition-colors text-sm"
+        >
+          <option value="mentoria">Aula de Mentoria</option>
+          <option value="masterclass">Masterclass</option>
+          <option value="free_class">Aula Gravada (pública)</option>
         </select>
       </div>
 
@@ -72,24 +84,10 @@ export default function CreateModuleForm() {
             name="min_plan"
             className="w-full px-4 py-2.5 rounded-lg bg-bg-surface border border-border text-text-primary focus:outline-none focus:border-brand-gold focus:ring-1 focus:ring-brand-gold transition-colors text-sm"
           >
+            <option value="free">Todos</option>
             <option value="tracao">Ambos (Tração + Club)</option>
             <option value="club">Exclusivo Club</option>
           </select>
-        </div>
-      )}
-
-      {/* webinar_open_to_all: só aparece para webinar */}
-      {contentType === 'webinar' && (
-        <div className="flex items-center gap-2.5 cursor-pointer mt-1">
-          <input type="hidden" name="webinar_open_to_all" value="false" />
-          <input
-            type="checkbox"
-            name="webinar_open_to_all"
-            value="true"
-            defaultChecked
-            className="w-4 h-4 accent-brand-gold"
-          />
-          <span className="text-sm text-text-secondary">Aberto a todos os membros</span>
         </div>
       )}
 

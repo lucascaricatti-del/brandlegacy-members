@@ -14,6 +14,7 @@ export default function StudentLayoutShell({
   children: React.ReactNode
 }) {
   const [open, setOpen] = useState(false)
+  const [ferramentasOpen, setFerramentasOpen] = useState(false)
 
   return (
     <div className="flex min-h-screen bg-bg-base">
@@ -52,13 +53,47 @@ export default function StudentLayoutShell({
         {/* Nav */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           <NavItem href="/dashboard" icon={<IconDashboard />} label="Dashboard" onNavigate={() => setOpen(false)} />
-          <NavItem href="/modulos" icon={<IconModulos />} label="Módulos" onNavigate={() => setOpen(false)} />
-          <NavItem href="/masterclasses" icon={<IconMasterclass />} label="Masterclasses" onNavigate={() => setOpen(false)} />
-          <NavItem href="/workspace/kanban" icon={<IconKanban />} label="Gestor de Tarefas" onNavigate={() => setOpen(false)} />
+          <NavItem href="/academy" icon={<IconAcademy />} label="Academy" onNavigate={() => setOpen(false)} />
+          <NavItem href="/workspace/tasks" icon={<IconTasks />} label="Tarefas" onNavigate={() => setOpen(false)} />
           <NavItem href="/entregas" icon={<IconEntregas />} label="Controle de Entregas" onNavigate={() => setOpen(false)} />
           <NavItem href="/agenda" icon={<IconAgenda />} label="Agenda" onNavigate={() => setOpen(false)} />
           <NavItem href="/team" icon={<IconTeam />} label="Meu Time" onNavigate={() => setOpen(false)} />
-          <NavItem href="/agente" icon={<IconAgente />} label="Meu Agente" onNavigate={() => setOpen(false)} />
+          <NavItem href="/integracoes" icon={<IconIntegracoes />} label="Integrações" onNavigate={() => setOpen(false)} />
+          <NavItem href="/metricas" icon={<IconMetricas />} label="Métricas" onNavigate={() => setOpen(false)} />
+
+          {/* Ferramentas — submenu expansível */}
+          <div>
+            <button
+              onClick={() => setFerramentasOpen((v) => !v)}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors group"
+            >
+              <span className="text-text-muted group-hover:text-brand-gold transition-colors"><IconFerramentas /></span>
+              <span className="flex-1 text-left">Ferramentas</span>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className={`text-text-muted transition-transform duration-200 ${ferramentasOpen ? 'rotate-180' : ''}`}
+              >
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
+            <div className={`overflow-hidden transition-all duration-200 ${ferramentasOpen ? 'max-h-60' : 'max-h-0'}`}>
+              <div className="ml-3 pl-3 border-l border-border space-y-0.5 py-1">
+                <SubNavItem href="/ferramentas/planejamento-financeiro" label="Plan. Financeiro" onNavigate={() => setOpen(false)} />
+                <SubNavItem href="/ferramentas/planejamento-midia" label="Plan. de Mídia" onNavigate={() => setOpen(false)} />
+                <SubNavItem href="/ferramentas/calculadora-cenarios" label="Calc. de Cenários" onNavigate={() => setOpen(false)} />
+                <SubNavItem href="/ferramentas/matriz-criativa" label="Matriz Criativa" onNavigate={() => setOpen(false)} />
+                <SubNavItem href="/ferramentas/metricas-criativos" label="Métricas de Criativos" onNavigate={() => setOpen(false)} />
+              </div>
+            </div>
+          </div>
+
           {profile?.role === 'admin' && (
             <div className="pt-3 mt-3 border-t border-border">
               <p className="text-text-muted text-xs font-medium px-3 mb-2 uppercase tracking-wider">Admin</p>
@@ -141,6 +176,18 @@ function NavItem({
   )
 }
 
+function SubNavItem({ href, label, onNavigate }: { href: string; label: string; onNavigate: () => void }) {
+  return (
+    <Link
+      href={href}
+      onClick={onNavigate}
+      className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
+    >
+      {label}
+    </Link>
+  )
+}
+
 function IconMenu() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -162,24 +209,17 @@ function IconDashboard() {
     </svg>
   )
 }
-function IconModulos() {
+function IconAcademy() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+      <polygon points="5 3 19 12 5 21 5 3" />
     </svg>
   )
 }
-function IconMasterclass() {
+function IconTasks() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-    </svg>
-  )
-}
-function IconKanban() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="3" width="5" height="18" rx="1" /><rect x="10" y="3" width="5" height="11" rx="1" /><rect x="17" y="3" width="5" height="14" rx="1" />
+      <path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
     </svg>
   )
 }
@@ -211,11 +251,25 @@ function IconAdmin() {
     </svg>
   )
 }
-function IconAgente() {
+function IconIntegracoes() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 2a4 4 0 0 0-4 4v6a4 4 0 0 0 8 0V6a4 4 0 0 0-4-4z" />
-      <path d="M12 18.5V22" /><path d="M7 22h10" />
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
+  )
+}
+function IconMetricas() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" />
+    </svg>
+  )
+}
+function IconFerramentas() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
     </svg>
   )
 }

@@ -5,16 +5,17 @@ import { updateModule } from '@/app/actions/admin'
 import type { Module } from '@/lib/types/database'
 
 const CONTENT_TYPE_LABEL: Record<string, string> = {
-  course: 'Curso',
-  masterclass: 'Master Class',
-  webinar: 'Webinário',
+  course: 'Aula',
+  masterclass: 'Masterclass',
 }
 
 export default function EditModuleForm({ module: mod }: { module: Module }) {
   const [isPending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
-  const [contentType, setContentType] = useState(mod.content_type ?? 'course')
+  const [contentType, setContentType] = useState<'course' | 'masterclass'>(
+    mod.content_type === 'masterclass' ? 'masterclass' : 'course'
+  )
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -57,12 +58,24 @@ export default function EditModuleForm({ module: mod }: { module: Module }) {
         <select
           name="content_type"
           value={contentType}
-          onChange={(e) => setContentType(e.target.value as 'course' | 'masterclass' | 'webinar')}
+          onChange={(e) => setContentType(e.target.value as 'course' | 'masterclass')}
           className="w-full px-4 py-2.5 rounded-lg bg-bg-surface border border-border text-text-primary focus:outline-none focus:border-brand-gold focus:ring-1 focus:ring-brand-gold transition-colors text-sm"
         >
-          <option value="course">Curso (acesso por plano)</option>
-          <option value="masterclass">Master Class (liberação manual)</option>
-          <option value="webinar">Webinário (gratuito/restrito)</option>
+          <option value="course">Aula (acesso por plano)</option>
+          <option value="masterclass">Masterclass (liberação manual)</option>
+        </select>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-text-secondary mb-1.5">Categoria Academy</label>
+        <select
+          name="category"
+          defaultValue={mod.category ?? 'mentoria'}
+          className="w-full px-4 py-2.5 rounded-lg bg-bg-surface border border-border text-text-primary focus:outline-none focus:border-brand-gold focus:ring-1 focus:ring-brand-gold transition-colors text-sm"
+        >
+          <option value="mentoria">Aula de Mentoria</option>
+          <option value="masterclass">Masterclass</option>
+          <option value="free_class">Aula Gravada (pública)</option>
         </select>
       </div>
 
@@ -71,27 +84,14 @@ export default function EditModuleForm({ module: mod }: { module: Module }) {
           <label className="block text-sm font-medium text-text-secondary mb-1.5">Plano mínimo</label>
           <select
             name="min_plan"
-            defaultValue={mod.min_plan === 'free' ? 'tracao' : (mod.min_plan ?? 'tracao')}
+            defaultValue={mod.min_plan ?? 'free'}
             className="w-full px-4 py-2.5 rounded-lg bg-bg-surface border border-border text-text-primary focus:outline-none focus:border-brand-gold focus:ring-1 focus:ring-brand-gold transition-colors text-sm"
           >
+            <option value="free">Todos</option>
             <option value="tracao">Ambos (Tração + Club)</option>
             <option value="club">Exclusivo Club</option>
           </select>
         </div>
-      )}
-
-      {contentType === 'webinar' && (
-        <label className="flex items-center gap-2.5 cursor-pointer">
-          <input type="hidden" name="webinar_open_to_all" value="false" />
-          <input
-            type="checkbox"
-            name="webinar_open_to_all"
-            value="true"
-            defaultChecked={mod.webinar_open_to_all ?? true}
-            className="w-4 h-4 accent-brand-gold"
-          />
-          <span className="text-sm text-text-secondary">Aberto a todos os membros</span>
-        </label>
       )}
 
       <div>

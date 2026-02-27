@@ -9,7 +9,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('name, role')
+    .select('name, role, admin_role')
     .eq('id', user.id)
     .single()
 
