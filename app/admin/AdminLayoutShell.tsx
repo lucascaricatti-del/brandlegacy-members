@@ -54,6 +54,7 @@ export default function AdminLayoutShell({
           <NavItem href="/admin" icon={<IconDashboard />} label="Visão Geral" onNavigate={() => setOpen(false)} />
           <NavItem href="/admin/modulos" icon={<IconModulos />} label="Módulos" onNavigate={() => setOpen(false)} />
           <NavItem href="/admin/workspaces" icon={<IconWorkspaces />} label="Empresas" onNavigate={() => setOpen(false)} />
+          <NavItem href="/admin/agentes" icon={<IconAgentes />} label="Agentes" onNavigate={() => setOpen(false)} />
           <div className="pt-3 mt-3 border-t border-border">
             <NavItem href="/dashboard" icon={<IconArea />} label="Área do Mentorado" onNavigate={() => setOpen(false)} />
           </div>
@@ -158,6 +159,9 @@ function IconArea() {
 }
 function IconWorkspaces() {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" /><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" /></svg>
+}
+function IconAgentes() {
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
 }
 function IconLogout() {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>

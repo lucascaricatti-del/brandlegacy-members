@@ -803,6 +803,9 @@ export type Database = {
           decisions: string | null
           risks: string | null
           status: string
+          agent_type: string | null
+          diagnosis_session_id: string | null
+          result_json: string | null
           created_at: string
         }
         Insert: {
@@ -815,6 +818,9 @@ export type Database = {
           decisions?: string | null
           risks?: string | null
           status?: string
+          agent_type?: string | null
+          diagnosis_session_id?: string | null
+          result_json?: string | null
           created_at?: string
         }
         Update: {
@@ -827,6 +833,9 @@ export type Database = {
           decisions?: string | null
           risks?: string | null
           status?: string
+          agent_type?: string | null
+          diagnosis_session_id?: string | null
+          result_json?: string | null
           created_at?: string
         }
         Relationships: [
@@ -835,6 +844,13 @@ export type Database = {
             columns: ['workspace_id']
             isOneToOne: false
             referencedRelation: 'workspaces'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'sessions_diagnosis_session_id_fkey'
+            columns: ['diagnosis_session_id']
+            isOneToOne: false
+            referencedRelation: 'sessions'
             referencedColumns: ['id']
           }
         ]
@@ -893,6 +909,129 @@ export type Database = {
             columns: ['kanban_card_id']
             isOneToOne: false
             referencedRelation: 'kanban_cards'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      agent_logs: {
+        Row: {
+          id: string
+          workspace_id: string | null
+          agent_type: string
+          summary: string | null
+          cards_found: number
+          email_sent: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id?: string | null
+          agent_type?: string
+          summary?: string | null
+          cards_found?: number
+          email_sent?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string | null
+          agent_type?: string
+          summary?: string | null
+          cards_found?: number
+          email_sent?: boolean
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'agent_logs_workspace_id_fkey'
+            columns: ['workspace_id']
+            isOneToOne: false
+            referencedRelation: 'workspaces'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      agent_configs: {
+        Row: {
+          id: string
+          workspace_id: string
+          agent_type: string
+          system_prompt: string
+          is_active: boolean
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          agent_type: string
+          system_prompt: string
+          is_active?: boolean
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          agent_type?: string
+          system_prompt?: string
+          is_active?: boolean
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'agent_configs_workspace_id_fkey'
+            columns: ['workspace_id']
+            isOneToOne: false
+            referencedRelation: 'workspaces'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      workspace_context: {
+        Row: {
+          id: string
+          workspace_id: string
+          business_type: string | null
+          business_description: string | null
+          monthly_revenue: string | null
+          team_size: string | null
+          main_goal: string | null
+          main_challenge: string | null
+          mentorship_stage: string | null
+          extra_context: string | null
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          business_type?: string | null
+          business_description?: string | null
+          monthly_revenue?: string | null
+          team_size?: string | null
+          main_goal?: string | null
+          main_challenge?: string | null
+          mentorship_stage?: string | null
+          extra_context?: string | null
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          business_type?: string | null
+          business_description?: string | null
+          monthly_revenue?: string | null
+          team_size?: string | null
+          main_goal?: string | null
+          main_challenge?: string | null
+          mentorship_stage?: string | null
+          extra_context?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'workspace_context_workspace_id_fkey'
+            columns: ['workspace_id']
+            isOneToOne: true
+            referencedRelation: 'workspaces'
             referencedColumns: ['id']
           }
         ]
@@ -958,6 +1097,9 @@ export type Delivery = Database['public']['Tables']['deliveries']['Row']
 export type DeliveryMaterial = Database['public']['Tables']['delivery_materials']['Row']
 export type Session = Database['public']['Tables']['sessions']['Row']
 export type SessionTask = Database['public']['Tables']['session_tasks']['Row']
+export type AgentLog = Database['public']['Tables']['agent_logs']['Row']
+export type AgentConfig = Database['public']['Tables']['agent_configs']['Row']
+export type WorkspaceContext = Database['public']['Tables']['workspace_context']['Row']
 
 // ============================================================
 // Tipos compostos para uso em componentes

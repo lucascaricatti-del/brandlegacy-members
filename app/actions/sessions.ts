@@ -5,6 +5,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { KanbanPriority } from '@/lib/types/database'
+import { getAgentConfig, buildContextString, DEFAULT_PROMPTS } from './agents'
 
 async function requireAdmin() {
   const supabase = await createClient()
@@ -29,11 +30,14 @@ export async function createSession(
   workspaceId: string,
   title: string,
   sessionDate: string | null,
+  agentType: string,
+  diagnosisSessionId: string | null,
 ) {
   await requireAdmin()
   const adminSupabase = createAdminClient()
 
   if (!title.trim()) return { error: 'Título é obrigatório' }
+  if (!agentType) return { error: 'Tipo de agente é obrigatório' }
 
   const { data, error } = await adminSupabase
     .from('sessions')
@@ -41,6 +45,8 @@ export async function createSession(
       workspace_id: workspaceId,
       title: title.trim(),
       session_date: sessionDate || null,
+      agent_type: agentType,
+      diagnosis_session_id: diagnosisSessionId || null,
       status: 'pending',
     })
     .select('id')
@@ -53,20 +59,65 @@ export async function createSession(
 }
 
 // ============================================================
-// ANALISAR TRANSCRIÇÃO COM IA
+// RESOLVE SYSTEM PROMPT
+// Busca config customizada → fallback para default do tipo
+// Injeta {{context}} e {{diagnosis}}
 // ============================================================
 
-interface AIAnalysisResult {
-  summary: string
-  decisions: string[]
-  risks: string[]
-  tasks: {
-    title: string
-    responsible: string | null
-    due_date: string | null
-    priority: 'baixa' | 'media' | 'alta' | 'urgente'
-  }[]
+async function resolveSystemPrompt(
+  workspaceId: string,
+  agentType: string,
+  diagnosisSessionId: string | null,
+  adminSupabase: ReturnType<typeof createAdminClient>,
+): Promise<string> {
+  // 1. Tenta config customizada do workspace para este tipo
+  const config = await getAgentConfig(workspaceId, agentType)
+  let basePrompt = config?.system_prompt ?? DEFAULT_PROMPTS[agentType] ?? DEFAULT_PROMPTS.mentoring
+
+  // 2. Injeta {{context}}
+  if (basePrompt.includes('{{context}}')) {
+    const contextStr = await buildContextString(workspaceId)
+    basePrompt = basePrompt.replace('{{context}}', contextStr)
+  }
+
+  // 3. Injeta {{diagnosis}} (apenas para plano de ação)
+  if (basePrompt.includes('{{diagnosis}}') && diagnosisSessionId) {
+    const { data: diagSession } = await adminSupabase
+      .from('sessions')
+      .select('result_json, summary')
+      .eq('id', diagnosisSessionId)
+      .single()
+
+    let diagnosisStr = '[sem diagnóstico anterior]'
+    if (diagSession?.result_json) {
+      try {
+        const parsed = JSON.parse(diagSession.result_json)
+        const parts: string[] = []
+        if (parsed.summary) parts.push(`Resumo: ${parsed.summary}`)
+        if (parsed.strengths?.length) parts.push(`Pontos fortes: ${parsed.strengths.join('; ')}`)
+        if (parsed.bottlenecks?.length) parts.push(`Gargalos: ${parsed.bottlenecks.join('; ')}`)
+        if (parsed.opportunities?.length) parts.push(`Oportunidades: ${parsed.opportunities.join('; ')}`)
+        if (parsed.risks?.length) parts.push(`Riscos: ${parsed.risks.join('; ')}`)
+        if (parsed.recommendations?.length) parts.push(`Recomendações: ${parsed.recommendations.join('; ')}`)
+        diagnosisStr = parts.join('\n')
+      } catch {
+        diagnosisStr = diagSession.summary ?? '[sem diagnóstico anterior]'
+      }
+    } else if (diagSession?.summary) {
+      diagnosisStr = diagSession.summary
+    }
+
+    basePrompt = basePrompt.replace('{{diagnosis}}', diagnosisStr)
+  } else if (basePrompt.includes('{{diagnosis}}')) {
+    basePrompt = basePrompt.replace('{{diagnosis}}', '[sem diagnóstico anterior]')
+  }
+
+  return basePrompt
 }
+
+// ============================================================
+// ANALISAR TRANSCRIÇÃO COM IA
+// ============================================================
 
 export async function analyzeTranscript(
   sessionId: string,
@@ -78,6 +129,16 @@ export async function analyzeTranscript(
 
   if (!transcript.trim()) return { error: 'Transcrição vazia' }
 
+  // Busca agent_type da sessão
+  const { data: session } = await adminSupabase
+    .from('sessions')
+    .select('agent_type, diagnosis_session_id')
+    .eq('id', sessionId)
+    .single()
+
+  const agentType = session?.agent_type ?? 'mentoring'
+  const diagnosisSessionId = session?.diagnosis_session_id ?? null
+
   // Marca como "analyzing"
   await adminSupabase
     .from('sessions')
@@ -85,27 +146,14 @@ export async function analyzeTranscript(
     .eq('id', sessionId)
 
   try {
+    const systemPrompt = await resolveSystemPrompt(workspaceId, agentType, diagnosisSessionId, adminSupabase)
+
     const anthropic = new Anthropic()
 
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 4096,
-      system: `Você é um assistente especializado em análise de reuniões de mentoria empresarial.
-Analise a transcrição e retorne APENAS um JSON válido com esta estrutura exata:
-{
-  "summary": "resumo executivo em 3-5 frases",
-  "decisions": ["decisão 1", "decisão 2"],
-  "risks": ["risco ou ponto de atenção 1", "risco 2"],
-  "tasks": [
-    {
-      "title": "título da tarefa clara e acionável",
-      "responsible": "nome da pessoa responsável ou null",
-      "due_date": "YYYY-MM-DD ou null",
-      "priority": "baixa|media|alta|urgente"
-    }
-  ]
-}
-Responda SOMENTE com o JSON, sem texto adicional, sem markdown, sem blocos de código.`,
+      max_tokens: 8192,
+      system: systemPrompt,
       messages: [
         { role: 'user', content: transcript.trim() },
       ],
@@ -116,22 +164,23 @@ Responda SOMENTE com o JSON, sem texto adicional, sem markdown, sem blocos de c�
       throw new Error('Resposta vazia da IA')
     }
 
-    const result: AIAnalysisResult = JSON.parse(textBlock.text)
+    const result = JSON.parse(textBlock.text)
 
-    // Salva resultados na sessão
+    // Salva resultado bruto como JSON
     await adminSupabase
       .from('sessions')
       .update({
-        summary: result.summary,
-        decisions: JSON.stringify(result.decisions),
-        risks: JSON.stringify(result.risks),
+        summary: result.summary ?? null,
+        decisions: result.decisions ? JSON.stringify(result.decisions) : null,
+        risks: result.risks ? JSON.stringify(result.risks) : null,
+        result_json: textBlock.text,
         status: 'completed',
       })
       .eq('id', sessionId)
 
-    // Salva tarefas extraídas
-    if (result.tasks.length > 0) {
-      const taskRows = result.tasks.map((t) => ({
+    // Salva tarefas (apenas para plan e mentoring)
+    if (agentType !== 'diagnostic' && result.tasks?.length > 0) {
+      const taskRows = result.tasks.map((t: { title: string; responsible?: string; due_date?: string; priority?: string }) => ({
         session_id: sessionId,
         workspace_id: workspaceId,
         title: t.title,
@@ -146,7 +195,6 @@ Responda SOMENTE com o JSON, sem texto adicional, sem markdown, sem blocos de c�
     revalidatePath(`/admin/workspaces/${workspaceId}/sessoes`)
     return { success: true }
   } catch (err) {
-    // Marca como erro
     await adminSupabase
       .from('sessions')
       .update({ status: 'error' })
@@ -172,7 +220,6 @@ export async function addSessionTaskToKanban(taskId: string, workspaceId: string
   await requireAdmin()
   const adminSupabase = createAdminClient()
 
-  // Busca a tarefa
   const { data: task } = await adminSupabase
     .from('session_tasks')
     .select('*')
@@ -182,7 +229,6 @@ export async function addSessionTaskToKanban(taskId: string, workspaceId: string
   if (!task) return { error: 'Tarefa não encontrada' }
   if (task.kanban_card_id) return { error: 'Tarefa já adicionada ao Kanban' }
 
-  // Busca board + primeira coluna do workspace
   const { data: board } = await adminSupabase
     .from('kanban_boards')
     .select('id')
@@ -201,7 +247,6 @@ export async function addSessionTaskToKanban(taskId: string, workspaceId: string
 
   if (!firstCol) return { error: 'Nenhuma coluna encontrada no board.' }
 
-  // Calcula order_index
   const { data: lastCard } = await adminSupabase
     .from('kanban_cards')
     .select('order_index')
@@ -213,7 +258,6 @@ export async function addSessionTaskToKanban(taskId: string, workspaceId: string
 
   const order_index = (lastCard?.order_index ?? -1) + 1
 
-  // Cria card no kanban
   const { data: card, error: insertError } = await adminSupabase
     .from('kanban_cards')
     .insert({
@@ -229,7 +273,6 @@ export async function addSessionTaskToKanban(taskId: string, workspaceId: string
 
   if (insertError || !card) return { error: insertError?.message ?? 'Erro ao criar card' }
 
-  // Vincula card à task
   await adminSupabase
     .from('session_tasks')
     .update({ kanban_card_id: card.id })

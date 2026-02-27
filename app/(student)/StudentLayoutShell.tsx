@@ -58,6 +58,7 @@ export default function StudentLayoutShell({
           <NavItem href="/entregas" icon={<IconEntregas />} label="Controle de Entregas" onNavigate={() => setOpen(false)} />
           <NavItem href="/agenda" icon={<IconAgenda />} label="Agenda" onNavigate={() => setOpen(false)} />
           <NavItem href="/team" icon={<IconTeam />} label="Meu Time" onNavigate={() => setOpen(false)} />
+          <NavItem href="/agente" icon={<IconAgente />} label="Meu Agente" onNavigate={() => setOpen(false)} />
           {profile?.role === 'admin' && (
             <div className="pt-3 mt-3 border-t border-border">
               <p className="text-text-muted text-xs font-medium px-3 mb-2 uppercase tracking-wider">Admin</p>
@@ -207,6 +208,14 @@ function IconAdmin() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+  )
+}
+function IconAgente() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2a4 4 0 0 0-4 4v6a4 4 0 0 0 8 0V6a4 4 0 0 0-4-4z" />
+      <path d="M12 18.5V22" /><path d="M7 22h10" />
     </svg>
   )
 }
