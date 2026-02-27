@@ -77,7 +77,7 @@ export async function saveWorkspaceContext(
 }
 
 // ============================================================
-// AGENT CONFIG — por tipo (diagnostic, plan, mentoring)
+// AGENT CONFIG — por tipo (diagnostic, performance, mentoring, influenciadores)
 // ============================================================
 
 export async function getAgentConfig(workspaceId: string, agentType: string) {

@@ -62,8 +62,9 @@ const STAGE_OPTIONS = [
 const TABS = [
   { key: 'context', label: 'Contexto', icon: 'M12 2a4 4 0 0 0-4 4v1H5a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1h-3V6a4 4 0 0 0-4-4z' },
   { key: 'diagnostic', label: 'Diagnóstico', icon: 'M9 19V6l12-3v13' },
-  { key: 'plan', label: 'Plano de Ação', icon: 'M9 11l3 3L22 4' },
+  { key: 'performance', label: 'Performance', icon: 'M22 12h-4l-3 9L9 3l-3 9H2' },
   { key: 'mentoring', label: 'Mentoria', icon: 'M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2' },
+  { key: 'influenciadores', label: 'Influenciadores', icon: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2' },
 ] as const
 
 // ── Component ────────────────────────────────────────────────
@@ -85,11 +86,14 @@ export default function AgentConfigClient({ workspaceId, context, agentConfigs }
   const [diagnosticPrompt, setDiagnosticPrompt] = useState(
     agentConfigs.diagnostic?.system_prompt ?? DEFAULT_PROMPTS?.diagnostic ?? ''
   )
-  const [planPrompt, setPlanPrompt] = useState(
-    agentConfigs.plan?.system_prompt ?? DEFAULT_PROMPTS?.plan ?? ''
+  const [performancePrompt, setPerformancePrompt] = useState(
+    agentConfigs.performance?.system_prompt ?? DEFAULT_PROMPTS?.performance ?? ''
   )
   const [mentoringPrompt, setMentoringPrompt] = useState(
     agentConfigs.mentoring?.system_prompt ?? DEFAULT_PROMPTS?.mentoring ?? ''
+  )
+  const [influenciadoresPrompt, setInfluenciadoresPrompt] = useState(
+    agentConfigs.influenciadores?.system_prompt ?? DEFAULT_PROMPTS?.influenciadores ?? ''
   )
 
   const [isPending, startTransition] = useTransition()
@@ -131,8 +135,9 @@ export default function AgentConfigClient({ workspaceId, context, agentConfigs }
   function handleResetPrompt(agentType: string) {
     const defaultPrompt = DEFAULT_PROMPTS?.[agentType] ?? ''
     if (agentType === 'diagnostic') setDiagnosticPrompt(defaultPrompt)
-    if (agentType === 'plan') setPlanPrompt(defaultPrompt)
+    if (agentType === 'performance') setPerformancePrompt(defaultPrompt)
     if (agentType === 'mentoring') setMentoringPrompt(defaultPrompt)
+    if (agentType === 'influenciadores') setInfluenciadoresPrompt(defaultPrompt)
   }
 
   return (
@@ -181,7 +186,7 @@ export default function AgentConfigClient({ workspaceId, context, agentConfigs }
             </div>
             <div>
               <h2 className="font-semibold text-text-primary">Contexto do Negócio</h2>
-              <p className="text-xs text-text-muted">Informações injetadas automaticamente nos prompts dos 3 agentes via {'{{context}}'}</p>
+              <p className="text-xs text-text-muted">Informações injetadas automaticamente nos prompts dos 4 agentes via {'{{context}}'}</p>
             </div>
           </div>
 
@@ -242,21 +247,32 @@ export default function AgentConfigClient({ workspaceId, context, agentConfigs }
       )}
 
       {/* TAB: Agent prompts */}
-      {(activeTab === 'diagnostic' || activeTab === 'plan' || activeTab === 'mentoring') && (
-        <AgentPromptEditor
-          agentType={activeTab}
-          label={TABS.find((t) => t.key === activeTab)?.label ?? ''}
-          prompt={activeTab === 'diagnostic' ? diagnosticPrompt : activeTab === 'plan' ? planPrompt : mentoringPrompt}
-          setPrompt={activeTab === 'diagnostic' ? setDiagnosticPrompt : activeTab === 'plan' ? setPlanPrompt : setMentoringPrompt}
-          onSave={() => handleSaveAgent(
-            activeTab,
-            activeTab === 'diagnostic' ? diagnosticPrompt : activeTab === 'plan' ? planPrompt : mentoringPrompt,
-          )}
-          onReset={() => handleResetPrompt(activeTab)}
-          isPending={isPending}
-          hasCustomConfig={!!agentConfigs[activeTab]}
-        />
-      )}
+      {(activeTab === 'diagnostic' || activeTab === 'performance' || activeTab === 'mentoring' || activeTab === 'influenciadores') && (() => {
+        const promptMap: Record<string, string> = {
+          diagnostic: diagnosticPrompt,
+          performance: performancePrompt,
+          mentoring: mentoringPrompt,
+          influenciadores: influenciadoresPrompt,
+        }
+        const setPromptMap: Record<string, (v: string) => void> = {
+          diagnostic: setDiagnosticPrompt,
+          performance: setPerformancePrompt,
+          mentoring: setMentoringPrompt,
+          influenciadores: setInfluenciadoresPrompt,
+        }
+        return (
+          <AgentPromptEditor
+            agentType={activeTab}
+            label={TABS.find((t) => t.key === activeTab)?.label ?? ''}
+            prompt={promptMap[activeTab] ?? ''}
+            setPrompt={setPromptMap[activeTab] ?? (() => {})}
+            onSave={() => handleSaveAgent(activeTab, promptMap[activeTab] ?? '')}
+            onReset={() => handleResetPrompt(activeTab)}
+            isPending={isPending}
+            hasCustomConfig={!!agentConfigs[activeTab]}
+          />
+        )
+      })()}
     </div>
   )
 }
@@ -287,8 +303,9 @@ function AgentPromptEditor({
 
   const descriptions: Record<string, string> = {
     diagnostic: 'Analisa reuniões de diagnóstico. Gera relatório executivo com pontos fortes, gargalos, oportunidades e riscos. NÃO gera tarefas.',
-    plan: 'Cria plano de ação a partir de reuniões. Gera tarefas priorizadas (urgente/alta/média/baixa) sem limite de quantidade. Pode usar diagnóstico anterior.',
+    performance: 'Analisa reuniões focadas em performance. Avalia KPIs, metas, gargalos e gera tarefas de otimização priorizadas. Pode usar diagnóstico anterior.',
     mentoring: 'Analisa reuniões de acompanhamento. Extrai todas as tarefas discutidas com priorização e sugere tópicos para próxima sessão.',
+    influenciadores: 'Analisa reuniões sobre estratégia de influenciadores. Gera plano de ações com parcerias, budget, cronograma e métricas.',
   }
 
   return (
@@ -346,7 +363,7 @@ function AgentPromptEditor({
 
         <p className="text-[10px] text-text-muted">
           Variáveis disponíveis: <code className="bg-bg-surface px-1 py-0.5 rounded">{'{{context}}'}</code>
-          {agentType === 'plan' && (
+          {agentType === 'performance' && (
             <> e <code className="bg-bg-surface px-1 py-0.5 rounded">{'{{diagnosis}}'}</code></>
           )}
         </p>

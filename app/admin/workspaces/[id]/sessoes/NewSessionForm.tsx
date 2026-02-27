@@ -16,8 +16,9 @@ interface Props {
 
 const AGENT_TYPES = [
   { value: 'diagnostic', label: 'Diagnóstico', desc: 'Relatório executivo, sem tarefas' },
-  { value: 'plan', label: 'Plano de Ação', desc: 'Tarefas priorizadas + decisões' },
+  { value: 'performance', label: 'Performance', desc: 'Análise de KPIs + tarefas de otimização' },
   { value: 'mentoring', label: 'Mentoria', desc: 'Acompanhamento + tarefas' },
+  { value: 'influenciadores', label: 'Influenciadores', desc: 'Estratégia de influenciadores + ações' },
 ]
 
 export default function NewSessionForm({ workspaceId, diagnosisSessions }: Props) {
@@ -46,7 +47,7 @@ export default function NewSessionForm({ workspaceId, diagnosisSessions }: Props
         title,
         sessionDate,
         agentType,
-        agentType === 'plan' && diagnosisId ? diagnosisId : null,
+        agentType === 'performance' && diagnosisId ? diagnosisId : null,
       )
       if ('error' in result) {
         setError(result.error ?? 'Erro desconhecido')
@@ -117,7 +118,7 @@ export default function NewSessionForm({ workspaceId, diagnosisSessions }: Props
             {AGENT_TYPES.find((t) => t.value === agentType)?.desc}
           </p>
         </div>
-        {agentType === 'plan' && diagnosisSessions.length > 0 && (
+        {agentType === 'performance' && diagnosisSessions.length > 0 && (
           <div>
             <label className="block text-xs text-text-muted mb-1">Diagnóstico base (opcional)</label>
             <select

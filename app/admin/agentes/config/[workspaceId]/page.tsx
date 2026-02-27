@@ -53,7 +53,7 @@ export default async function AdminAgentConfigPage({ params }: Props) {
 
   const context = ctxRaw as unknown as RawContext
 
-  // Busca configs dos 3 agentes
+  // Busca configs dos 4 agentes
   const { data: configsRaw } = await adminSupabase
     .from('agent_configs')
     .select('agent_type, system_prompt, is_active')
@@ -79,7 +79,7 @@ export default async function AdminAgentConfigPage({ params }: Props) {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold text-text-primary">Configuração dos Agentes IA</h1>
-          <p className="text-sm text-text-muted">{workspace.name} — 3 agentes especializados</p>
+          <p className="text-sm text-text-muted">{workspace.name} — 4 agentes especializados</p>
         </div>
         <Link
           href={`/admin/workspaces/${workspaceId}`}

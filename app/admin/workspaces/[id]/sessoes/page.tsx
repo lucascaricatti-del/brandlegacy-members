@@ -112,7 +112,7 @@ export default async function AdminWorkspaceSessionsPage({ params }: Props) {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold text-text-primary">Sessões de Mentoria</h1>
-          <p className="text-sm text-text-muted">{workspace.name} — 3 agentes IA especializados</p>
+          <p className="text-sm text-text-muted">{workspace.name} — 4 agentes IA especializados</p>
         </div>
         <div className="flex items-center gap-2">
           <Link

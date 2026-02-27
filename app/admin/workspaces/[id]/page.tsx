@@ -67,23 +67,6 @@ export default async function AdminWorkspacePage({ params }: Props) {
     .eq('workspace_id', id)
     .single()
 
-  // Busca tasks summary via adminClient
-  const today = new Date().toISOString().split('T')[0]
-  const { data: tasks } = await adminSupabase
-    .from('tasks')
-    .select('status, due_date, is_archived')
-    .eq('workspace_id', id)
-    .eq('is_archived', false)
-
-  const allTasks = tasks ?? []
-  const taskStats = {
-    total: allTasks.length,
-    completed: allTasks.filter((t) => t.status === 'concluida').length,
-    overdue: allTasks.filter((t) => t.status !== 'concluida' && t.due_date && t.due_date < today).length,
-    pending: allTasks.filter((t) => t.status === 'pendente').length,
-    inProgress: allTasks.filter((t) => t.status === 'em_andamento').length,
-  }
-
   return (
     <div className="animate-fade-in">
       {/* Breadcrumb */}
@@ -162,7 +145,7 @@ export default async function AdminWorkspacePage({ params }: Props) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Coluna esquerda: edição + info financeira */}
         <div className="space-y-6">
           <div className="bg-bg-card border border-border rounded-xl p-6">
@@ -233,63 +216,6 @@ export default async function AdminWorkspacePage({ params }: Props) {
           </div>
         </div>
 
-        {/* Coluna direita: Tarefas */}
-        <div>
-          <div className="bg-bg-card border border-border rounded-xl p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-semibold text-text-primary">Tarefas</h2>
-              <Link
-                href={`/admin/workspaces/${id}/tasks`}
-                className="text-xs text-brand-gold hover:text-brand-gold-light transition-colors"
-              >
-                Ver todas →
-              </Link>
-            </div>
-
-            {taskStats.total === 0 ? (
-              <p className="text-text-muted text-sm text-center py-4">Nenhuma tarefa criada ainda.</p>
-            ) : (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-bg-surface rounded-lg p-3 text-center">
-                    <p className="text-2xl font-bold text-text-primary">{taskStats.total}</p>
-                    <p className="text-xs text-text-muted mt-0.5">Total</p>
-                  </div>
-                  <div className="bg-bg-surface rounded-lg p-3 text-center">
-                    <p className={`text-2xl font-bold ${taskStats.overdue > 0 ? 'text-error' : 'text-text-primary'}`}>
-                      {taskStats.overdue}
-                    </p>
-                    <p className="text-xs text-text-muted mt-0.5">Atrasadas</p>
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-text-secondary">Pendentes</span>
-                    <span className="text-sm text-text-muted font-medium">{taskStats.pending}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-text-secondary">Em andamento</span>
-                    <span className="text-sm text-text-muted font-medium">{taskStats.inProgress}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-text-secondary">Concluídas</span>
-                    <span className="text-sm text-green-400 font-medium">{taskStats.completed}</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <Link
-              href={`/admin/workspaces/${id}/tasks`}
-              className="mt-5 w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-brand-gold/10 border border-brand-gold/20 text-brand-gold text-sm hover:bg-brand-gold/20 transition-colors"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-              </svg>
-              Abrir Tarefas
-            </Link>
-          </div>
-        </div>
       </div>
     </div>
   )

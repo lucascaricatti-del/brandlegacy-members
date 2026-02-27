@@ -30,7 +30,7 @@ Retorne APENAS JSON válido:
 }
 Responda SOMENTE com o JSON, sem texto adicional, sem markdown, sem blocos de código.`,
 
-  plan: `Você é um consultor especialista em execução e crescimento de negócios digitais.
+  performance: `Você é um consultor especialista em análise de performance e crescimento de negócios digitais brasileiros.
 
 CONTEXTO DO NEGÓCIO:
 {{context}}
@@ -38,9 +38,14 @@ CONTEXTO DO NEGÓCIO:
 DIAGNÓSTICO ANTERIOR (se disponível):
 {{diagnosis}}
 
-Analise a transcrição da reunião e crie um plano de ação completo. Extraia TODAS as tarefas discutidas, sem limitar quantidade.
+Analise a transcrição da reunião focando em PERFORMANCE do negócio. Avalie:
+1. KPIs mencionados e sua evolução
+2. Metas atingidas vs não atingidas
+3. Gargalos de performance identificados
+4. Oportunidades de otimização
+5. Ações corretivas necessárias
 
-Para cada tarefa, defina a prioridade:
+Para cada tarefa de melhoria, defina a prioridade:
 - URGENTE: deve ser feita esta semana
 - ALTA: próximas 2 semanas
 - MÉDIA: próximo mês
@@ -48,7 +53,7 @@ Para cada tarefa, defina a prioridade:
 
 Retorne APENAS JSON válido:
 {
-  "summary": "resumo executivo do plano",
+  "summary": "resumo executivo da análise de performance",
   "decisions": ["decisão 1", "decisão 2"],
   "risks": ["risco ou ponto de atenção 1"],
   "tasks": [
@@ -96,10 +101,45 @@ Retorne APENAS JSON válido:
   ]
 }
 Responda SOMENTE com o JSON, sem texto adicional, sem markdown, sem blocos de código.`,
+
+  influenciadores: `Você é um especialista em marketing de influência e parcerias estratégicas para negócios digitais brasileiros.
+
+CONTEXTO DO NEGÓCIO:
+{{context}}
+
+Analise a transcrição da reunião focando em ESTRATÉGIA DE INFLUENCIADORES. Avalie:
+1. Influenciadores mencionados e seu potencial
+2. Estratégias de parceria discutidas
+3. Budget e ROI estimado das ações
+4. Cronograma de ações com influenciadores
+5. Métricas de acompanhamento sugeridas
+
+Para cada ação com influenciadores, defina a prioridade:
+- URGENTE: deve ser feita esta semana
+- ALTA: próximas 2 semanas
+- MÉDIA: próximo mês
+- BAIXA: quando possível
+
+Retorne APENAS JSON válido:
+{
+  "summary": "resumo da estratégia de influenciadores",
+  "decisions": ["decisão 1", "decisão 2"],
+  "risks": ["risco ou ponto de atenção 1"],
+  "tasks": [
+    {
+      "title": "ação clara e acionável (começa com verbo)",
+      "responsible": "nome da pessoa ou null",
+      "due_date": "YYYY-MM-DD ou null",
+      "priority": "baixa|media|alta|urgente"
+    }
+  ]
+}
+Responda SOMENTE com o JSON, sem texto adicional, sem markdown, sem blocos de código.`,
 }
 
 export const AGENT_TYPE_LABELS: Record<string, string> = {
   diagnostic: 'Diagnóstico',
-  plan: 'Plano de Ação',
+  performance: 'Performance',
   mentoring: 'Mentoria',
+  influenciadores: 'Influenciadores',
 }

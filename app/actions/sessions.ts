@@ -80,7 +80,7 @@ async function resolveSystemPrompt(
     basePrompt = basePrompt.replace('{{context}}', contextStr)
   }
 
-  // 3. Injeta {{diagnosis}} (apenas para plano de ação)
+  // 3. Injeta {{diagnosis}} (para performance — antigo plano de ação)
   if (basePrompt.includes('{{diagnosis}}') && diagnosisSessionId) {
     const { data: diagSession } = await adminSupabase
       .from('sessions')

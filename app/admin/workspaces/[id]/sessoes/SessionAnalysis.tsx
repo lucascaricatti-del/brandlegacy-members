@@ -60,11 +60,12 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   error: { label: 'Erro', color: 'text-red-400 bg-red-400/15' },
 }
 
-const AGENT_TYPE_LABELS: Record<string, string> = { diagnostic: 'Diagnóstico', plan: 'Plano de Ação', mentoring: 'Mentoria' }
+const AGENT_TYPE_LABELS: Record<string, string> = { diagnostic: 'Diagnóstico', performance: 'Performance', mentoring: 'Mentoria', influenciadores: 'Influenciadores' }
 const AGENT_TYPE_COLORS: Record<string, string> = {
   diagnostic: 'text-purple-400 bg-purple-400/15',
-  plan: 'text-blue-400 bg-blue-400/15',
+  performance: 'text-blue-400 bg-blue-400/15',
   mentoring: 'text-brand-gold bg-brand-gold/15',
+  influenciadores: 'text-green-400 bg-green-400/15',
 }
 
 // ── Component ────────────────────────────────────────────────
