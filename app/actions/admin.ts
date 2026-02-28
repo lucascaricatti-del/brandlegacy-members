@@ -258,6 +258,55 @@ export async function deleteMaterial(materialId: string, moduleId?: string) {
 }
 
 // ============================================================
+// CRIAR MEMBRO DA EQUIPE
+// ============================================================
+
+export async function createTeamMember(
+  name: string,
+  email: string,
+  cargo: string,
+  adminRole: AdminRole,
+) {
+  await requireAdmin()
+  const adminSupabase = createAdminClient()
+
+  if (!name.trim() || !email.trim()) return { error: 'Nome e email são obrigatórios.' }
+
+  const password = Math.random().toString(36).slice(-8) + 'A1!'
+
+  const { data: authData, error: authError } = await adminSupabase.auth.admin.createUser({
+    email: email.trim().toLowerCase(),
+    password,
+    email_confirm: true,
+    user_metadata: { name: name.trim() },
+  })
+
+  if (authError) return { error: authError.message }
+
+  const userId = authData.user.id
+
+  const { error: profileError } = await adminSupabase.from('profiles').upsert(
+    {
+      id: userId,
+      email: email.trim().toLowerCase(),
+      name: name.trim(),
+      role: 'admin',
+      admin_role: adminRole,
+      is_active: true,
+    },
+    { onConflict: 'id' },
+  )
+
+  if (profileError) {
+    await adminSupabase.auth.admin.deleteUser(userId)
+    return { error: `Erro ao criar perfil: ${profileError.message}` }
+  }
+
+  revalidatePath('/admin/equipe')
+  return { success: true, credentials: { name: name.trim(), email: email.trim().toLowerCase(), password, cargo } }
+}
+
+// ============================================================
 // ADMIN ROLE
 // ============================================================
 

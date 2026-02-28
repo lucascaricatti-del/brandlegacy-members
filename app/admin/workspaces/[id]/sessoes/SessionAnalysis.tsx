@@ -19,6 +19,7 @@ interface SessionTask {
   due_date: string | null
   priority: string
   kanban_card_id: string | null
+  task_id: string | null
 }
 
 interface Session {
@@ -77,6 +78,7 @@ export default function SessionAnalysis({ sessions, workspaceId }: Props) {
   const [isPending, startTransition] = useTransition()
   const [loadingAction, setLoadingAction] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [addedTaskIds, setAddedTaskIds] = useState<Set<string>>(new Set())
 
   function openTranscriptModal(sessionId: string, existing?: string | null) {
     setTranscriptText(existing ?? '')
@@ -100,16 +102,29 @@ export default function SessionAnalysis({ sessions, workspaceId }: Props) {
 
   function handleAddToTaskFlow(taskId: string) {
     setError(null)
+    setAddedTaskIds((prev) => new Set(prev).add(taskId))
     setLoadingAction(`task-${taskId}`)
     startTransition(async () => {
       const result = await addSessionTaskToTaskFlow(taskId, workspaceId)
-      if ('error' in result) setError(result.error ?? 'Erro desconhecido')
+      if ('error' in result) {
+        setError(result.error ?? 'Erro desconhecido')
+        setAddedTaskIds((prev) => { const next = new Set(prev); next.delete(taskId); return next })
+      }
       setLoadingAction(null)
     })
   }
 
   function handleAddAllToTaskFlow(sessionId: string) {
     setError(null)
+    const session = sessions.find((s) => s.id === sessionId)
+    if (session) {
+      const pending = session.session_tasks.filter((t) => !t.task_id && !t.kanban_card_id)
+      setAddedTaskIds((prev) => {
+        const next = new Set(prev)
+        pending.forEach((t) => next.add(t.id))
+        return next
+      })
+    }
     setLoadingAction(`all-${sessionId}`)
     startTransition(async () => {
       const result = await addAllSessionTasksToTaskFlow(sessionId, workspaceId)
@@ -239,6 +254,7 @@ export default function SessionAnalysis({ sessions, workspaceId }: Props) {
                           onAddAllToTaskFlow={handleAddAllToTaskFlow}
                           isPending={isPending}
                           loadingAction={loadingAction}
+                          addedTaskIds={addedTaskIds}
                         />
                     }
                   </div>
@@ -381,6 +397,7 @@ function TaskResults({
   onAddAllToTaskFlow,
   isPending,
   loadingAction,
+  addedTaskIds,
 }: {
   session: Session
   workspaceId: string
@@ -388,6 +405,7 @@ function TaskResults({
   onAddAllToTaskFlow: (sessionId: string) => void
   isPending: boolean
   loadingAction: string | null
+  addedTaskIds: Set<string>
 }) {
   const [editingTask, setEditingTask] = useState<string | null>(null)
   const [showNewTask, setShowNewTask] = useState(false)
@@ -395,7 +413,7 @@ function TaskResults({
 
   const decisions = safeParseArray(session.decisions)
   const risks = safeParseArray(session.risks)
-  const pendingTasks = session.session_tasks.filter((t) => !t.kanban_card_id)
+  const pendingTasks = session.session_tasks.filter((t) => !t.task_id && !t.kanban_card_id && !addedTaskIds.has(t.id))
   const sortedTasks = [...session.session_tasks].sort(
     (a, b) => (PRIORITY_ORDER[a.priority] ?? 99) - (PRIORITY_ORDER[b.priority] ?? 99),
   )
@@ -471,7 +489,7 @@ function TaskResults({
                   disabled={isPending || loadingAction === `all-${session.id}`}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-gold/15 text-brand-gold border border-brand-gold/30 text-xs font-medium hover:bg-brand-gold/25 transition-colors disabled:opacity-60"
                 >
-                  {loadingAction === `all-${session.id}` ? 'Adicionando...' : 'Adicionar todas ao TaskFlow'}
+                  {loadingAction === `all-${session.id}` ? 'Adicionando...' : 'Adicionar todas'}
                 </button>
               )}
             </div>
@@ -522,9 +540,9 @@ function TaskResults({
                           <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
                         </svg>
                       </button>
-                      {task.kanban_card_id ? (
+                      {(task.task_id || task.kanban_card_id || addedTaskIds.has(task.id)) ? (
                         <span className="text-[10px] px-2 py-1 rounded bg-green-400/15 text-green-400 font-medium">
-                          No TaskFlow
+                          Adicionada
                         </span>
                       ) : (
                         <button
@@ -537,7 +555,7 @@ function TaskResults({
                               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                 <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
                               </svg>
-                              TaskFlow
+                              Adicionar
                             </>
                           )}
                         </button>

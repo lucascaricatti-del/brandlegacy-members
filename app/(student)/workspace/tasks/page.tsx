@@ -40,17 +40,30 @@ export default async function TasksPage() {
 
   const ws = workspaces[0]
 
-  const { data: tasks } = await adminSupabase
-    .from('tasks')
-    .select('*, sessions:session_id(title)')
-    .eq('workspace_id', ws.id)
-    .order('created_at', { ascending: false })
+  const [{ data: tasks }, { data: wsMembers }] = await Promise.all([
+    adminSupabase
+      .from('tasks')
+      .select('*, sessions:session_id(title), creator:profiles!tasks_created_by_fkey(id, name)')
+      .eq('workspace_id', ws.id)
+      .order('created_at', { ascending: false }),
+    adminSupabase
+      .from('workspace_members')
+      .select('user_id, role, profiles:user_id(id, name, email)')
+      .eq('workspace_id', ws.id)
+      .eq('is_active', true),
+  ])
+
+  type MemberRow = { user_id: string; role: string; profiles: { id: string; name: string; email: string } | null }
+  const members = ((wsMembers ?? []) as unknown as MemberRow[])
+    .filter((m) => m.profiles)
+    .map((m) => ({ id: m.profiles!.id, name: m.profiles!.name, email: m.profiles!.email }))
 
   return (
     <div className="animate-fade-in">
       <TaskFlowClient
         workspaceId={ws.id}
         tasks={(tasks ?? []) as Parameters<typeof TaskFlowClient>[0]['tasks']}
+        members={members}
       />
     </div>
   )

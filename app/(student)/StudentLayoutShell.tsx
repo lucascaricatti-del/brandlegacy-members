@@ -56,10 +56,9 @@ export default function StudentLayoutShell({
           <NavItem href="/academy" icon={<IconAcademy />} label="Academy" onNavigate={() => setOpen(false)} />
           <NavItem href="/workspace/tasks" icon={<IconTasks />} label="Tarefas" onNavigate={() => setOpen(false)} />
           <NavItem href="/entregas" icon={<IconEntregas />} label="Controle de Entregas" onNavigate={() => setOpen(false)} />
-          <NavItem href="/agenda" icon={<IconAgenda />} label="Agenda" onNavigate={() => setOpen(false)} />
-          <NavItem href="/team" icon={<IconTeam />} label="Meu Time" onNavigate={() => setOpen(false)} />
           <NavItem href="/integracoes" icon={<IconIntegracoes />} label="Integrações" onNavigate={() => setOpen(false)} />
           <NavItem href="/metricas" icon={<IconMetricas />} label="Métricas" onNavigate={() => setOpen(false)} />
+          <NavItem href="/team" icon={<IconTeam />} label="Equipe" onNavigate={() => setOpen(false)} />
 
           {/* Ferramentas — submenu expansível */}
           <div>

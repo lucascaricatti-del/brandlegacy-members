@@ -1,5 +1,5 @@
 -- ============================================================
--- Migration v11 FIX: Garante que financial_info + tasks existam
+-- Migration v11 FIX: financial_info + tasks + fix session_tasks FK
 -- Consolida v11 + v12 (start_date, renewal_date)
 -- Rodar no Supabase SQL Editor
 -- ============================================================
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS financial_info (
 
 ALTER TABLE financial_info DISABLE ROW LEVEL SECURITY;
 
--- 2. Tabela tasks (task flow por workspace)
+-- 2. Tabela tasks (tarefas por workspace)
 CREATE TABLE IF NOT EXISTS tasks (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   workspace_id uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -44,11 +44,22 @@ CREATE TABLE IF NOT EXISTS tasks (
 
 ALTER TABLE tasks DISABLE ROW LEVEL SECURITY;
 
--- Indexes
+-- 3. Indexes
 CREATE INDEX IF NOT EXISTS idx_tasks_workspace ON tasks(workspace_id, is_archived, status);
 CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
 CREATE INDEX IF NOT EXISTS idx_financial_info_workspace ON financial_info(workspace_id);
 
--- Colunas v12 (caso tabela já exista sem elas)
+-- 4. Colunas v12 (caso tabela já exista sem elas)
 ALTER TABLE financial_info ADD COLUMN IF NOT EXISTS start_date date;
 ALTER TABLE financial_info ADD COLUMN IF NOT EXISTS renewal_date date;
+
+-- 5. FIX: session_tasks.kanban_card_id tem FK para kanban_cards,
+--    mas o código grava tasks.id ali => viola constraint.
+--    Adiciona coluna task_id própria e remove a FK antiga.
+ALTER TABLE session_tasks ADD COLUMN IF NOT EXISTS task_id uuid REFERENCES tasks(id) ON DELETE SET NULL;
+
+-- Migra dados existentes (se houver kanban_card_id que na verdade era task_id)
+UPDATE session_tasks SET task_id = kanban_card_id WHERE kanban_card_id IS NOT NULL AND task_id IS NULL;
+
+-- Remove FK constraint antiga do kanban_card_id
+ALTER TABLE session_tasks DROP CONSTRAINT IF EXISTS session_tasks_kanban_card_id_fkey;

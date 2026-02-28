@@ -1,4 +1,3 @@
-import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -88,6 +87,11 @@ export default async function AcademyPage() {
     .filter((m) => m.progress > 0 && m.progress < 100)
     .slice(0, 4)
 
+  // Stats
+  const totalLessons = allModules.reduce((sum, m) => sum + (m.lessons?.length ?? 0), 0)
+  const totalMasterclasses = masterclassModules.length
+  const totalModules = allModules.length
+
   return (
     <AcademyClient
       mentoria={enrichedMentoria}
@@ -95,6 +99,7 @@ export default async function AcademyPage() {
       freeClass={enrichedFreeClass}
       continueWatching={continueWatching}
       hasActivePlan={hasActivePlan}
+      stats={{ totalLessons, totalMasterclasses, totalModules }}
     />
   )
 }

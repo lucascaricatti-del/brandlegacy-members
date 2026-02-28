@@ -879,6 +879,7 @@ export type Database = {
           due_date: string | null
           priority: string
           kanban_card_id: string | null
+          task_id: string | null
           created_at: string
         }
         Insert: {
@@ -890,6 +891,7 @@ export type Database = {
           due_date?: string | null
           priority?: string
           kanban_card_id?: string | null
+          task_id?: string | null
           created_at?: string
         }
         Update: {
@@ -901,6 +903,7 @@ export type Database = {
           due_date?: string | null
           priority?: string
           kanban_card_id?: string | null
+          task_id?: string | null
           created_at?: string
         }
         Relationships: [
@@ -919,10 +922,10 @@ export type Database = {
             referencedColumns: ['id']
           },
           {
-            foreignKeyName: 'session_tasks_kanban_card_id_fkey'
-            columns: ['kanban_card_id']
+            foreignKeyName: 'session_tasks_task_id_fkey'
+            columns: ['task_id']
             isOneToOne: false
-            referencedRelation: 'kanban_cards'
+            referencedRelation: 'tasks'
             referencedColumns: ['id']
           }
         ]
@@ -1207,6 +1210,13 @@ export type Database = {
           priority: TaskPriority
           status: TaskStatus
           is_archived: boolean
+          completed_at: string | null
+          created_by: string | null
+          start_date: string | null
+          tags: string[] | null
+          order_index: number
+          file_url: string | null
+          file_name: string | null
           created_at: string
           updated_at: string
         }
@@ -1222,6 +1232,13 @@ export type Database = {
           priority?: TaskPriority
           status?: TaskStatus
           is_archived?: boolean
+          completed_at?: string | null
+          created_by?: string | null
+          start_date?: string | null
+          tags?: string[] | null
+          order_index?: number
+          file_url?: string | null
+          file_name?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -1237,6 +1254,13 @@ export type Database = {
           priority?: TaskPriority
           status?: TaskStatus
           is_archived?: boolean
+          completed_at?: string | null
+          created_by?: string | null
+          start_date?: string | null
+          tags?: string[] | null
+          order_index?: number
+          file_url?: string | null
+          file_name?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -1258,6 +1282,87 @@ export type Database = {
           {
             foreignKeyName: 'tasks_assignee_id_fkey'
             columns: ['assignee_id']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'tasks_created_by_fkey'
+            columns: ['created_by']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      task_checklist_items: {
+        Row: {
+          id: string
+          task_id: string
+          title: string
+          is_done: boolean
+          order_index: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          task_id: string
+          title: string
+          is_done?: boolean
+          order_index?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          task_id?: string
+          title?: string
+          is_done?: boolean
+          order_index?: number
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'task_checklist_items_task_id_fkey'
+            columns: ['task_id']
+            isOneToOne: false
+            referencedRelation: 'tasks'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      task_comments: {
+        Row: {
+          id: string
+          task_id: string
+          user_id: string
+          body: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          task_id: string
+          user_id: string
+          body: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          task_id?: string
+          user_id?: string
+          body?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'task_comments_task_id_fkey'
+            columns: ['task_id']
+            isOneToOne: false
+            referencedRelation: 'tasks'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'task_comments_user_id_fkey'
+            columns: ['user_id']
             isOneToOne: false
             referencedRelation: 'profiles'
             referencedColumns: ['id']
@@ -1401,6 +1506,95 @@ export type Database = {
           }
         ]
       }
+      media_plans: {
+        Row: {
+          id: string
+          workspace_id: string
+          year: number
+          name: string
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          year: number
+          name?: string
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          year?: number
+          name?: string
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'media_plans_workspace_id_fkey'
+            columns: ['workspace_id']
+            isOneToOne: false
+            referencedRelation: 'workspaces'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'media_plans_created_by_fkey'
+            columns: ['created_by']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      media_plan_metrics: {
+        Row: {
+          id: string
+          media_plan_id: string
+          metric_key: string
+          month: number
+          value_numeric: number | null
+          delta_pct: number | null
+          input_mode: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          media_plan_id: string
+          metric_key: string
+          month: number
+          value_numeric?: number | null
+          delta_pct?: number | null
+          input_mode?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          media_plan_id?: string
+          metric_key?: string
+          month?: number
+          value_numeric?: number | null
+          delta_pct?: number | null
+          input_mode?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'media_plan_metrics_media_plan_id_fkey'
+            columns: ['media_plan_id']
+            isOneToOne: false
+            referencedRelation: 'media_plans'
+            referencedColumns: ['id']
+          }
+        ]
+      }
       crm_notes: {
         Row: {
           id: string
@@ -1515,6 +1709,10 @@ export type Lead = Database['public']['Tables']['leads']['Row']
 export type Funnel = Database['public']['Tables']['funnels']['Row']
 export type CrmLead = Database['public']['Tables']['crm_leads']['Row']
 export type CrmNote = Database['public']['Tables']['crm_notes']['Row']
+export type TaskChecklistItem = Database['public']['Tables']['task_checklist_items']['Row']
+export type TaskComment = Database['public']['Tables']['task_comments']['Row']
+export type MediaPlan = Database['public']['Tables']['media_plans']['Row']
+export type MediaPlanMetric = Database['public']['Tables']['media_plan_metrics']['Row']
 
 // ============================================================
 // Tipos compostos para uso em componentes

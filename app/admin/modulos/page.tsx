@@ -77,7 +77,19 @@ export default async function AdminModulosPage() {
                       </span>
                     </td>
                     <td className="px-5 py-4">
-                      <ModuleActions moduleId={mod.id} isPublished={mod.is_published} />
+                      <div className="flex items-center gap-2">
+                        <Link
+                          href={`/admin/modulos/${mod.id}`}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-border text-xs text-text-secondary hover:text-brand-gold hover:border-brand-gold/30 transition-colors"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                          </svg>
+                          Editar Aulas
+                        </Link>
+                        <ModuleActions moduleId={mod.id} isPublished={mod.is_published} />
+                      </div>
                     </td>
                   </tr>
                 )

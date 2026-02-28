@@ -7,6 +7,10 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getAgentConfig, buildContextString } from './agents'
 import { DEFAULT_PROMPTS } from '@/lib/constants/agents'
 
+function extractJSON(text: string): string {
+  return text.replace(/```json\n?/gi, '').replace(/```\n?/gi, '').trim()
+}
+
 async function requireAdmin() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -148,7 +152,7 @@ export async function analyzeTranscript(
   try {
     const systemPrompt = await resolveSystemPrompt(workspaceId, agentType, diagnosisSessionId, adminSupabase)
 
-    const anthropic = new Anthropic()
+    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
@@ -164,7 +168,7 @@ export async function analyzeTranscript(
       throw new Error('Resposta vazia da IA')
     }
 
-    const result = JSON.parse(textBlock.text)
+    const result = JSON.parse(extractJSON(textBlock.text))
 
     // Salva resultado bruto como JSON
     await adminSupabase
@@ -220,7 +224,7 @@ export async function addSessionTaskToTaskFlow(taskId: string, workspaceId: stri
     .single()
 
   if (!sessionTask) return { error: 'Tarefa não encontrada' }
-  if (sessionTask.kanban_card_id) return { error: 'Tarefa já adicionada ao TaskFlow' }
+  if (sessionTask.task_id || sessionTask.kanban_card_id) return { error: 'Tarefa já adicionada' }
 
   const { data: task, error: insertError } = await adminSupabase
     .from('tasks')
@@ -237,10 +241,10 @@ export async function addSessionTaskToTaskFlow(taskId: string, workspaceId: stri
 
   if (insertError || !task) return { error: insertError?.message ?? 'Erro ao criar tarefa' }
 
-  // Reaproveita kanban_card_id para marcar como "adicionada"
+  // Marca como adicionada via task_id
   await adminSupabase
     .from('session_tasks')
-    .update({ kanban_card_id: task.id })
+    .update({ task_id: task.id })
     .eq('id', taskId)
 
   revalidatePath(`/admin/workspaces/${workspaceId}/sessoes`)
@@ -261,7 +265,7 @@ export async function addAllSessionTasksToTaskFlow(sessionId: string, workspaceI
     .from('session_tasks')
     .select('id')
     .eq('session_id', sessionId)
-    .is('kanban_card_id', null)
+    .is('task_id', null)
 
   if (!tasks || tasks.length === 0) return { error: 'Nenhuma tarefa pendente para adicionar' }
 

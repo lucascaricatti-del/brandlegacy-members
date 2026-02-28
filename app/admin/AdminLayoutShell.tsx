@@ -68,13 +68,11 @@ export default function AdminLayoutShell({
 
         {/* Nav */}
         <nav className="flex-1 px-3 py-4 space-y-1">
-          <NavItem href="/admin" icon={<IconDashboard />} label="Visão Geral" onNavigate={() => setOpen(false)} />
           <NavItem href="/admin/modulos" icon={<IconModulos />} label="Módulos" onNavigate={() => setOpen(false)} />
           <NavItem href="/admin/workspaces" icon={<IconWorkspaces />} label="Empresas" onNavigate={() => setOpen(false)} />
           <NavItem href="/admin/agentes" icon={<IconAgentes />} label="Agentes" onNavigate={() => setOpen(false)} />
           <NavItem href="/admin/financeiro" icon={<IconFinanceiro />} label="Financeiro" onNavigate={() => setOpen(false)} />
           <NavItem href="/admin/cx" icon={<IconCx />} label="CX" onNavigate={() => setOpen(false)} />
-          <NavItem href="/admin/leads" icon={<IconLeads />} label="Leads" onNavigate={() => setOpen(false)} />
           {/* CRM — submenu expansível */}
           <div>
             <button
@@ -87,10 +85,11 @@ export default function AdminLayoutShell({
                 <polyline points="6 9 12 15 18 9" />
               </svg>
             </button>
-            <div className={`overflow-hidden transition-all duration-200 ${crmOpen ? 'max-h-24' : 'max-h-0'}`}>
+            <div className={`overflow-hidden transition-all duration-200 ${crmOpen ? 'max-h-36' : 'max-h-0'}`}>
               <div className="ml-3 pl-3 border-l border-border space-y-0.5 py-1">
                 <Link href="/admin/crm" onClick={() => setOpen(false)} className="flex items-center px-3 py-2 rounded-lg text-xs text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors">Pipeline</Link>
                 <Link href="/admin/crm/funis" onClick={() => setOpen(false)} className="flex items-center px-3 py-2 rounded-lg text-xs text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors">Funis</Link>
+                <Link href="/admin/leads" onClick={() => setOpen(false)} className="flex items-center px-3 py-2 rounded-lg text-xs text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors">Leads</Link>
               </div>
             </div>
           </div>

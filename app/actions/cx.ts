@@ -4,6 +4,10 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import Anthropic from '@anthropic-ai/sdk'
 
+function extractJSON(text: string): string {
+  return text.replace(/```json\n?/gi, '').replace(/```\n?/gi, '').trim()
+}
+
 async function requireAdmin() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -200,7 +204,7 @@ Retorne APENAS JSON válido:
 Responda SOMENTE com o JSON, sem texto adicional.`
 
   try {
-    const anthropic = new Anthropic()
+    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 1024,
@@ -212,7 +216,7 @@ Responda SOMENTE com o JSON, sem texto adicional.`
       return { error: 'Resposta vazia da IA' }
     }
 
-    const result = JSON.parse(textBlock.text) as {
+    const result = JSON.parse(extractJSON(textBlock.text)) as {
       status: 'em_dia' | 'atencao' | 'churn'
       summary: string
       recommendations: string[]

@@ -64,6 +64,7 @@ export default async function AdminWorkspaceSessionsPage({ params }: Props) {
       due_date: string | null
       priority: string
       kanban_card_id: string | null
+      task_id: string | null
       created_at: string
     }[]
   }
@@ -87,6 +88,7 @@ export default async function AdminWorkspaceSessionsPage({ params }: Props) {
       due_date: t.due_date,
       priority: t.priority,
       kanban_card_id: t.kanban_card_id,
+      task_id: t.task_id ?? null,
     })),
   }))
 
