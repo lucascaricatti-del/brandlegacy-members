@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
   const workspaceId = req.nextUrl.searchParams.get('state')
 
   if (!code || !workspaceId) {
-    return NextResponse.redirect(`${req.nextUrl.origin}/ferramentas?error=missing_params`)
+    return NextResponse.redirect(`${req.nextUrl.origin}/metricas?error=missing_params`)
   }
 
   try {
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
 
     if (tokenData.error) {
       console.error('Meta OAuth error:', tokenData.error)
-      return NextResponse.redirect(`${req.nextUrl.origin}/ferramentas?error=oauth_failed`)
+      return NextResponse.redirect(`${req.nextUrl.origin}/metricas?error=oauth_failed`)
     }
 
     const longTokenRes = await fetch(
@@ -61,9 +61,9 @@ export async function GET(req: NextRequest) {
       updated_at: new Date().toISOString(),
     }, { onConflict: 'workspace_id,provider' })
 
-    return NextResponse.redirect(`${req.nextUrl.origin}/ferramentas?meta=connected`)
+    return NextResponse.redirect(`${req.nextUrl.origin}/metricas?meta=connected`)
   } catch (err) {
     console.error('Meta callback error:', err)
-    return NextResponse.redirect(`${req.nextUrl.origin}/ferramentas?error=callback_failed`)
+    return NextResponse.redirect(`${req.nextUrl.origin}/metricas?error=callback_failed`)
   }
 }
