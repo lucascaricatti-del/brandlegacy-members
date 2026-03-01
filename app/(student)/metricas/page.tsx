@@ -44,7 +44,7 @@ export default async function MetricasPage() {
   const ws = workspaces[0]
 
   // Busca integração Meta ativa
-  const { data: metaIntegration } = await adminSupabase
+  const { data: metaIntegration } = await (adminSupabase as any)
     .from('workspace_integrations')
     .select('status, account_id, account_name')
     .eq('workspace_id', ws.id)
@@ -59,7 +59,7 @@ export default async function MetricasPage() {
   since.setDate(since.getDate() - 180)
   const sinceStr = since.toISOString().split('T')[0]
 
-  const { data: metrics } = await adminSupabase
+  const { data: metrics } = await (adminSupabase as any)
     .from('ads_metrics')
     .select('*')
     .eq('workspace_id', ws.id)
