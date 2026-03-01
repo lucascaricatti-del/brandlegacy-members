@@ -12,7 +12,6 @@ export default async function IntegracoesPage() {
 
   const adminSupabase = createAdminClient()
 
-  // Busca workspace ativo
   const { data: memberships } = await adminSupabase
     .from('workspace_members')
     .select('workspace_id, workspaces(id, name)')
@@ -37,7 +36,6 @@ export default async function IntegracoesPage() {
         </div>
         <div className="bg-bg-card border border-border rounded-xl p-16 text-center">
           <p className="text-text-muted">Você ainda não está vinculado a um workspace.</p>
-          <p className="text-text-muted text-sm mt-1">Entre em contato com seu mentor para ser adicionado.</p>
         </div>
       </div>
     )
@@ -45,12 +43,11 @@ export default async function IntegracoesPage() {
 
   const ws = workspaces[0]
 
-  // Busca integrações ativas (sem access_token)
-  const { data: integrations } = await adminSupabase
-    .from('integrations')
-    .select('id, workspace_id, platform, account_id, extra_config, is_active, last_sync, created_at, updated_at')
+  // Busca integrações de workspace_integrations
+  const { data: integrations } = await (adminSupabase as any)
+    .from('workspace_integrations')
+    .select('id, workspace_id, provider, account_id, account_name, status, metadata, updated_at')
     .eq('workspace_id', ws.id)
-    .eq('is_active', true)
 
   return (
     <div className="animate-fade-in">
@@ -62,13 +59,7 @@ export default async function IntegracoesPage() {
       </div>
       <IntegrationsClient
         workspaceId={ws.id}
-        integrations={(integrations ?? []) as Array<{
-          id: string
-          platform: string
-          account_id: string | null
-          last_sync: string | null
-          is_active: boolean
-        }>}
+        integrations={(integrations ?? []) as any[]}
       />
     </div>
   )
