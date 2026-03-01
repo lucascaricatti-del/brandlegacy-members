@@ -1,20 +1,26 @@
 // ============================================================
-// Media Plan Calculation Engine
+// Media Plan Calculation Engine v3
 // ============================================================
 
 export const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const
 export const MONTH_LABELS = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 
 // KEY metrics = editable by user
-export const KEY_METRICS = ['S_ORG', 'CR', 'AOV', 'CPC', 'SPEND', 'RET', 'RECEITA_META'] as const
+export const KEY_METRICS = [
+  'RECEITA_META',
+  'S_ORG', 'CR', 'AOV', 'APR', 'RET',
+  'SPEND_META', 'SPEND_GOOGLE', 'SPEND_INFLUENCER',
+  'CPS',
+] as const
 export type KeyMetric = typeof KEY_METRICS[number]
 
 // RESULT metrics = calculated
 export const RESULT_METRICS = [
-  'S_PAGAS', 'S_TOTAL',
-  'PEDIDOS_ORG', 'PEDIDOS_PAGOS', 'PEDIDOS_TOTAL',
-  'RECEITA', 'RECEITA_NOVOS', 'RECEITA_RET',
-  'ROAS', 'CAC', 'CPP', 'MARGEM',
+  'SPEND_TOTAL',
+  'ORD_PAID', 'ORD_ORG', 'ORD_CAPTURED', 'ORD_BILLED',
+  'REV_CAPTURED', 'REV_BILLED',
+  'ROAS_CAPTURED', 'ROAS_BILLED', 'ADCOST',
+  'S_PAID_IMPLIED', 'S_TOTAL',
 ] as const
 export type ResultMetric = typeof RESULT_METRICS[number]
 
@@ -24,7 +30,7 @@ export function isKeyMetric(key: string): key is KeyMetric {
   return (KEY_METRICS as readonly string[]).includes(key)
 }
 
-// Metric definitions with labels, format, and section
+// Metric definitions
 export interface MetricDef {
   key: MetricKey
   label: string
@@ -32,89 +38,108 @@ export interface MetricDef {
   format: 'number' | 'currency' | 'percent' | 'decimal'
   isKey: boolean
   decimals?: number
+  isHighlight?: boolean
+  isSubtotal?: boolean
 }
 
 export const METRIC_DEFS: MetricDef[] = [
   // RECEITA
-  { key: 'RECEITA_META', label: 'Meta de Receita', section: 'receita', format: 'currency', isKey: true },
-  { key: 'RECEITA', label: 'Receita Projetada', section: 'receita', format: 'currency', isKey: false },
-  { key: 'RECEITA_NOVOS', label: 'Receita Novos', section: 'receita', format: 'currency', isKey: false },
-  { key: 'RECEITA_RET', label: 'Receita Retenção', section: 'receita', format: 'currency', isKey: false },
-  { key: 'MARGEM', label: 'Margem', section: 'receita', format: 'currency', isKey: false },
+  { key: 'RECEITA_META', label: 'Meta de Receita', section: 'receita', format: 'currency', isKey: true, decimals: 2 },
+  { key: 'REV_CAPTURED', label: 'Receita Capturada', section: 'receita', format: 'currency', isKey: false, decimals: 2, isHighlight: true },
+  { key: 'REV_BILLED', label: 'Receita Faturada', section: 'receita', format: 'currency', isKey: false, decimals: 2, isHighlight: true },
 
   // PEDIDOS
-  { key: 'PEDIDOS_TOTAL', label: 'Pedidos Totais', section: 'pedidos', format: 'number', isKey: false },
-  { key: 'PEDIDOS_PAGOS', label: 'Pedidos Pagos', section: 'pedidos', format: 'number', isKey: false },
-  { key: 'PEDIDOS_ORG', label: 'Pedidos Orgânicos', section: 'pedidos', format: 'number', isKey: false },
+  { key: 'ORD_CAPTURED', label: 'Pedidos Capturados', section: 'pedidos', format: 'number', isKey: false, isHighlight: true },
+  { key: 'ORD_BILLED', label: 'Pedidos Faturados', section: 'pedidos', format: 'number', isKey: false },
+  { key: 'ORD_PAID', label: 'Pedidos Pagos (Mídia)', section: 'pedidos', format: 'number', isKey: false, isSubtotal: true },
+  { key: 'ORD_ORG', label: 'Pedidos Orgânicos', section: 'pedidos', format: 'number', isKey: false },
 
   // INVESTIMENTOS
-  { key: 'SPEND', label: 'Investimento em Mídia', section: 'investimentos', format: 'currency', isKey: true },
-  { key: 'CPC', label: 'Custo por Clique', section: 'investimentos', format: 'currency', isKey: true, decimals: 2 },
-  { key: 'CAC', label: 'CAC', section: 'investimentos', format: 'currency', isKey: false, decimals: 2 },
-  { key: 'CPP', label: 'Custo por Pedido', section: 'investimentos', format: 'currency', isKey: false, decimals: 2 },
+  { key: 'SPEND_META', label: 'Investimento Meta Ads', section: 'investimentos', format: 'currency', isKey: true, decimals: 2 },
+  { key: 'SPEND_GOOGLE', label: 'Investimento Google Ads', section: 'investimentos', format: 'currency', isKey: true, decimals: 2 },
+  { key: 'SPEND_INFLUENCER', label: 'Investimento Influenciadores', section: 'investimentos', format: 'currency', isKey: true, decimals: 2 },
+  { key: 'SPEND_TOTAL', label: 'Investimento Total', section: 'investimentos', format: 'currency', isKey: false, decimals: 2, isSubtotal: true },
+  { key: 'CPS', label: 'Custo por Sessão (CPS)', section: 'investimentos', format: 'currency', isKey: true, decimals: 2 },
+  { key: 'ADCOST', label: 'Ad Cost %', section: 'investimentos', format: 'percent', isKey: false, decimals: 1 },
 
   // TRÁFEGO
-  { key: 'S_TOTAL', label: 'Sessões Totais', section: 'trafego', format: 'number', isKey: false },
-  { key: 'S_PAGAS', label: 'Sessões Pagas', section: 'trafego', format: 'number', isKey: false },
   { key: 'S_ORG', label: 'Sessões Orgânicas', section: 'trafego', format: 'number', isKey: true },
+  { key: 'S_PAID_IMPLIED', label: 'Sessões Pagas (implícito)', section: 'trafego', format: 'number', isKey: false },
+  { key: 'S_TOTAL', label: 'Sessões Totais', section: 'trafego', format: 'number', isKey: false },
 
   // EFICIÊNCIA
   { key: 'CR', label: 'Taxa de Conversão', section: 'eficiencia', format: 'percent', isKey: true, decimals: 2 },
   { key: 'AOV', label: 'Ticket Médio', section: 'eficiencia', format: 'currency', isKey: true, decimals: 2 },
-  { key: 'ROAS', label: 'ROAS', section: 'eficiencia', format: 'decimal', isKey: false, decimals: 2 },
+  { key: 'APR', label: 'Taxa de Aprovação', section: 'eficiencia', format: 'percent', isKey: true, decimals: 1 },
   { key: 'RET', label: 'Taxa de Retenção', section: 'eficiencia', format: 'percent', isKey: true, decimals: 1 },
+  { key: 'ROAS_CAPTURED', label: 'ROAS Capturado', section: 'eficiencia', format: 'decimal', isKey: false, decimals: 2, isHighlight: true },
+  { key: 'ROAS_BILLED', label: 'ROAS Faturado', section: 'eficiencia', format: 'decimal', isKey: false, decimals: 2, isHighlight: true },
 ]
 
 export const METRIC_MAP = Object.fromEntries(METRIC_DEFS.map((d) => [d.key, d])) as Record<MetricKey, MetricDef>
 
 export const SECTIONS = [
-  { key: 'receita', label: 'Receita', color: 'text-green-400', bgColor: 'bg-green-400/10' },
-  { key: 'pedidos', label: 'Pedidos', color: 'text-blue-400', bgColor: 'bg-blue-400/10' },
-  { key: 'investimentos', label: 'Investimentos', color: 'text-red-400', bgColor: 'bg-red-400/10' },
-  { key: 'trafego', label: 'Tráfego', color: 'text-purple-400', bgColor: 'bg-purple-400/10' },
-  { key: 'eficiencia', label: 'Eficiência', color: 'text-brand-gold', bgColor: 'bg-brand-gold/10' },
+  { key: 'receita', label: 'Receita', icon: '\uD83D\uDCCA', color: 'text-green-400', bgColor: 'bg-green-400/10' },
+  { key: 'pedidos', label: 'Pedidos', icon: '\uD83D\uDED2', color: 'text-blue-400', bgColor: 'bg-blue-400/10' },
+  { key: 'investimentos', label: 'Investimentos', icon: '\uD83D\uDCB0', color: 'text-red-400', bgColor: 'bg-red-400/10' },
+  { key: 'trafego', label: 'Tráfego', icon: '\uD83D\uDCC8', color: 'text-purple-400', bgColor: 'bg-purple-400/10' },
+  { key: 'eficiencia', label: 'Eficiência', icon: '\u26A1', color: 'text-brand-gold', bgColor: 'bg-brand-gold/10' },
 ] as const
 
-// Map of key values per month → { metricKey: { month: value } }
+// Map of key values per month
 export type KeyValues = Record<string, Record<number, number>>
 
-// Calculate all result metrics for a given month based on key values
+const round2 = (v: number) => Math.round(v * 100) / 100
+
+// Calculate all result metrics for a given month
 export function calcMonth(keys: KeyValues, month: number): Record<ResultMetric, number> {
   const get = (k: string) => keys[k]?.[month] ?? 0
 
   const sOrg = get('S_ORG')
-  const cr = get('CR') / 100 // stored as percentage
+  const cr = get('CR') / 100        // stored as %, e.g. 3 → 0.03
   const aov = get('AOV')
-  const cpc = get('CPC')
-  const spend = get('SPEND')
-  const ret = get('RET') / 100 // stored as percentage
+  const apr = get('APR') / 100       // stored as %, e.g. 85 → 0.85
 
-  const sPagas = cpc > 0 ? spend / cpc : 0
-  const sTotal = sOrg + sPagas
-  const pedidosOrg = sOrg * cr
-  const pedidosPagos = sPagas * cr
-  const pedidosTotal = pedidosOrg + pedidosPagos
-  const receita = pedidosTotal * aov
-  const receitaRet = receita * ret
-  const receitaNovos = receita * (1 - ret)
-  const roas = spend > 0 ? receita / spend : 0
-  const cac = pedidosPagos > 0 ? spend / pedidosPagos : 0
-  const cpp = pedidosTotal > 0 ? spend / pedidosTotal : 0
-  const margem = receita - spend
+  const spendMeta = get('SPEND_META')
+  const spendGoogle = get('SPEND_GOOGLE')
+  const spendInfluencer = get('SPEND_INFLUENCER')
+  const cps = get('CPS')
+
+  // Investimentos
+  const spendTotal = spendMeta + spendGoogle + spendInfluencer
+
+  // Tráfego (calcula primeiro - CPS é custo por sessão)
+  const sPaidImplied = cps > 0 ? spendTotal / cps : 0
+  const sTotal = sOrg + sPaidImplied
+
+  // Pedidos
+  const ordPaid = sPaidImplied * cr
+  const ordOrg = sOrg * cr
+  const ordCaptured = ordOrg + ordPaid
+  const ordBilled = ordCaptured * apr
+
+  // Receita
+  const revCaptured = ordCaptured * aov
+  const revBilled = revCaptured * apr
+
+  // Eficiência
+  const roasCaptured = spendTotal > 0 ? revCaptured / spendTotal : 0
+  const roasBilled = spendTotal > 0 ? revBilled / spendTotal : 0
+  const adcost = revBilled > 0 ? (spendTotal / revBilled) * 100 : 0  // as %
 
   return {
-    S_PAGAS: Math.round(sPagas),
+    SPEND_TOTAL: round2(spendTotal),
+    ORD_PAID: Math.round(ordPaid),
+    ORD_ORG: Math.round(ordOrg),
+    ORD_CAPTURED: Math.round(ordCaptured),
+    ORD_BILLED: Math.round(ordBilled),
+    REV_CAPTURED: round2(revCaptured),
+    REV_BILLED: round2(revBilled),
+    ROAS_CAPTURED: round2(roasCaptured),
+    ROAS_BILLED: round2(roasBilled),
+    ADCOST: round2(adcost),
+    S_PAID_IMPLIED: Math.round(sPaidImplied),
     S_TOTAL: Math.round(sTotal),
-    PEDIDOS_ORG: Math.round(pedidosOrg),
-    PEDIDOS_PAGOS: Math.round(pedidosPagos),
-    PEDIDOS_TOTAL: Math.round(pedidosTotal),
-    RECEITA: Math.round(receita * 100) / 100,
-    RECEITA_NOVOS: Math.round(receitaNovos * 100) / 100,
-    RECEITA_RET: Math.round(receitaRet * 100) / 100,
-    ROAS: Math.round(roas * 100) / 100,
-    CAC: Math.round(cac * 100) / 100,
-    CPP: Math.round(cpp * 100) / 100,
-    MARGEM: Math.round(margem * 100) / 100,
   }
 }
 
@@ -127,7 +152,7 @@ export function calcAllMonths(keys: KeyValues): Record<number, Record<ResultMetr
   return result
 }
 
-// Resolve delta_pct mode: for month N, value = previous_month_value * (1 + delta_pct/100)
+// Resolve delta_pct mode
 export function resolveValue(
   metric: string,
   month: number,
@@ -140,24 +165,32 @@ export function resolveValue(
     return cell.value ?? 0
   }
 
-  // delta_pct mode: resolve previous month first
   const prevValue = resolveValue(metric, month - 1, rawValues)
   const delta = cell.delta_pct ?? 0
   return prevValue * (1 + delta / 100)
 }
 
-// Format a value for display
+// Format a value for display — R$ prefix for currency
 export function formatMetricValue(value: number, format: MetricDef['format'], decimals?: number): string {
   if (format === 'currency') {
-    return value.toLocaleString('pt-BR', { minimumFractionDigits: decimals ?? 0, maximumFractionDigits: decimals ?? 0 })
+    const formatted = value.toLocaleString('pt-BR', {
+      minimumFractionDigits: decimals ?? 2,
+      maximumFractionDigits: decimals ?? 2,
+    })
+    return `R$ ${formatted}`
   }
   if (format === 'percent') {
-    return value.toLocaleString('pt-BR', { minimumFractionDigits: decimals ?? 1, maximumFractionDigits: decimals ?? 1 }) + '%'
+    return value.toLocaleString('pt-BR', {
+      minimumFractionDigits: decimals ?? 1,
+      maximumFractionDigits: decimals ?? 1,
+    }) + '%'
   }
   if (format === 'decimal') {
-    return value.toLocaleString('pt-BR', { minimumFractionDigits: decimals ?? 2, maximumFractionDigits: decimals ?? 2 })
+    return value.toLocaleString('pt-BR', {
+      minimumFractionDigits: decimals ?? 2,
+      maximumFractionDigits: decimals ?? 2,
+    })
   }
-  // number
   return Math.round(value).toLocaleString('pt-BR')
 }
 
@@ -168,9 +201,11 @@ export function calcAnnualSummary(
 ): Record<MetricKey, number> {
   const summary: Record<string, number> = {}
 
-  // For rate metrics (CR, RET, ROAS, AOV, CPC, CAC, CPP), use average
-  // For volume metrics (sessions, orders, revenue, spend), use sum
-  const avgMetrics = new Set(['CR', 'RET', 'ROAS', 'AOV', 'CPC', 'CAC', 'CPP'])
+  // Rate/efficiency metrics use average; volume metrics use sum
+  const avgMetrics = new Set([
+    'CR', 'RET', 'AOV', 'APR', 'CPS',
+    'ROAS_CAPTURED', 'ROAS_BILLED', 'ADCOST',
+  ])
 
   for (const def of METRIC_DEFS) {
     let total = 0
@@ -183,9 +218,9 @@ export function calcAnnualSummary(
       }
     }
     if (avgMetrics.has(def.key)) {
-      summary[def.key] = count > 0 ? Math.round((total / count) * 100) / 100 : 0
+      summary[def.key] = count > 0 ? round2(total / count) : 0
     } else {
-      summary[def.key] = Math.round(total * 100) / 100
+      summary[def.key] = round2(total)
     }
   }
 

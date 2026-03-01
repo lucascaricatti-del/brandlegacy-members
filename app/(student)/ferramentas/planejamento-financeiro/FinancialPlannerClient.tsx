@@ -2,11 +2,11 @@
 
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import {
-  MONTHS, MONTH_LABELS, METRIC_DEFS, SECTIONS, KEY_METRICS,
-  isKeyMetric, calcAllMonths, resolveValue, formatMetricValue, calcAnnualSummary,
-  type KeyValues, type MetricKey, type ResultMetric, type MetricDef,
-} from '@/lib/utils/media-plan-calc'
-import { upsertMetrics, upsertMetricsAdmin, syncMediaToFinancial } from '@/app/actions/media-plan'
+  MONTHS, MONTH_LABELS, FIN_METRIC_DEFS as METRIC_DEFS, FIN_SECTIONS as SECTIONS, FIN_KEY_METRICS as KEY_METRICS,
+  isFinKeyMetric as isKeyMetric, calcFinAllMonths, resolveFinValue as resolveValue, formatFinValue as formatMetricValue, calcFinAnnualSummary as calcAnnualSummary,
+  type FinKeyValues as KeyValues, type FinMetricKey as MetricKey, type FinResultMetric as ResultMetric, type FinMetricDef as MetricDef,
+} from '@/lib/utils/financial-plan-calc'
+import { upsertMetrics, upsertMetricsAdmin } from '@/app/actions/media-plan'
 
 // ============================================================
 // Types
@@ -36,7 +36,7 @@ interface Props {
 // Component
 // ============================================================
 
-export default function PlannerClient({ planId, workspaceId, year, initialMetrics, isAdmin }: Props) {
+export default function FinancialPlannerClient({ planId, workspaceId, year, initialMetrics, isAdmin }: Props) {
   const [cells, setCells] = useState<Record<string, Record<number, CellData>>>(() => {
     const map: Record<string, Record<number, CellData>> = {}
     for (const m of initialMetrics) {
@@ -52,7 +52,6 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
 
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
-  const [syncMsg, setSyncMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
   const [lastSaved, setLastSaved] = useState<Date | null>(null)
   const pendingRef = useRef<Array<{ metric_key: string; month: number; value_numeric: number | null; delta_pct: number | null; input_mode: 'value' | 'delta_pct' }>>([])
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -69,7 +68,7 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
     return kv
   }, [cells])
 
-  const resultsByMonth = useMemo(() => calcAllMonths(keyValues), [keyValues])
+  const resultsByMonth = useMemo(() => calcFinAllMonths(keyValues), [keyValues])
   const annualSummary = useMemo(() => calcAnnualSummary(keyValues, resultsByMonth), [keyValues, resultsByMonth])
 
   const getCellValue = useCallback((metricKey: string, month: number): number => {
@@ -175,7 +174,7 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
 
   // CSV export
   const exportCSV = useCallback(() => {
-    const header = ['Métrica', ...MONTH_LABELS, 'Total/Média']
+    const header = ['Linha DRE', ...MONTH_LABELS, 'Total/Média']
     const rows = METRIC_DEFS.map((def) => {
       const values = MONTHS.map((m) => getCellValue(def.key, m))
       const annual = annualSummary[def.key] ?? 0
@@ -186,29 +185,19 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `planejador-midia-${year}.csv`
+    a.download = `dre-${year}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }, [getCellValue, annualSummary, year])
-
-  const handleSyncToFinancial = useCallback(async () => {
-    setSyncMsg(null)
-    try {
-      const res = await syncMediaToFinancial(workspaceId, year)
-      if (res.error) setSyncMsg({ type: 'err', text: res.error })
-      else setSyncMsg({ type: 'ok', text: `Faturamento enviado p/ Financeiro (${res.synced} meses)` })
-    } catch { setSyncMsg({ type: 'err', text: 'Erro ao sincronizar' }) }
-    setTimeout(() => setSyncMsg(null), 4000)
-  }, [workspaceId, year])
 
   return (
     <div className="animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-text-primary">Planejador de Mídia {year}</h1>
+          <h1 className="text-2xl font-bold text-text-primary">Planejamento Financeiro (DRE) {year}</h1>
           <p className="text-sm text-text-muted mt-1">
-            Planeje seu investimento, sessões e receita mês a mês
+            DRE projetada conectada ao Planejador de Midia via ROAS, sessões e receita mês a mês
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -228,14 +217,14 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
 
           <div className="flex items-center gap-1 bg-bg-card border border-border rounded-lg">
             <a
-              href={isAdmin ? `?year=${year - 1}` : `/ferramentas/planejamento-midia/${year - 1}`}
+              href={isAdmin ? `?year=${year - 1}` : `/ferramentas/planejamento-financeiro/${year - 1}`}
               className="p-2 hover:bg-bg-hover rounded-l-lg transition-colors text-text-muted hover:text-text-primary"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6" /></svg>
             </a>
             <span className="px-3 py-1.5 text-sm font-semibold text-text-primary">{year}</span>
             <a
-              href={isAdmin ? `?year=${year + 1}` : `/ferramentas/planejamento-midia/${year + 1}`}
+              href={isAdmin ? `?year=${year + 1}` : `/ferramentas/planejamento-financeiro/${year + 1}`}
               className="p-2 hover:bg-bg-hover rounded-r-lg transition-colors text-text-muted hover:text-text-primary"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>
@@ -252,13 +241,6 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
             CSV
           </button>
         </div>
-          <button
-            onClick={handleSyncToFinancial}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-500/10 border border-purple-500/20 text-sm text-purple-400 hover:bg-purple-500/20 transition-colors"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
-            Enviar p/ Financeiro
-          </button>
       </div>
 
       {/* Spreadsheet */}
@@ -268,7 +250,7 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
             <thead>
               <tr className="border-b border-border" style={{ background: 'linear-gradient(90deg, #0a1a0f, #0d2015)' }}>
                 <th className="sticky left-0 z-10 text-left px-4 py-3 font-semibold text-text-secondary min-w-[220px] border-r border-border" style={{ fontSize: 13, background: '#0a1a0f' }}>
-                  Métrica
+                  Linha DRE
                 </th>
                 {MONTH_LABELS.map((label, i) => (
                   <th key={i} className="px-3 py-3 text-center font-medium text-text-muted min-w-[115px]" style={{ fontSize: 12 }}>

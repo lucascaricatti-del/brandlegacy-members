@@ -14,7 +14,6 @@ export default function StudentLayoutShell({
   children: React.ReactNode
 }) {
   const [open, setOpen] = useState(false)
-  const [ferramentasOpen, setFerramentasOpen] = useState(false)
 
   return (
     <div className="flex min-h-screen bg-bg-base">
@@ -52,45 +51,28 @@ export default function StudentLayoutShell({
 
         {/* Nav */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          <NavItem href="/dashboard" icon={<IconDashboard />} label="Dashboard" onNavigate={() => setOpen(false)} />
           <NavItem href="/academy" icon={<IconAcademy />} label="Academy" onNavigate={() => setOpen(false)} />
-          <NavItem href="/workspace/tasks" icon={<IconTasks />} label="Tarefas" onNavigate={() => setOpen(false)} />
-          <NavItem href="/entregas" icon={<IconEntregas />} label="Controle de Entregas" onNavigate={() => setOpen(false)} />
-          <NavItem href="/integracoes" icon={<IconIntegracoes />} label="Integrações" onNavigate={() => setOpen(false)} />
-          <NavItem href="/metricas" icon={<IconMetricas />} label="Métricas" onNavigate={() => setOpen(false)} />
-          <NavItem href="/team" icon={<IconTeam />} label="Equipe" onNavigate={() => setOpen(false)} />
 
-          {/* Ferramentas — submenu expansível */}
-          <div>
-            <button
-              onClick={() => setFerramentasOpen((v) => !v)}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors group"
-            >
-              <span className="text-text-muted group-hover:text-brand-gold transition-colors"><IconFerramentas /></span>
-              <span className="flex-1 text-left">Ferramentas</span>
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className={`text-text-muted transition-transform duration-200 ${ferramentasOpen ? 'rotate-180' : ''}`}
-              >
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-            </button>
-            <div className={`overflow-hidden transition-all duration-200 ${ferramentasOpen ? 'max-h-60' : 'max-h-0'}`}>
-              <div className="ml-3 pl-3 border-l border-border space-y-0.5 py-1">
-                <SubNavItem href="/ferramentas/planejamento-financeiro" label="Plan. Financeiro" onNavigate={() => setOpen(false)} />
-                <SubNavItem href="/ferramentas/planejamento-midia" label="Plan. de Mídia" onNavigate={() => setOpen(false)} />
-                <SubNavItem href="/ferramentas/calculadora-cenarios" label="Calc. de Cenários" onNavigate={() => setOpen(false)} />
-                <SubNavItem href="/ferramentas/matriz-criativa" label="Matriz Criativa" onNavigate={() => setOpen(false)} />
-                <SubNavItem href="/ferramentas/metricas-criativos" label="Métricas de Criativos" onNavigate={() => setOpen(false)} />
-              </div>
-            </div>
+          <div className="pt-2 mt-2 border-t border-border space-y-1">
+            <NavItem href="/dashboard" icon={<IconDashboard />} label="Dashboard" onNavigate={() => setOpen(false)} />
+            <NavItem href="/entregas" icon={<IconEntregas />} label="Controle de Entregas" onNavigate={() => setOpen(false)} />
+            <NavItem href="/workspace/tasks" icon={<IconTasks />} label="Tarefas" onNavigate={() => setOpen(false)} />
+            <NavItem href="/metricas" icon={<IconMetricas />} label="Métricas" onNavigate={() => setOpen(false)} />
+            <NavItem href="/ferramentas/calculadora-cenarios" icon={<IconCalc />} label="Calculadora Estratégica" onNavigate={() => setOpen(false)} />
+            <NavItem href="/ferramentas/planejamento-midia" icon={<IconPlanMidia />} label="Planejamento de Mídia" onNavigate={() => setOpen(false)} />
+            <NavItem href="/ferramentas/planejamento-financeiro" icon={<IconForecasting />} label="Forecasting" onNavigate={() => setOpen(false)} />
+          </div>
+
+          <div className="pt-2 mt-2 border-t border-border">
+            <p className="text-text-muted text-[10px] font-medium px-3 mb-1.5 uppercase tracking-wider">Em breve</p>
+            <NavItemSoon href="/ferramentas/sales-forecasting" label="Sales Forecasting" onNavigate={() => setOpen(false)} />
+            <NavItemSoon href="/ferramentas/gerador-lp" label="Gerador de LP" onNavigate={() => setOpen(false)} />
+            <NavItemSoon href="/ferramentas/funil-vendas" label="Funil de Vendas" onNavigate={() => setOpen(false)} />
+          </div>
+
+          <div className="pt-2 mt-2 border-t border-border space-y-1">
+            <NavItem href="/team" icon={<IconTeam />} label="Equipe" onNavigate={() => setOpen(false)} />
+            <NavItem href="/integracoes" icon={<IconIntegracoes />} label="Integrações" onNavigate={() => setOpen(false)} />
           </div>
 
           {profile?.role === 'admin' && (
@@ -265,11 +247,43 @@ function IconMetricas() {
     </svg>
   )
 }
-function IconFerramentas() {
+function IconCalc() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="2" width="16" height="20" rx="2" /><line x1="8" y1="6" x2="16" y2="6" /><line x1="8" y1="10" x2="10" y2="10" /><line x1="14" y1="10" x2="16" y2="10" /><line x1="8" y1="14" x2="10" y2="14" /><line x1="14" y1="14" x2="16" y2="14" /><line x1="8" y1="18" x2="16" y2="18" />
     </svg>
+  )
+}
+
+function IconPlanMidia() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 20V10" /><path d="M12 20V4" /><path d="M6 20v-6" />
+    </svg>
+  )
+}
+
+function IconForecasting() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+    </svg>
+  )
+}
+
+function NavItemSoon({ href, label, onNavigate }: { href: string; label: string; onNavigate: () => void }) {
+  return (
+    <Link
+      href={href}
+      onClick={onNavigate}
+      className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-text-muted/60 hover:text-text-muted hover:bg-bg-hover/50 transition-colors"
+    >
+      <span className="w-[18px] h-[18px] flex items-center justify-center text-text-muted/40">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+      </span>
+      <span>{label}</span>
+      <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded-full bg-white/5 text-text-muted/50">em breve</span>
+    </Link>
   )
 }
 function IconLogout() {

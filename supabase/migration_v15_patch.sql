@@ -1,0 +1,45 @@
+-- ============================================================
+-- Migration v15 Patch — Metric keys finais do Planejador de Mídia
+-- ============================================================
+-- O schema de media_plan_metrics é flexível (metric_key é text).
+-- Não é necessário alterar a tabela.
+--
+-- Keys REMOVIDOS (deprecados):
+--   SPEND, CPC, CPS_META, CPS_GOOGLE, CPS_INFLUENCER, CPS_MEDIO,
+--   SPEND_WHATSAPP, ORD_META, ORD_GOOGLE, ORD_INFLUENCER,
+--   S_PAGAS, S_TOTAL (antigo), PEDIDOS_PAGOS, PEDIDOS_ORG, PEDIDOS_TOTAL,
+--   RECEITA, RECEITA_NOVOS, RECEITA_RET, ROAS, CAC, CPP, MARGEM
+--
+-- KEY metrics (editáveis):
+--   RECEITA_META  — Meta de Receita (R$)
+--   S_ORG         — Sessões Orgânicas
+--   CR            — Taxa de Conversão (%)
+--   AOV           — Ticket Médio (R$)
+--   APR           — Taxa de Aprovação (%)
+--   RET           — Taxa de Retenção (%)
+--   SPEND_META    — Investimento Meta Ads (R$)
+--   SPEND_GOOGLE  — Investimento Google Ads (R$)
+--   SPEND_INFLUENCER — Investimento Influenciadores (R$)
+--   CPS           — Custo por Venda (R$)
+--
+-- RESULT metrics (calculados):
+--   SPEND_TOTAL    = SPEND_META + SPEND_GOOGLE + SPEND_INFLUENCER
+--   ORD_PAID       = SPEND_TOTAL / CPS
+--   ORD_ORG        = S_ORG * CR
+--   ORD_CAPTURED   = ORD_ORG + ORD_PAID
+--   ORD_BILLED     = ORD_CAPTURED * APR
+--   REV_CAPTURED   = ORD_CAPTURED * AOV
+--   REV_BILLED     = REV_CAPTURED * APR
+--   ROAS_CAPTURED  = REV_CAPTURED / SPEND_TOTAL
+--   ROAS_BILLED    = REV_BILLED / SPEND_TOTAL
+--   ADCOST         = SPEND_TOTAL / REV_BILLED (%)
+--   S_PAID_IMPLIED = ORD_PAID / CR
+--   S_TOTAL        = S_ORG + S_PAID_IMPLIED
+--
+-- Para limpar dados antigos com keys deprecados:
+-- DELETE FROM media_plan_metrics WHERE metric_key IN (
+--   'SPEND', 'CPC', 'CPS_META', 'CPS_GOOGLE', 'CPS_INFLUENCER', 'CPS_MEDIO',
+--   'SPEND_WHATSAPP', 'ORD_META', 'ORD_GOOGLE', 'ORD_INFLUENCER',
+--   'S_PAGAS', 'PEDIDOS_PAGOS', 'PEDIDOS_ORG', 'PEDIDOS_TOTAL',
+--   'RECEITA', 'RECEITA_NOVOS', 'RECEITA_RET', 'ROAS', 'CAC', 'CPP', 'MARGEM'
+-- );

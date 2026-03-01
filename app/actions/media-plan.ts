@@ -55,6 +55,7 @@ export async function getOrCreateMediaPlan(workspaceId: string, year: number) {
     .select('*')
     .eq('workspace_id', workspaceId)
     .eq('year', year)
+    .eq('plan_type', 'media')
     .single()
 
   if (existing) return { plan: existing }
@@ -84,6 +85,7 @@ export async function getOrCreateMediaPlanAdmin(workspaceId: string, year: numbe
     .select('*')
     .eq('workspace_id', workspaceId)
     .eq('year', year)
+    .eq('plan_type', 'media')
     .single()
 
   if (existing) return { plan: existing }
@@ -218,4 +220,67 @@ export async function upsertMetricsAdmin(
     .eq('id', planId)
 
   return { success: true }
+}
+
+// ============================================================
+// SYNC MEDIA → FINANCIAL
+// ============================================================
+
+export async function syncMediaToFinancial(workspaceId: string, year: number) {
+  const { error, adminSupabase } = await requireWorkspaceMember(workspaceId)
+  if (error || !adminSupabase) return { error: error ?? 'Erro' }
+
+  // Get media plan
+  const { data: mediaPlan } = await adminSupabase
+    .from('media_plans')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('year', year)
+    .eq('plan_type', 'media')
+    .single()
+
+  if (!mediaPlan) return { error: 'Plano de mídia não encontrado' }
+
+  // Get financial plan
+  const { data: finPlan } = await adminSupabase
+    .from('media_plans')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('year', year)
+    .eq('plan_type', 'financial')
+    .single()
+
+  if (!finPlan) return { error: 'Plano financeiro não encontrado. Acesse o Planejamento Financeiro primeiro.' }
+
+  // Get REV_BILLED from media plan
+  const { data: revMetrics } = await adminSupabase
+    .from('media_plan_metrics')
+    .select('month, value_numeric')
+    .eq('media_plan_id', mediaPlan.id)
+    .eq('metric_key', 'REV_BILLED')
+
+  if (!revMetrics || revMetrics.length === 0) return { error: 'Nenhuma receita faturada encontrada no plano de mídia' }
+
+  // Write FATURAMENTO to financial plan
+  const rows = revMetrics
+    .filter((r) => r.value_numeric && r.value_numeric > 0)
+    .map((r) => ({
+      media_plan_id: finPlan.id,
+      metric_key: 'FATURAMENTO',
+      month: r.month,
+      value_numeric: r.value_numeric,
+      delta_pct: null,
+      input_mode: 'value',
+      updated_at: new Date().toISOString(),
+    }))
+
+  if (rows.length === 0) return { error: 'Nenhum valor de receita faturada para enviar' }
+
+  const { error: upsertError } = await adminSupabase
+    .from('media_plan_metrics')
+    .upsert(rows, { onConflict: 'media_plan_id,metric_key,month' })
+
+  if (upsertError) return { error: upsertError.message }
+
+  return { success: true, synced: rows.length }
 }
