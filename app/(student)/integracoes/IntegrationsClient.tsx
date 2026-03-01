@@ -25,8 +25,7 @@ const PLATFORMS = [
     name: 'Google Ads',
     description: 'Campanhas de Google Search, Display e YouTube.',
     color: '#4285F4',
-    oauth: false,
-    comingSoon: true,
+    oauth: true,
   },
   {
     id: 'ga4',
@@ -78,13 +77,15 @@ function PlatformCard({
   const accounts: any[] = connected?.metadata?.accounts ?? []
 
   function handleConnect() {
-    window.location.href = `/api/integrations/meta/connect?workspace_id=${workspaceId}`
+    const provider = platform.id === 'google_ads' ? 'google-ads' : 'meta'
+    window.location.href = `/api/integrations/${provider}/connect?workspace_id=${workspaceId}`
   }
 
   async function handleSync() {
     setSyncing(true); setMessage(null)
     try {
-      const res = await fetch('/api/integrations/meta/sync', {
+      const provider = platform.id === 'google_ads' ? 'google-ads' : 'meta'
+      const res = await fetch(`/api/integrations/${provider}/sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -104,7 +105,8 @@ function PlatformCard({
 
   async function handleSelectAccount(accountId: string, accountName: string) {
     try {
-      const res = await fetch('/api/integrations/meta/accounts', {
+      const provider = platform.id === 'google_ads' ? 'google-ads' : 'meta'
+      const res = await fetch(`/api/integrations/${provider}/accounts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspace_id: workspaceId, account_id: accountId, account_name: accountName }),
