@@ -30,78 +30,127 @@ export async function GET(req: NextRequest) {
     const tokenText = await tokenRes.text()
     let tokenData: any
     try { tokenData = JSON.parse(tokenText) } catch {
-      console.error('Token response not JSON:', tokenText.slice(0, 500))
-      return NextResponse.redirect(`${req.nextUrl.origin}/integracoes?error=token_parse_failed`)
+      console.error('Token not JSON:', tokenText.slice(0, 300))
+      return NextResponse.redirect(`${req.nextUrl.origin}/integracoes?error=token_parse`)
     }
 
     if (tokenData.error) {
-      console.error('Google OAuth token error:', tokenData)
+      console.error('Token error:', JSON.stringify(tokenData))
       return NextResponse.redirect(`${req.nextUrl.origin}/integracoes?error=oauth_failed`)
     }
 
-    console.log('Google OAuth token obtained successfully')
+    const accessToken = tokenData.access_token
+    const mccId = process.env.GOOGLE_ADS_MCC_ID
+    console.log('Token OK. MCC:', mccId)
 
     // 2. List accessible customers
     let accounts: any[] = []
+    const customersRes = await fetch(
+      'https://googleads.googleapis.com/v18/customers:listAccessibleCustomers',
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'developer-token': process.env.GOOGLE_ADS_DEVELOPER_TOKEN!,
+        },
+      }
+    )
+    const customersText = await customersRes.text()
+    console.log('listAccessible status:', customersRes.status, 'body:', customersText.slice(0, 500))
+
+    let resourceNames: string[] = []
     try {
-      const customersRes = await fetch(
-        'https://googleads.googleapis.com/v18/customers:listAccessibleCustomers',
-        {
-          headers: {
-            'Authorization': `Bearer ${tokenData.access_token}`,
-            'developer-token': process.env.GOOGLE_ADS_DEVELOPER_TOKEN!,
-          },
-        }
-      )
-      const customersText = await customersRes.text()
-      console.log('Customers response status:', customersRes.status)
-      console.log('Customers response:', customersText.slice(0, 500))
-
-      let customersData: any
-      try { customersData = JSON.parse(customersText) } catch {
-        console.error('Customers response not JSON:', customersText.slice(0, 500))
-        // Save token anyway without accounts
-        customersData = { resourceNames: [] }
+      const customersData = JSON.parse(customersText)
+      resourceNames = customersData.resourceNames ?? []
+      if (customersData.error) {
+        console.error('API error:', JSON.stringify(customersData.error))
       }
-
-      const resourceNames: string[] = customersData.resourceNames ?? []
-
-      for (const rn of resourceNames.slice(0, 10)) {
-        const customerId = rn.replace('customers/', '')
-        try {
-          const detailRes = await fetch(
-            `https://googleads.googleapis.com/v18/customers/${customerId}`,
-            {
-              headers: {
-                'Authorization': `Bearer ${tokenData.access_token}`,
-                'developer-token': process.env.GOOGLE_ADS_DEVELOPER_TOKEN!,
-                'login-customer-id': customerId,
-              },
-            }
-          )
-          if (detailRes.ok) {
-            const detail = await detailRes.json()
-            accounts.push({
-              customer_id: customerId,
-              name: detail.descriptiveName || `Account ${customerId}`,
-              currency: detail.currencyCode || 'BRL',
-              is_manager: detail.manager || false,
-            })
-          }
-        } catch (e) {
-          console.error(`Error fetching customer ${customerId}:`, e)
-        }
-      }
-    } catch (e) {
-      console.error('Error listing customers:', e)
+    } catch {
+      console.error('Not JSON:', customersText.slice(0, 300))
     }
+
+    console.log('Resource names:', JSON.stringify(resourceNames))
+
+    // 3. Try to get details using MCC as login-customer-id
+    for (const rn of resourceNames.slice(0, 10)) {
+      const customerId = rn.replace('customers/', '')
+      const loginId = mccId || customerId
+      console.log(`Fetching customer ${customerId} with login-id ${loginId}`)
+      try {
+        const detailRes = await fetch(
+          `https://googleads.googleapis.com/v18/customers/${customerId}`,
+          {
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'developer-token': process.env.GOOGLE_ADS_DEVELOPER_TOKEN!,
+              'login-customer-id': loginId,
+            },
+          }
+        )
+        const detailText = await detailRes.text()
+        console.log(`Customer ${customerId} status:`, detailRes.status, 'body:', detailText.slice(0, 300))
+        if (detailRes.ok) {
+          const detail = JSON.parse(detailText)
+          accounts.push({
+            customer_id: customerId,
+            name: detail.descriptiveName || `Account ${customerId}`,
+            currency: detail.currencyCode || 'BRL',
+            is_manager: detail.manager || false,
+          })
+        }
+      } catch (e: any) {
+        console.error(`Customer ${customerId} error:`, e.message)
+      }
+    }
+
+    // 4. If MCC found but no sub-accounts, try GAQL to list child accounts
+    if (mccId && accounts.length <= 1) {
+      console.log('Trying GAQL to list MCC child accounts...')
+      try {
+        const gaqlRes = await fetch(
+          `https://googleads.googleapis.com/v18/customers/${mccId}/googleAds:search`,
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'developer-token': process.env.GOOGLE_ADS_DEVELOPER_TOKEN!,
+              'login-customer-id': mccId,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              query: `SELECT customer_client.id, customer_client.descriptive_name, customer_client.currency_code, customer_client.manager FROM customer_client WHERE customer_client.status = 'ENABLED'`,
+            }),
+          }
+        )
+        const gaqlText = await gaqlRes.text()
+        console.log('GAQL status:', gaqlRes.status, 'body:', gaqlText.slice(0, 500))
+        if (gaqlRes.ok) {
+          const gaqlData = JSON.parse(gaqlText)
+          const results = gaqlData.results ?? []
+          for (const r of results) {
+            const cc = r.customerClient
+            if (cc && !accounts.find((a: any) => a.customer_id === cc.id?.toString())) {
+              accounts.push({
+                customer_id: cc.id?.toString(),
+                name: cc.descriptiveName || `Account ${cc.id}`,
+                currency: cc.currencyCode || 'BRL',
+                is_manager: cc.manager || false,
+              })
+            }
+          }
+        }
+      } catch (e: any) {
+        console.error('GAQL error:', e.message)
+      }
+    }
+
+    console.log('Final accounts:', JSON.stringify(accounts))
 
     const firstAccount = accounts.find(a => !a.is_manager) || accounts[0]
 
     await supabase.from('workspace_integrations').upsert({
       workspace_id: workspaceId,
       provider: 'google_ads',
-      access_token: tokenData.access_token,
+      access_token: accessToken,
       refresh_token: tokenData.refresh_token || null,
       token_expires_at: new Date(Date.now() + (tokenData.expires_in || 3600) * 1000).toISOString(),
       account_id: firstAccount?.customer_id || null,
@@ -112,8 +161,8 @@ export async function GET(req: NextRequest) {
     }, { onConflict: 'workspace_id,provider' })
 
     return NextResponse.redirect(`${req.nextUrl.origin}/integracoes?google=connected`)
-  } catch (err) {
-    console.error('Google callback error:', err)
+  } catch (err: any) {
+    console.error('Google callback error:', err.message, err.stack)
     return NextResponse.redirect(`${req.nextUrl.origin}/integracoes?error=callback_failed`)
   }
 }
