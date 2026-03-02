@@ -36,9 +36,9 @@ export default function MetricsClient({
   googleMetrics: AdsRow[]
 }) {
   const [activeTab, setActiveTab] = useState<Tab>('meta')
-  const [period, setPeriod] = useState<Period>('30d')
-  const [customFrom, setCustomFrom] = useState('')
-  const [customTo, setCustomTo] = useState('')
+  const [period, setPeriod] = useState<Period>('custom')
+  const [customFrom, setCustomFrom] = useState('2025-09-01')
+  const [customTo, setCustomTo] = useState(new Date().toLocaleDateString('sv-SE'))
   const [appliedFrom, setAppliedFrom] = useState('')
   const [appliedTo, setAppliedTo] = useState('')
 
