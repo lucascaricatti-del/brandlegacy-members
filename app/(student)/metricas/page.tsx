@@ -77,16 +77,16 @@ export default async function MetricasPage() {
       .eq('workspace_id', ws.id)
       .eq('provider', 'meta_ads')
       .gte('date', sinceStr)
-      .order('date', { ascending: true })
-      .limit(5000),
+      .order('date', { ascending: false })
+      .limit(2000),
     (adminSupabase as any)
       .from('ads_metrics')
       .select('*')
       .eq('workspace_id', ws.id)
       .eq('provider', 'google_ads')
       .gte('date', sinceStr)
-      .order('date', { ascending: true })
-      .limit(5000),
+      .order('date', { ascending: false })
+      .limit(2000),
   ])
 
   console.log('[metricas/page] workspace:', ws.id, ws.name)
