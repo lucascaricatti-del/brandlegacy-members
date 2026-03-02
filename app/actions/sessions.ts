@@ -235,6 +235,9 @@ export async function addSessionTaskToTaskFlow(taskId: string, workspaceId: stri
       responsible: sessionTask.responsible || null,
       due_date: sessionTask.due_date || null,
       priority: (sessionTask.priority || 'media') as 'baixa' | 'media' | 'alta' | 'urgente',
+      status: 'pendente',
+      is_archived: false,
+      created_by: user.id,
     })
     .select('id')
     .single()
@@ -249,7 +252,7 @@ export async function addSessionTaskToTaskFlow(taskId: string, workspaceId: stri
 
   revalidatePath(`/admin/workspaces/${workspaceId}/sessoes`)
   revalidatePath(`/admin/workspaces/${workspaceId}/tasks`)
-  revalidatePath('/workspace/tasks')
+  revalidatePath('/workspace/tasks', 'page')
   return { success: true }
 }
 

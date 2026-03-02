@@ -17,6 +17,7 @@ export default async function TasksPage() {
     .select('workspace_id, workspaces(id, name)')
     .eq('user_id', user.id)
     .eq('is_active', true)
+    .order('created_at', { ascending: true })
 
   type WsMembership = {
     workspace_id: string
