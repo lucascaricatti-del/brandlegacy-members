@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
     const query = `SELECT campaign.id, campaign.name, metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions, metrics.conversions_value, metrics.ctr, metrics.average_cpc, metrics.average_cpm, segments.date FROM campaign WHERE segments.date BETWEEN '${since}' AND '${until}' AND campaign.status != 'REMOVED' ORDER BY segments.date`
 
     const searchRes = await fetch(
-      `https://googleads.googleapis.com/v18/customers/${integration.account_id}/googleAds:searchStream`,
+      `https://googleads.googleapis.com/v23/customers/${integration.account_id}/googleAds:searchStream`,
       {
         method: 'POST',
         headers: {

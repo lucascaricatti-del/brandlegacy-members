@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
     // 2. List accessible customers
     let accounts: any[] = []
     const customersRes = await fetch(
-      'https://googleads.googleapis.com/v18/customers:listAccessibleCustomers',
+      'https://googleads.googleapis.com/v23/customers:listAccessibleCustomers',
       {
         headers: {
           'Authorization': `Bearer ${accessToken}`,
@@ -77,7 +77,7 @@ export async function GET(req: NextRequest) {
       console.log(`Fetching customer ${customerId} with login-id ${loginId}`)
       try {
         const detailRes = await fetch(
-          `https://googleads.googleapis.com/v18/customers/${customerId}`,
+          `https://googleads.googleapis.com/v23/customers/${customerId}`,
           {
             headers: {
               'Authorization': `Bearer ${accessToken}`,
@@ -107,7 +107,7 @@ export async function GET(req: NextRequest) {
       console.log('Trying GAQL to list MCC child accounts...')
       try {
         const gaqlRes = await fetch(
-          `https://googleads.googleapis.com/v18/customers/${mccId}/googleAds:search`,
+          `https://googleads.googleapis.com/v23/customers/${mccId}/googleAds:search`,
           {
             method: 'POST',
             headers: {
