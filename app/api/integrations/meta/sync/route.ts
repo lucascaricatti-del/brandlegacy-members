@@ -72,9 +72,8 @@ export async function POST(req: NextRequest) {
     })
 
     if (rows.length > 0) {
-      await supabase.from('ads_metrics').upsert(rows, {
-        onConflict: 'workspace_id,provider,date,campaign_id,adset_id',
-      })
+      await supabase.from('ads_metrics').delete().eq('workspace_id', workspace_id).eq('provider', 'meta_ads').gte('date', since).lte('date', until)
+      await supabase.from('ads_metrics').insert(rows)
     }
 
     return NextResponse.json({ synced: rows.length, period: { since, until } })

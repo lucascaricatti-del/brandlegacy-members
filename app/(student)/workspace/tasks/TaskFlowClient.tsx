@@ -3,6 +3,7 @@
 import { useState, useTransition, useEffect, useCallback, useRef } from 'react'
 import {
   createTask,
+  createTaskAdmin,
   updateTask,
   completeTask,
   archiveTask,
@@ -297,6 +298,7 @@ export default function TaskFlowClient({ workspaceId, tasks, members = [], isAdm
         <NewTaskForm
           workspaceId={workspaceId}
           members={members}
+          isAdmin={isAdmin}
           onClose={() => setShowNewTask(false)}
           onMessage={setMessage}
         />
@@ -506,15 +508,23 @@ function NewTaskForm({
         }
       }
 
-      const result = await createTask(workspaceId, {
-        title: fd.get('title') as string,
-        description: (fd.get('description') as string) || undefined,
-        responsible: (fd.get('responsible') as string) || undefined,
-        due_date: (fd.get('due_date') as string) || undefined,
-        priority: (fd.get('priority') as TaskPriority) || 'media',
-        file_url: fileUrl,
-        file_name: fileName,
-      })
+      const result = isAdmin
+        ? await createTaskAdmin(workspaceId, {
+            title: fd.get('title') as string,
+            description: (fd.get('description') as string) || undefined,
+            responsible: (fd.get('responsible') as string) || undefined,
+            due_date: (fd.get('due_date') as string) || undefined,
+            priority: (fd.get('priority') as TaskPriority) || 'media',
+          })
+        : await createTask(workspaceId, {
+            title: fd.get('title') as string,
+            description: (fd.get('description') as string) || undefined,
+            responsible: (fd.get('responsible') as string) || undefined,
+            due_date: (fd.get('due_date') as string) || undefined,
+            priority: (fd.get('priority') as TaskPriority) || 'media',
+            file_url: fileUrl,
+            file_name: fileName,
+          })
       if ('error' in result && result.error) {
         onMessage({ type: 'error', text: result.error })
       } else {
