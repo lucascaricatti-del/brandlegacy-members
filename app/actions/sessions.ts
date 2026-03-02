@@ -193,7 +193,10 @@ export async function analyzeTranscript(
         priority: t.priority || 'media',
       }))
 
-      await adminSupabase.from('session_tasks').insert(taskRows)
+      const { error: tasksInsertError } = await adminSupabase.from('session_tasks').insert(taskRows)
+      if (tasksInsertError) {
+        console.error('[analyzeTranscript] insert session_tasks failed:', tasksInsertError, { sessionId, workspaceId })
+      }
     }
 
     revalidatePath(`/admin/workspaces/${workspaceId}/sessoes`)
@@ -242,7 +245,10 @@ export async function addSessionTaskToTaskFlow(taskId: string, workspaceId: stri
     .select('id')
     .single()
 
-  if (insertError || !task) return { error: insertError?.message ?? 'Erro ao criar tarefa' }
+  if (insertError || !task) {
+    console.error('[addSessionTaskToTaskFlow] insert tasks failed:', insertError, { workspaceId, sessionId: sessionTask.session_id, userId: user.id })
+    return { error: insertError?.message ?? 'Erro ao criar tarefa' }
+  }
 
   // Marca como adicionada via task_id
   await adminSupabase

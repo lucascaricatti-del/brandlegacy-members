@@ -86,10 +86,10 @@ export default async function MetricasPage() {
       .order('date', { ascending: true }),
   ])
 
-  const accountNames = [
-    metaIntegration?.account_name,
-    googleIntegration?.account_name,
-  ].filter(Boolean).join(' · ')
+  const accountNames = [...new Set(
+    [metaIntegration?.account_name, googleIntegration?.account_name]
+      .filter((name): name is string => !!name && name !== ws.name)
+  )].join(' · ')
 
   return (
     <div className="animate-fade-in">
