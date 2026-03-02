@@ -39,6 +39,8 @@ export default function MetricsClient({
   const [period, setPeriod] = useState<Period>('30d')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
+  const [appliedFrom, setAppliedFrom] = useState('')
+  const [appliedTo, setAppliedTo] = useState('')
 
   const [metaSyncing, setMetaSyncing] = useState(false)
   const [metaSyncMsg, setMetaSyncMsg] = useState('')
@@ -52,8 +54,8 @@ export default function MetricsClient({
   const isConnected = activeTab === 'meta' ? isMetaConnected : isGoogleConnected
 
   const filtered = useMemo(() => {
-    if (period === 'custom' && customFrom && customTo) {
-      return metrics.filter(m => m.date >= customFrom && m.date <= customTo)
+    if (period === 'custom' && appliedFrom && appliedTo) {
+      return metrics.filter(m => m.date >= appliedFrom && m.date <= appliedTo)
     }
     const todayStr = new Date().toLocaleDateString('sv-SE')
     if (period === 'today') {
@@ -70,7 +72,7 @@ export default function MetricsClient({
     since.setDate(since.getDate() - days)
     const sinceStr = since.toLocaleDateString('sv-SE')
     return metrics.filter(m => m.date >= sinceStr)
-  }, [metrics, period, customFrom, customTo, activeTab])
+  }, [metrics, period, appliedFrom, appliedTo, activeTab])
 
   // Aggregate by date
   const dailyData = useMemo(() => {
@@ -215,11 +217,18 @@ export default function MetricsClient({
           {/* Custom date range */}
           {period === 'custom' && (
             <div className="flex gap-3 items-center">
+              <span className="text-text-muted text-sm">De:</span>
               <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
                 className="bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary" />
-              <span className="text-text-muted">até</span>
+              <span className="text-text-muted text-sm">Até:</span>
               <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
                 className="bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary" />
+              <button
+                onClick={() => { setAppliedFrom(customFrom); setAppliedTo(customTo) }}
+                disabled={!customFrom || !customTo}
+                className="px-4 py-1.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 transition-opacity disabled:opacity-40">
+                Buscar
+              </button>
             </div>
           )}
 
