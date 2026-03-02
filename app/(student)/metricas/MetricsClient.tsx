@@ -58,7 +58,7 @@ export default function MetricsClient({
     since.setUTCDate(since.getUTCDate() - days)
     const sinceStr = since.toISOString().split('T')[0]
     return metrics.filter(m => m.date >= sinceStr)
-  }, [metrics, period, customFrom, customTo])
+  }, [metrics, period, customFrom, customTo, activeTab])
 
   // Aggregate by date
   const dailyData = useMemo(() => {
