@@ -11,9 +11,10 @@ type AdsRow = {
   id: string; date: string; campaign_id: string; campaign_name: string;
   spend: number; impressions: number; clicks: number; conversions: number;
   revenue: number; cpm: number; cpc: number; ctr: number; roas: number;
+  page_views?: number; add_to_cart?: number; initiate_checkout?: number; add_payment_info?: number;
 }
 
-type Period = 'today' | 'yesterday' | '7d' | '14d' | '21d' | '30d' | 'custom'
+type Period = 'today' | 'yesterday' | '7d' | '14d' | '21d' | '30d' | 'mes_atual' | 'custom'
 const PERIODS: { key: Period; label: string; days: number }[] = [
   { key: 'today', label: 'Hoje', days: 0 },
   { key: 'yesterday', label: 'Ontem', days: 1 },
@@ -21,10 +22,13 @@ const PERIODS: { key: Period; label: string; days: number }[] = [
   { key: '14d', label: '14 dias', days: 14 },
   { key: '21d', label: '21 dias', days: 21 },
   { key: '30d', label: '30 dias', days: 30 },
+  { key: 'mes_atual', label: 'Mês Atual', days: 0 },
   { key: 'custom', label: 'Personalizado', days: 0 },
 ]
 
 type Tab = 'meta' | 'google'
+
+function normalize(d: string) { return d?.slice(0, 10) ?? '' }
 
 export default function MetricsClient({
   workspaceId, isMetaConnected, isGoogleConnected, metaMetrics, googleMetrics,
@@ -54,7 +58,6 @@ export default function MetricsClient({
   const isConnected = activeTab === 'meta' ? isMetaConnected : isGoogleConnected
 
   const filtered = useMemo(() => {
-    const normalize = (d: string) => d?.slice(0, 10) ?? ''
     const today = new Date().toLocaleDateString('sv-SE')
 
     if (period === 'today') return metrics.filter(m => normalize(m.date) === today)
@@ -65,8 +68,13 @@ export default function MetricsClient({
       return metrics.filter(m => normalize(m.date) === y.toLocaleDateString('sv-SE'))
     }
 
+    if (period === 'mes_atual') {
+      const firstDay = today.slice(0, 7) + '-01'
+      return metrics.filter(m => normalize(m.date) >= firstDay && normalize(m.date) <= today)
+    }
+
     if (period === 'custom' && appliedFrom && appliedTo) {
-      return metrics.filter(m => m.date >= appliedFrom && m.date <= appliedTo)
+      return metrics.filter(m => normalize(m.date) >= appliedFrom && normalize(m.date) <= appliedTo)
     }
 
     // 7d, 14d, 21d, 30d
@@ -94,11 +102,12 @@ export default function MetricsClient({
 
   // Campaign breakdown
   const campaignData = useMemo(() => {
-    const map = new Map<string, { name: string; spend: number; revenue: number; clicks: number; conversions: number }>()
+    const map = new Map<string, { name: string; spend: number; revenue: number; impressions: number; clicks: number; conversions: number }>()
     for (const m of filtered) {
-      const existing = map.get(m.campaign_id) ?? { name: m.campaign_name, spend: 0, revenue: 0, clicks: 0, conversions: 0 }
+      const existing = map.get(m.campaign_id) ?? { name: m.campaign_name, spend: 0, revenue: 0, impressions: 0, clicks: 0, conversions: 0 }
       existing.spend += Number(m.spend) || 0
       existing.revenue += Number(m.revenue) || 0
+      existing.impressions += Number(m.impressions) || 0
       existing.clicks += Number(m.clicks) || 0
       existing.conversions += Number(m.conversions) || 0
       map.set(m.campaign_id, existing)
@@ -116,8 +125,37 @@ export default function MetricsClient({
     const cpa = conversions > 0 ? spend / conversions : 0
     const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0
     const cpc = clicks > 0 ? spend / clicks : 0
-    return { spend, revenue, impressions, clicks, conversions, roas, cpa, ctr, cpc }
+    const cpm = impressions > 0 ? (spend / impressions) * 1000 : 0
+    return { spend, revenue, impressions, clicks, conversions, roas, cpa, ctr, cpc, cpm }
   }, [dailyData])
+
+  // Funnel data (Meta only)
+  const funnel = useMemo(() => {
+    if (activeTab !== 'meta') return null
+    const pv = filtered.reduce((s, m) => s + (Number(m.page_views) || 0), 0)
+    const atc = filtered.reduce((s, m) => s + (Number(m.add_to_cart) || 0), 0)
+    const ic = filtered.reduce((s, m) => s + (Number(m.initiate_checkout) || 0), 0)
+    const api = filtered.reduce((s, m) => s + (Number(m.add_payment_info) || 0), 0)
+    const conv = filtered.reduce((s, m) => s + (Number(m.conversions) || 0), 0)
+    if (pv === 0 && atc === 0 && ic === 0 && api === 0 && conv === 0) return null
+    const steps = [
+      { label: 'Visualizações', value: pv },
+      { label: 'Add ao Carrinho', value: atc },
+      { label: 'Checkout Iniciado', value: ic },
+      { label: 'Info Pagamento', value: api },
+      { label: 'Compras', value: conv },
+    ]
+    // Find biggest drop
+    let maxDropIdx = -1
+    let maxDrop = 0
+    for (let i = 0; i < steps.length - 1; i++) {
+      if (steps[i].value > 0) {
+        const dropPct = 1 - (steps[i + 1].value / steps[i].value)
+        if (dropPct > maxDrop) { maxDrop = dropPct; maxDropIdx = i + 1 }
+      }
+    }
+    return { steps, maxDropIdx }
+  }, [filtered, activeTab])
 
   const handleSync = async () => {
     const dateFrom = new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0]
@@ -162,9 +200,6 @@ export default function MetricsClient({
 
   return (
     <div className="space-y-6">
-      <div className="text-xs text-red-400 bg-red-400/10 p-2 rounded">
-        DEBUG: metaMetrics={metaMetrics.length} googleMetrics={googleMetrics.length} filtered={filtered.length} activeTab={activeTab} period={period}
-      </div>
       {/* Tab selector */}
       <div className="flex gap-1 bg-bg-card border border-border rounded-xl p-1">
         <button onClick={() => setActiveTab('meta')}
@@ -239,17 +274,60 @@ export default function MetricsClient({
           )}
 
           {/* KPI Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <KpiCard label="Investimento" value={fmtCurrency(totals.spend)} />
             <KpiCard label="Receita" value={fmtCurrency(totals.revenue)} />
-            <KpiCard label="ROAS" value={`${totals.roas.toFixed(2)}x`} color={totals.roas >= 2 ? '#22c55e' : totals.roas >= 1 ? '#eab308' : '#ef4444'} />
-            <KpiCard label="CPA" value={fmtCurrency(totals.cpa)} />
-            <KpiCard label="Conversões" value={String(totals.conversions)} />
+            <KpiCard label="ROAS" value={`${totals.roas.toFixed(2)}x`}
+              color={totals.roas >= 3 ? '#22c55e' : totals.roas >= 1.5 ? '#eab308' : '#ef4444'}
+              indicator={totals.roas >= 3 ? 'green' : totals.roas >= 1.5 ? 'yellow' : 'red'} />
+            <KpiCard label="CPA" value={fmtCurrency(totals.cpa)}
+              color={totals.cpa > 0 && totals.cpa <= 50 ? '#22c55e' : totals.cpa <= 100 ? '#eab308' : '#ef4444'}
+              indicator={totals.cpa > 0 && totals.cpa <= 50 ? 'green' : totals.cpa <= 100 ? 'yellow' : 'red'} />
+            <KpiCard label="Conversões" value={fmtNumber(totals.conversions)} />
             <KpiCard label="Impressões" value={fmtNumber(totals.impressions)} />
             <KpiCard label="Cliques" value={fmtNumber(totals.clicks)} />
-            <KpiCard label="CTR" value={`${totals.ctr.toFixed(2)}%`} />
-            <KpiCard label="CPC" value={fmtCurrency(totals.cpc)} />
+            <KpiCard label="CTR" value={`${totals.ctr.toFixed(2)}%`}
+              color={totals.ctr >= 2 ? '#22c55e' : totals.ctr >= 1 ? '#eab308' : '#ef4444'}
+              indicator={totals.ctr >= 2 ? 'green' : totals.ctr >= 1 ? 'yellow' : 'red'} />
+            <KpiCard label="CPM" value={fmtCurrency(totals.cpm)}
+              color={totals.cpm > 0 && totals.cpm <= 20 ? '#22c55e' : totals.cpm <= 40 ? '#eab308' : '#ef4444'}
+              indicator={totals.cpm > 0 && totals.cpm <= 20 ? 'green' : totals.cpm <= 40 ? 'yellow' : 'red'} />
+            <KpiCard label="CPC" value={fmtCurrency(totals.cpc)}
+              color={totals.cpc > 0 && totals.cpc <= 1.5 ? '#22c55e' : totals.cpc <= 3 ? '#eab308' : '#ef4444'}
+              indicator={totals.cpc > 0 && totals.cpc <= 1.5 ? 'green' : totals.cpc <= 3 ? 'yellow' : 'red'} />
           </div>
+
+          {/* Funnel — Meta only */}
+          {funnel && (
+            <div className="bg-bg-card border border-border rounded-xl p-6">
+              <h3 className="text-text-primary font-semibold mb-4">Funil de Conversão</h3>
+              <div className="flex items-end gap-1 md:gap-3">
+                {funnel.steps.map((step, i) => {
+                  const maxVal = Math.max(...funnel.steps.map(s => s.value))
+                  const height = maxVal > 0 ? Math.max((step.value / maxVal) * 100, 8) : 8
+                  const prevValue = i > 0 ? funnel.steps[i - 1].value : 0
+                  const convRate = prevValue > 0 ? ((step.value / prevValue) * 100).toFixed(1) : null
+                  const isBiggestDrop = i === funnel.maxDropIdx
+
+                  return (
+                    <div key={i} className="flex-1 flex flex-col items-center gap-2">
+                      <span className="text-xs font-bold text-text-primary">{fmtNumber(step.value)}</span>
+                      <div
+                        className={`w-full rounded-t-lg transition-all ${isBiggestDrop ? 'bg-red-500/80' : 'bg-brand-gold/70'}`}
+                        style={{ height: `${height}px`, minHeight: 8 }}
+                      />
+                      <span className="text-[10px] text-text-muted text-center leading-tight">{step.label}</span>
+                      {convRate && (
+                        <span className={`text-[10px] font-medium ${isBiggestDrop ? 'text-red-400' : 'text-text-secondary'}`}>
+                          {convRate}%
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Spend vs Revenue chart */}
           {dailyData.length > 0 && (
@@ -296,7 +374,10 @@ export default function MetricsClient({
                       <th className="text-right py-2">Gasto</th>
                       <th className="text-right py-2">Receita</th>
                       <th className="text-right py-2">ROAS</th>
+                      <th className="text-right py-2">Impressões</th>
                       <th className="text-right py-2">Cliques</th>
+                      <th className="text-right py-2">CTR</th>
+                      <th className="text-right py-2">CPM</th>
                       <th className="text-right py-2">Conv.</th>
                       <th className="text-right py-2">CPA</th>
                     </tr>
@@ -305,15 +386,24 @@ export default function MetricsClient({
                     {campaignData.map((c, i) => {
                       const roas = c.spend > 0 ? c.revenue / c.spend : 0
                       const cpa = c.conversions > 0 ? c.spend / c.conversions : 0
+                      const ctr = c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0
+                      const cpm = c.impressions > 0 ? (c.spend / c.impressions) * 1000 : 0
                       return (
                         <tr key={i} className="border-t border-white/5 hover:bg-white/5">
                           <td className="py-2 text-text-primary max-w-[200px] truncate">{c.name}</td>
                           <td className="py-2 text-right text-red-400">{fmtCurrency(c.spend)}</td>
                           <td className="py-2 text-right text-green-400">{fmtCurrency(c.revenue)}</td>
-                          <td className={`py-2 text-right font-medium ${roas >= 2 ? 'text-green-400' : roas >= 1 ? 'text-yellow-400' : 'text-red-400'}`}>
+                          <td className={`py-2 text-right font-medium ${roas >= 3 ? 'text-green-400' : roas >= 1.5 ? 'text-yellow-400' : 'text-red-400'}`}>
                             {roas.toFixed(2)}x
                           </td>
+                          <td className="py-2 text-right text-text-secondary">{fmtNumber(c.impressions)}</td>
                           <td className="py-2 text-right text-text-secondary">{fmtNumber(c.clicks)}</td>
+                          <td className={`py-2 text-right ${ctr >= 2 ? 'text-green-400' : ctr >= 1 ? 'text-yellow-400' : 'text-red-400'}`}>
+                            {ctr.toFixed(2)}%
+                          </td>
+                          <td className={`py-2 text-right ${cpm <= 20 ? 'text-green-400' : cpm <= 40 ? 'text-yellow-400' : 'text-red-400'}`}>
+                            {fmtCurrency(cpm)}
+                          </td>
                           <td className="py-2 text-right text-text-secondary">{c.conversions}</td>
                           <td className="py-2 text-right text-text-secondary">{fmtCurrency(cpa)}</td>
                         </tr>
@@ -337,10 +427,18 @@ export default function MetricsClient({
   )
 }
 
-function KpiCard({ label, value, color }: { label: string; value: string; color?: string }) {
+const INDICATOR_DOTS: Record<string, string> = {
+  green: '🟢',
+  yellow: '🟡',
+  red: '🔴',
+}
+
+function KpiCard({ label, value, color, indicator }: { label: string; value: string; color?: string; indicator?: 'green' | 'yellow' | 'red' }) {
   return (
     <div className="bg-bg-card border border-border rounded-xl p-4">
-      <p className="text-text-muted text-xs font-medium mb-1">{label}</p>
+      <p className="text-text-muted text-xs font-medium mb-1">
+        {label} {indicator && INDICATOR_DOTS[indicator]}
+      </p>
       <p className="text-xl font-bold" style={{ color: color || 'var(--text-primary)' }}>{value}</p>
     </div>
   )
