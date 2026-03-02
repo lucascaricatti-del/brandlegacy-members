@@ -43,8 +43,8 @@ export async function POST(req: NextRequest) {
 
     // Segue paginação até esgotar
     while (url) {
-      const pageRes = await fetch(url)
-      const data = await pageRes.json()
+      const pageRes: Response = await fetch(url)
+      const data: any = await pageRes.json()
 
       if (data.error) {
         console.error('[meta/sync] API error:', JSON.stringify(data.error))
