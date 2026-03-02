@@ -29,9 +29,14 @@ export async function POST(req: NextRequest) {
   const until = date_to || new Date().toISOString().split('T')[0]
 
   try {
+    const accountIdClean = integration.account_id.replace(/^act_/, '')
+    console.log('[meta/sync] account_id raw:', integration.account_id, '→ clean:', accountIdClean)
+    console.log('[meta/sync] period:', since, '→', until)
+    console.log('[meta/sync] token length:', integration.access_token?.length ?? 0)
+
     // Primeira página
     let url: string | null =
-      `https://graph.facebook.com/v21.0/act_${integration.account_id.replace(/^act_/, '')}/insights?` +
+      `https://graph.facebook.com/v21.0/act_${accountIdClean}/insights?` +
       `fields=campaign_id,campaign_name,adset_id,adset_name,spend,impressions,clicks,actions,action_values,cpm,cpc,ctr` +
       `&time_range={"since":"${since}","until":"${until}"}` +
       `&time_increment=1` +
@@ -40,16 +45,22 @@ export async function POST(req: NextRequest) {
       `&access_token=${integration.access_token}`
 
     const allRows: any[] = []
+    let pageNum = 0
 
     // Segue paginação até esgotar
     while (url) {
+      pageNum++
+      console.log(`[meta/sync] fetching page ${pageNum}...`)
       const pageRes: Response = await fetch(url)
+      console.log(`[meta/sync] page ${pageNum} status:`, pageRes.status)
       const data: any = await pageRes.json()
 
       if (data.error) {
         console.error('[meta/sync] API error:', JSON.stringify(data.error))
         return NextResponse.json({ error: data.error.message }, { status: 400 })
       }
+
+      console.log(`[meta/sync] page ${pageNum} data.data length:`, data.data?.length ?? 0, 'has next:', !!data.paging?.next)
 
       const pageRows = (data.data || []).map((row: any) => {
         const purchases = row.actions?.find((a: any) => a.action_type === 'purchase')
