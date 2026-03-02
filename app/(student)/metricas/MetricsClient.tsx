@@ -51,6 +51,9 @@ export default function MetricsClient({
   const [googleSyncing, setGoogleSyncing] = useState(false)
   const [googleSyncMsg, setGoogleSyncMsg] = useState('')
 
+  const [reportLoading, setReportLoading] = useState(false)
+  const [reportMarkdown, setReportMarkdown] = useState('')
+
   const syncing = activeTab === 'meta' ? metaSyncing : googleSyncing
   const syncMsg = activeTab === 'meta' ? metaSyncMsg : googleSyncMsg
 
@@ -77,7 +80,6 @@ export default function MetricsClient({
       return metrics.filter(m => normalize(m.date) >= appliedFrom && normalize(m.date) <= appliedTo)
     }
 
-    // 7d, 14d, 21d, 30d
     const days = PERIODS.find(p => p.key === period)?.days ?? 30
     const since = new Date()
     since.setDate(since.getDate() - days)
@@ -121,31 +123,31 @@ export default function MetricsClient({
     const impressions = dailyData.reduce((s, d) => s + d.impressions, 0)
     const clicks = dailyData.reduce((s, d) => s + d.clicks, 0)
     const conversions = dailyData.reduce((s, d) => s + d.conversions, 0)
+    const page_views = filtered.reduce((s, m) => s + (Number(m.page_views) || 0), 0)
+    const add_to_cart = filtered.reduce((s, m) => s + (Number(m.add_to_cart) || 0), 0)
+    const initiate_checkout = filtered.reduce((s, m) => s + (Number(m.initiate_checkout) || 0), 0)
+    const add_payment_info = filtered.reduce((s, m) => s + (Number(m.add_payment_info) || 0), 0)
     const roas = spend > 0 ? revenue / spend : 0
     const cpa = conversions > 0 ? spend / conversions : 0
     const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0
-    const cpc = clicks > 0 ? spend / clicks : 0
     const cpm = impressions > 0 ? (spend / impressions) * 1000 : 0
-    return { spend, revenue, impressions, clicks, conversions, roas, cpa, ctr, cpc, cpm }
-  }, [dailyData])
+    const cps = page_views > 0 ? spend / page_views : 0
+    const connect_rate = clicks > 0 ? (page_views / clicks) * 100 : 0
+    const conversion_rate = page_views > 0 ? (conversions / page_views) * 100 : 0
+    return { spend, revenue, impressions, clicks, conversions, roas, cpa, ctr, cpm, cps, connect_rate, conversion_rate, page_views, add_to_cart, initiate_checkout, add_payment_info }
+  }, [dailyData, filtered])
 
-  // Funnel data (Meta only)
+  // Funnel (Meta only)
   const funnel = useMemo(() => {
     if (activeTab !== 'meta') return null
-    const pv = filtered.reduce((s, m) => s + (Number(m.page_views) || 0), 0)
-    const atc = filtered.reduce((s, m) => s + (Number(m.add_to_cart) || 0), 0)
-    const ic = filtered.reduce((s, m) => s + (Number(m.initiate_checkout) || 0), 0)
-    const api = filtered.reduce((s, m) => s + (Number(m.add_payment_info) || 0), 0)
-    const conv = filtered.reduce((s, m) => s + (Number(m.conversions) || 0), 0)
-    if (pv === 0 && atc === 0 && ic === 0 && api === 0 && conv === 0) return null
+    const { page_views, initiate_checkout, add_payment_info, conversions, spend } = totals
+    if (page_views === 0 && initiate_checkout === 0 && add_payment_info === 0 && conversions === 0) return null
     const steps = [
-      { label: 'Visualizações', value: pv },
-      { label: 'Add ao Carrinho', value: atc },
-      { label: 'Checkout Iniciado', value: ic },
-      { label: 'Info Pagamento', value: api },
-      { label: 'Compras', value: conv },
+      { label: 'Visualização da Página', value: page_views, cost: page_views > 0 ? spend / page_views : 0, costLabel: 'CPS' },
+      { label: 'Checkout Iniciado', value: initiate_checkout, cost: initiate_checkout > 0 ? spend / initiate_checkout : 0, costLabel: 'Custo/Checkout' },
+      { label: 'Info Pagamento', value: add_payment_info, cost: add_payment_info > 0 ? spend / add_payment_info : 0, costLabel: 'Custo/Pgto' },
+      { label: 'Compra', value: conversions, cost: conversions > 0 ? spend / conversions : 0, costLabel: 'CPA' },
     ]
-    // Find biggest drop
     let maxDropIdx = -1
     let maxDrop = 0
     for (let i = 0; i < steps.length - 1; i++) {
@@ -155,7 +157,7 @@ export default function MetricsClient({
       }
     }
     return { steps, maxDropIdx }
-  }, [filtered, activeTab])
+  }, [totals, activeTab])
 
   const handleSync = async () => {
     const dateFrom = new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0]
@@ -171,11 +173,7 @@ export default function MetricsClient({
         })
         const data = await res.json()
         if (data.error) { setMetaSyncMsg(`Erro: ${data.error}`) }
-        else {
-          setMetaSyncMsg(`${data.synced} registros sincronizados. Recarregando...`)
-          window.location.reload()
-          return
-        }
+        else { setMetaSyncMsg(`${data.synced} registros sincronizados. Recarregando...`); window.location.reload(); return }
       } catch { setMetaSyncMsg('Erro ao sincronizar.') }
       setMetaSyncing(false)
     } else {
@@ -188,14 +186,37 @@ export default function MetricsClient({
         })
         const data = await res.json()
         if (data.error) { setGoogleSyncMsg(`Erro: ${data.error}`) }
-        else {
-          setGoogleSyncMsg(`${data.synced} registros sincronizados. Recarregando...`)
-          window.location.reload()
-          return
-        }
+        else { setGoogleSyncMsg(`${data.synced} registros sincronizados. Recarregando...`); window.location.reload(); return }
       } catch { setGoogleSyncMsg('Erro ao sincronizar.') }
       setGoogleSyncing(false)
     }
+  }
+
+  const handleReport = async () => {
+    setReportLoading(true); setReportMarkdown('')
+    try {
+      const res = await fetch('/api/metricas/relatorio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          totals,
+          funnel: funnel?.steps ?? [],
+          campaigns: campaignData.slice(0, 15).map(c => ({
+            name: c.name,
+            spend: c.spend,
+            revenue: c.revenue,
+            roas: c.spend > 0 ? c.revenue / c.spend : 0,
+            cpa: c.conversions > 0 ? c.spend / c.conversions : 0,
+            conversions: c.conversions,
+          })),
+          period: PERIODS.find(p => p.key === period)?.label ?? period,
+        }),
+      })
+      const data = await res.json()
+      if (data.error) setReportMarkdown(`**Erro:** ${data.error}`)
+      else setReportMarkdown(data.report)
+    } catch { setReportMarkdown('**Erro ao gerar relatório.**') }
+    setReportLoading(false)
   }
 
   return (
@@ -216,16 +237,14 @@ export default function MetricsClient({
         </button>
       </div>
 
-      {/* Not connected card */}
+      {/* Not connected */}
       {!isConnected && (
         <div className="bg-bg-card border border-border rounded-xl p-16 text-center">
           <p className="text-text-primary font-semibold text-lg mb-2">
             {activeTab === 'meta' ? 'Meta Ads não conectado' : 'Google Ads não conectado'}
           </p>
           <p className="text-text-muted mb-4">
-            {activeTab === 'meta'
-              ? 'Conecte sua conta do Meta Ads para ver métricas.'
-              : 'Conecte sua conta do Google Ads para ver métricas.'}
+            {activeTab === 'meta' ? 'Conecte sua conta do Meta Ads para ver métricas.' : 'Conecte sua conta do Google Ads para ver métricas.'}
           </p>
           <Link href="/integracoes" className="inline-block px-4 py-2 bg-brand-gold text-bg-base rounded-lg font-medium hover:opacity-90 transition-opacity">
             {activeTab === 'meta' ? 'Conectar Meta Ads' : 'Conectar Google Ads'}
@@ -236,7 +255,7 @@ export default function MetricsClient({
       {/* Connected content */}
       {isConnected && (
         <>
-          {/* Period selector + sync */}
+          {/* Period selector + sync + report */}
           <div className="flex flex-wrap items-center gap-2">
             {PERIODS.map(p => (
               <button key={p.key} onClick={() => setPeriod(p.key)}
@@ -252,6 +271,10 @@ export default function MetricsClient({
                 className="px-3 py-1.5 text-sm rounded-lg font-medium bg-bg-card border border-border text-text-secondary hover:bg-bg-hover disabled:opacity-50">
                 {syncing ? 'Sincronizando...' : 'Sincronizar'}
               </button>
+              <button onClick={handleReport} disabled={reportLoading || filtered.length === 0}
+                className="px-3 py-1.5 text-sm rounded-lg font-medium bg-brand-gold/20 border border-brand-gold/40 text-brand-gold hover:bg-brand-gold/30 disabled:opacity-50 transition-colors">
+                {reportLoading ? 'Gerando...' : 'Gerar Relatório IA'}
+              </button>
             </div>
           </div>
 
@@ -264,8 +287,7 @@ export default function MetricsClient({
               <span className="text-text-muted text-sm">Até:</span>
               <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
                 className="bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary" />
-              <button
-                onClick={() => { setAppliedFrom(customFrom); setAppliedTo(customTo) }}
+              <button onClick={() => { setAppliedFrom(customFrom); setAppliedTo(customTo) }}
                 disabled={!customFrom || !customTo}
                 className="px-4 py-1.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 transition-opacity disabled:opacity-40">
                 Buscar
@@ -273,7 +295,7 @@ export default function MetricsClient({
             </div>
           )}
 
-          {/* KPI Cards */}
+          {/* KPI Row 1: Investimento | Receita | ROAS | CPA | CPS */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <KpiCard label="Investimento" value={fmtCurrency(totals.spend)} />
             <KpiCard label="Receita" value={fmtCurrency(totals.revenue)} />
@@ -283,45 +305,63 @@ export default function MetricsClient({
             <KpiCard label="CPA" value={fmtCurrency(totals.cpa)}
               color={totals.cpa > 0 && totals.cpa <= 50 ? '#22c55e' : totals.cpa <= 100 ? '#eab308' : '#ef4444'}
               indicator={totals.cpa > 0 && totals.cpa <= 50 ? 'green' : totals.cpa <= 100 ? 'yellow' : 'red'} />
+            <KpiCard label="CPS" value={fmtCurrency(totals.cps)} />
+          </div>
+
+          {/* KPI Row 2: Conversões | Taxa de Conversão | CTR | Connect Rate | CPM */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <KpiCard label="Conversões" value={fmtNumber(totals.conversions)} />
-            <KpiCard label="Impressões" value={fmtNumber(totals.impressions)} />
-            <KpiCard label="Cliques" value={fmtNumber(totals.clicks)} />
+            <KpiCard label="Taxa de Conversão" value={`${totals.conversion_rate.toFixed(2)}%`} />
             <KpiCard label="CTR" value={`${totals.ctr.toFixed(2)}%`}
               color={totals.ctr >= 2 ? '#22c55e' : totals.ctr >= 1 ? '#eab308' : '#ef4444'}
               indicator={totals.ctr >= 2 ? 'green' : totals.ctr >= 1 ? 'yellow' : 'red'} />
+            <KpiCard label="Connect Rate" value={`${totals.connect_rate.toFixed(1)}%`} />
             <KpiCard label="CPM" value={fmtCurrency(totals.cpm)}
               color={totals.cpm > 0 && totals.cpm <= 20 ? '#22c55e' : totals.cpm <= 40 ? '#eab308' : '#ef4444'}
               indicator={totals.cpm > 0 && totals.cpm <= 20 ? 'green' : totals.cpm <= 40 ? 'yellow' : 'red'} />
-            <KpiCard label="CPC" value={fmtCurrency(totals.cpc)}
-              color={totals.cpc > 0 && totals.cpc <= 1.5 ? '#22c55e' : totals.cpc <= 3 ? '#eab308' : '#ef4444'}
-              indicator={totals.cpc > 0 && totals.cpc <= 1.5 ? 'green' : totals.cpc <= 3 ? 'yellow' : 'red'} />
           </div>
 
           {/* Funnel — Meta only */}
           {funnel && (
             <div className="bg-bg-card border border-border rounded-xl p-6">
-              <h3 className="text-text-primary font-semibold mb-4">Funil de Conversão</h3>
-              <div className="flex items-end gap-1 md:gap-3">
+              <h3 className="text-text-primary font-semibold mb-5">Funil de Conversão</h3>
+              <div className="space-y-3">
                 {funnel.steps.map((step, i) => {
                   const maxVal = Math.max(...funnel.steps.map(s => s.value))
-                  const height = maxVal > 0 ? Math.max((step.value / maxVal) * 100, 8) : 8
+                  const widthPct = maxVal > 0 ? Math.max((step.value / maxVal) * 100, 4) : 4
                   const prevValue = i > 0 ? funnel.steps[i - 1].value : 0
                   const convRate = prevValue > 0 ? ((step.value / prevValue) * 100).toFixed(1) : null
                   const isBiggestDrop = i === funnel.maxDropIdx
 
                   return (
-                    <div key={i} className="flex-1 flex flex-col items-center gap-2">
-                      <span className="text-xs font-bold text-text-primary">{fmtNumber(step.value)}</span>
-                      <div
-                        className={`w-full rounded-t-lg transition-all ${isBiggestDrop ? 'bg-red-500/80' : 'bg-brand-gold/70'}`}
-                        style={{ height: `${height}px`, minHeight: 8 }}
-                      />
-                      <span className="text-[10px] text-text-muted text-center leading-tight">{step.label}</span>
+                    <div key={i}>
+                      {/* Conversion arrow between steps */}
                       {convRate && (
-                        <span className={`text-[10px] font-medium ${isBiggestDrop ? 'text-red-400' : 'text-text-secondary'}`}>
-                          {convRate}%
-                        </span>
+                        <div className="flex items-center gap-2 py-1 pl-4">
+                          <span className="text-text-muted">↓</span>
+                          <span className={`text-xs font-medium ${isBiggestDrop ? 'text-red-400 font-bold' : 'text-text-secondary'}`}>
+                            {convRate}% converteram
+                          </span>
+                        </div>
                       )}
+                      {/* Bar */}
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className={`text-sm font-medium ${isBiggestDrop ? 'text-red-400' : 'text-text-primary'}`}>{step.label}</span>
+                            <div className="flex items-center gap-3">
+                              <span className="text-xs text-text-muted">{step.costLabel}: {fmtCurrency(step.cost)}</span>
+                              <span className="text-sm font-bold text-text-primary">{fmtNumber(step.value)}</span>
+                            </div>
+                          </div>
+                          <div className="h-6 bg-bg-surface rounded-lg overflow-hidden">
+                            <div
+                              className={`h-full rounded-lg transition-all ${isBiggestDrop ? 'bg-red-500/70' : 'bg-brand-gold/60'}`}
+                              style={{ width: `${widthPct}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )
                 })}
@@ -374,8 +414,6 @@ export default function MetricsClient({
                       <th className="text-right py-2">Gasto</th>
                       <th className="text-right py-2">Receita</th>
                       <th className="text-right py-2">ROAS</th>
-                      <th className="text-right py-2">Impressões</th>
-                      <th className="text-right py-2">Cliques</th>
                       <th className="text-right py-2">CTR</th>
                       <th className="text-right py-2">CPM</th>
                       <th className="text-right py-2">Conv.</th>
@@ -396,8 +434,6 @@ export default function MetricsClient({
                           <td className={`py-2 text-right font-medium ${roas >= 3 ? 'text-green-400' : roas >= 1.5 ? 'text-yellow-400' : 'text-red-400'}`}>
                             {roas.toFixed(2)}x
                           </td>
-                          <td className="py-2 text-right text-text-secondary">{fmtNumber(c.impressions)}</td>
-                          <td className="py-2 text-right text-text-secondary">{fmtNumber(c.clicks)}</td>
                           <td className={`py-2 text-right ${ctr >= 2 ? 'text-green-400' : ctr >= 1 ? 'text-yellow-400' : 'text-red-400'}`}>
                             {ctr.toFixed(2)}%
                           </td>
@@ -415,6 +451,23 @@ export default function MetricsClient({
             </div>
           )}
 
+          {/* AI Report */}
+          {reportMarkdown && (
+            <div className="bg-bg-card border border-border rounded-xl p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-text-primary font-semibold">Relatório IA</h3>
+                <button onClick={() => setReportMarkdown('')} className="text-xs text-text-muted hover:text-text-secondary">Fechar</button>
+              </div>
+              <div className="prose prose-invert prose-sm max-w-none text-text-secondary
+                [&_h2]:text-text-primary [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-6 [&_h2]:mb-2
+                [&_h3]:text-text-primary [&_h3]:text-sm [&_h3]:font-semibold
+                [&_table]:w-full [&_th]:text-left [&_th]:py-1 [&_th]:text-xs [&_th]:text-text-muted [&_th]:uppercase
+                [&_td]:py-1 [&_td]:text-sm [&_strong]:text-text-primary [&_li]:text-sm"
+                dangerouslySetInnerHTML={{ __html: markdownToHtml(reportMarkdown) }}
+              />
+            </div>
+          )}
+
           {dailyData.length === 0 && (
             <div className="bg-bg-card border border-border rounded-xl p-16 text-center">
               <p className="text-text-muted">Nenhuma métrica neste período.</p>
@@ -427,18 +480,12 @@ export default function MetricsClient({
   )
 }
 
-const INDICATOR_DOTS: Record<string, string> = {
-  green: '🟢',
-  yellow: '🟡',
-  red: '🔴',
-}
+const INDICATOR_DOTS: Record<string, string> = { green: '🟢', yellow: '🟡', red: '🔴' }
 
 function KpiCard({ label, value, color, indicator }: { label: string; value: string; color?: string; indicator?: 'green' | 'yellow' | 'red' }) {
   return (
     <div className="bg-bg-card border border-border rounded-xl p-4">
-      <p className="text-text-muted text-xs font-medium mb-1">
-        {label} {indicator && INDICATOR_DOTS[indicator]}
-      </p>
+      <p className="text-text-muted text-xs font-medium mb-1">{label} {indicator && INDICATOR_DOTS[indicator]}</p>
       <p className="text-xl font-bold" style={{ color: color || 'var(--text-primary)' }}>{value}</p>
     </div>
   )
@@ -449,4 +496,19 @@ function fmtCurrency(v: number) {
 }
 function fmtNumber(v: number) {
   return new Intl.NumberFormat('pt-BR').format(v)
+}
+
+function markdownToHtml(md: string): string {
+  return md
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n- /g, '</p><ul><li>')
+    .replace(/\n(\d+)\. /g, '</p><ol><li>')
+    .replace(/\|(.+)\|/g, (match) => {
+      const cells = match.split('|').filter(Boolean).map(c => c.trim())
+      return '<tr>' + cells.map(c => `<td>${c}</td>`).join('') + '</tr>'
+    })
+    .replace(/<\/li>\n?<li>/g, '</li><li>')
 }
