@@ -36,9 +36,9 @@ export default function MetricsClient({
   googleMetrics: AdsRow[]
 }) {
   const [activeTab, setActiveTab] = useState<Tab>('meta')
-  const [period, setPeriod] = useState<Period>('custom')
-  const [customFrom, setCustomFrom] = useState('2025-09-01')
-  const [customTo, setCustomTo] = useState(new Date().toLocaleDateString('sv-SE'))
+  const [period, setPeriod] = useState<Period>('30d')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
   const [appliedFrom, setAppliedFrom] = useState('')
   const [appliedTo, setAppliedTo] = useState('')
 
@@ -54,24 +54,26 @@ export default function MetricsClient({
   const isConnected = activeTab === 'meta' ? isMetaConnected : isGoogleConnected
 
   const filtered = useMemo(() => {
-    if (period === 'custom' && appliedFrom && appliedTo) {
-      return metrics.filter(m => m.date >= appliedFrom && m.date <= appliedTo)
-    }
-    const todayStr = new Date().toLocaleDateString('sv-SE')
-    if (period === 'today') {
-      return metrics.filter(m => m.date === todayStr)
-    }
+    const today = new Date().toLocaleDateString('sv-SE')
+
+    if (period === 'today') return metrics.filter(m => m.date === today)
+
     if (period === 'yesterday') {
       const y = new Date()
       y.setDate(y.getDate() - 1)
-      const yesterdayStr = y.toLocaleDateString('sv-SE')
-      return metrics.filter(m => m.date === yesterdayStr)
+      return metrics.filter(m => m.date === y.toLocaleDateString('sv-SE'))
     }
+
+    if (period === 'custom' && appliedFrom && appliedTo) {
+      return metrics.filter(m => m.date >= appliedFrom && m.date <= appliedTo)
+    }
+
+    // 7d, 14d, 21d, 30d
     const days = PERIODS.find(p => p.key === period)?.days ?? 30
     const since = new Date()
     since.setDate(since.getDate() - days)
     const sinceStr = since.toLocaleDateString('sv-SE')
-    return metrics.filter(m => m.date >= sinceStr)
+    return metrics.filter(m => m.date >= sinceStr && m.date <= today)
   }, [metrics, period, appliedFrom, appliedTo, activeTab])
 
   // Aggregate by date
