@@ -63,8 +63,13 @@ export async function POST(req: NextRequest) {
       console.log(`[meta/sync] page ${pageNum} data.data length:`, data.data?.length ?? 0, 'has next:', !!data.paging?.next)
 
       const pageRows = (data.data || []).map((row: any) => {
-        const purchases = row.actions?.find((a: any) => a.action_type === 'purchase')
+        const actions = row.actions || []
+        const purchases = actions.find((a: any) => a.action_type === 'purchase')
         const purchaseValue = row.action_values?.find((a: any) => a.action_type === 'purchase')
+        const pageViews = actions.find((a: any) => a.action_type === 'page_view')
+        const addToCart = actions.find((a: any) => a.action_type === 'add_to_cart')
+        const initiateCheckout = actions.find((a: any) => a.action_type === 'initiate_checkout')
+        const addPaymentInfo = actions.find((a: any) => a.action_type === 'add_payment_info')
         const spend = parseFloat(row.spend || '0')
         const revenue = parseFloat(purchaseValue?.value || '0')
 
@@ -85,6 +90,10 @@ export async function POST(req: NextRequest) {
           cpc: parseFloat(row.cpc || '0'),
           ctr: parseFloat(row.ctr || '0'),
           roas: spend > 0 ? revenue / spend : 0,
+          page_views: parseInt(pageViews?.value || '0'),
+          add_to_cart: parseInt(addToCart?.value || '0'),
+          initiate_checkout: parseInt(initiateCheckout?.value || '0'),
+          add_payment_info: parseInt(addPaymentInfo?.value || '0'),
           synced_at: new Date().toISOString(),
         }
       })

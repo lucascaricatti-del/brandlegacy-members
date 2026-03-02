@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import MetricsClient from './MetricsClient'
 
+export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Métricas — BrandLegacy' }
 
 export default async function MetricasPage() {
