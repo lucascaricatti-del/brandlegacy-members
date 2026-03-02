@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    // 1. Exchange code for tokens
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -26,49 +27,73 @@ export async function GET(req: NextRequest) {
         grant_type: 'authorization_code',
       }),
     })
-    const tokenData = await tokenRes.json()
+    const tokenText = await tokenRes.text()
+    let tokenData: any
+    try { tokenData = JSON.parse(tokenText) } catch {
+      console.error('Token response not JSON:', tokenText.slice(0, 500))
+      return NextResponse.redirect(`${req.nextUrl.origin}/integracoes?error=token_parse_failed`)
+    }
 
     if (tokenData.error) {
-      console.error('Google OAuth error:', tokenData)
+      console.error('Google OAuth token error:', tokenData)
       return NextResponse.redirect(`${req.nextUrl.origin}/integracoes?error=oauth_failed`)
     }
 
-    const customersRes = await fetch(
-      'https://googleads.googleapis.com/v18/customers:listAccessibleCustomers',
-      {
-        headers: {
-          'Authorization': `Bearer ${tokenData.access_token}`,
-          'developer-token': process.env.GOOGLE_ADS_DEVELOPER_TOKEN!,
-        },
-      }
-    )
-    const customersData = await customersRes.json()
-    const resourceNames: string[] = customersData.resourceNames ?? []
+    console.log('Google OAuth token obtained successfully')
 
-    const accounts: any[] = []
-    for (const rn of resourceNames.slice(0, 20)) {
-      const customerId = rn.replace('customers/', '')
-      try {
-        const detailRes = await fetch(
-          `https://googleads.googleapis.com/v18/customers/${customerId}`,
-          {
-            headers: {
-              'Authorization': `Bearer ${tokenData.access_token}`,
-              'developer-token': process.env.GOOGLE_ADS_DEVELOPER_TOKEN!,
-              'login-customer-id': customerId,
-            },
-          }
-        )
-        const detail = await detailRes.json()
-        if (detail.descriptiveName) {
-          accounts.push({
-            customer_id: customerId,
-            name: detail.descriptiveName,
-            currency: detail.currencyCode || 'BRL',
-            is_manager: detail.manager || false,
-          })
+    // 2. List accessible customers
+    let accounts: any[] = []
+    try {
+      const customersRes = await fetch(
+        'https://googleads.googleapis.com/v18/customers:listAccessibleCustomers',
+        {
+          headers: {
+            'Authorization': `Bearer ${tokenData.access_token}`,
+            'developer-token': process.env.GOOGLE_ADS_DEVELOPER_TOKEN!,
+          },
         }
-      } catch {}
+      )
+      const customersText = await customersRes.text()
+      console.log('Customers response status:', customersRes.status)
+      console.log('Customers response:', customersText.slice(0, 500))
+
+      let customersData: any
+      try { customersData = JSON.parse(customersText) } catch {
+        console.error('Customers response not JSON:', customersText.slice(0, 500))
+        // Save token anyway without accounts
+        customersData = { resourceNames: [] }
+      }
+
+      const resourceNames: string[] = customersData.resourceNames ?? []
+
+      for (const rn of resourceNames.slice(0, 10)) {
+        const customerId = rn.replace('customers/', '')
+        try {
+          const detailRes = await fetch(
+            `https://googleads.googleapis.com/v18/customers/${customerId}`,
+            {
+              headers: {
+                'Authorization': `Bearer ${tokenData.access_token}`,
+                'developer-token': process.env.GOOGLE_ADS_DEVELOPER_TOKEN!,
+                'login-customer-id': customerId,
+              },
+            }
+          )
+          if (detailRes.ok) {
+            const detail = await detailRes.json()
+            accounts.push({
+              customer_id: customerId,
+              name: detail.descriptiveName || `Account ${customerId}`,
+              currency: detail.currencyCode || 'BRL',
+              is_manager: detail.manager || false,
+            })
+          }
+        } catch (e) {
+          console.error(`Error fetching customer ${customerId}:`, e)
+        }
+      }
+    } catch (e) {
+      console.error('Error listing customers:', e)
     }
 
     const firstAccount = accounts.find(a => !a.is_manager) || accounts[0]
@@ -81,7 +106,7 @@ export async function GET(req: NextRequest) {
       token_expires_at: new Date(Date.now() + (tokenData.expires_in || 3600) * 1000).toISOString(),
       account_id: firstAccount?.customer_id || null,
       account_name: firstAccount?.name || null,
-      status: 'active',
+      status: firstAccount ? 'active' : 'pending_account',
       metadata: { accounts, currency: firstAccount?.currency || 'BRL' },
       updated_at: new Date().toISOString(),
     }, { onConflict: 'workspace_id,provider' })
