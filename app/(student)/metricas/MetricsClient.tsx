@@ -92,7 +92,7 @@ export default function MetricsClient({
       const res = await fetch('/api/integrations/meta/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace_id: workspaceId, date_from: '2025-09-01', date_to: new Date().toISOString().split('T')[0] }),
+        body: JSON.stringify({ workspace_id: workspaceId, date_from: new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0], date_to: new Date().toISOString().split('T')[0] }),
       })
       const data = await res.json()
       if (data.error) { setSyncMsg(`Erro: ${data.error}`) }
