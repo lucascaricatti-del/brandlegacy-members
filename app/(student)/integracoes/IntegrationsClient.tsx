@@ -123,6 +123,23 @@ function PlatformCard({
     }
   }
 
+  async function handleDisconnect() {
+    if (!confirm(`Desconectar ${platform.name}? Dados de métricas serão removidos.`)) return
+    setMessage(null)
+    try {
+      const res = await fetch('/api/integrations/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: workspaceId, provider: platform.id }),
+      })
+      const data = await res.json()
+      if (data.error) setMessage({ type: 'error', text: data.error })
+      else window.location.reload()
+    } catch {
+      setMessage({ type: 'error', text: 'Erro ao desconectar.' })
+    }
+  }
+
   return (
     <div className="bg-bg-card border border-border rounded-xl p-6">
       {/* Header */}
@@ -191,6 +208,10 @@ function PlatformCard({
             <button onClick={handleConnect}
               className="px-3 py-1.5 text-sm rounded-lg border border-border text-text-secondary hover:bg-bg-hover transition-colors">
               Reconectar
+            </button>
+            <button onClick={handleDisconnect}
+              className="px-3 py-1.5 text-sm rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors">
+              Desconectar
             </button>
           </div>
         </div>
