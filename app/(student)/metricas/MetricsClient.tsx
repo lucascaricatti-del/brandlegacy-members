@@ -54,14 +54,15 @@ export default function MetricsClient({
   const isConnected = activeTab === 'meta' ? isMetaConnected : isGoogleConnected
 
   const filtered = useMemo(() => {
+    const normalize = (d: string) => d?.slice(0, 10) ?? ''
     const today = new Date().toLocaleDateString('sv-SE')
 
-    if (period === 'today') return metrics.filter(m => m.date === today)
+    if (period === 'today') return metrics.filter(m => normalize(m.date) === today)
 
     if (period === 'yesterday') {
       const y = new Date()
       y.setDate(y.getDate() - 1)
-      return metrics.filter(m => m.date === y.toLocaleDateString('sv-SE'))
+      return metrics.filter(m => normalize(m.date) === y.toLocaleDateString('sv-SE'))
     }
 
     if (period === 'custom' && appliedFrom && appliedTo) {
@@ -73,7 +74,7 @@ export default function MetricsClient({
     const since = new Date()
     since.setDate(since.getDate() - days)
     const sinceStr = since.toLocaleDateString('sv-SE')
-    return metrics.filter(m => m.date >= sinceStr && m.date <= today)
+    return metrics.filter(m => normalize(m.date) >= sinceStr && normalize(m.date) <= today)
   }, [metrics, period, appliedFrom, appliedTo, activeTab])
 
   // Aggregate by date
