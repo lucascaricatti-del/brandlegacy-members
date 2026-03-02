@@ -55,21 +55,20 @@ export default function MetricsClient({
     if (period === 'custom' && customFrom && customTo) {
       return metrics.filter(m => m.date >= customFrom && m.date <= customTo)
     }
-    const now = new Date()
-    const todayStr = now.toISOString().split('T')[0]
+    const todayStr = new Date().toLocaleDateString('sv-SE')
     if (period === 'today') {
       return metrics.filter(m => m.date === todayStr)
     }
     if (period === 'yesterday') {
-      const y = new Date(now)
-      y.setUTCDate(y.getUTCDate() - 1)
-      const yesterdayStr = y.toISOString().split('T')[0]
+      const y = new Date()
+      y.setDate(y.getDate() - 1)
+      const yesterdayStr = y.toLocaleDateString('sv-SE')
       return metrics.filter(m => m.date === yesterdayStr)
     }
     const days = PERIODS.find(p => p.key === period)?.days ?? 30
-    const since = new Date(now)
-    since.setUTCDate(since.getUTCDate() - days)
-    const sinceStr = since.toISOString().split('T')[0]
+    const since = new Date()
+    since.setDate(since.getDate() - days)
+    const sinceStr = since.toLocaleDateString('sv-SE')
     return metrics.filter(m => m.date >= sinceStr)
   }, [metrics, period, customFrom, customTo, activeTab])
 
