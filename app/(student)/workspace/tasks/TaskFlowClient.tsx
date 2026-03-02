@@ -470,11 +470,13 @@ export default function TaskFlowClient({ workspaceId, tasks, members = [], isAdm
 function NewTaskForm({
   workspaceId,
   members,
+  isAdmin,
   onClose,
   onMessage,
 }: {
   workspaceId: string
   members: MemberOption[]
+  isAdmin?: boolean
   onClose: () => void
   onMessage: (msg: { type: 'success' | 'error'; text: string } | null) => void
 }) {
