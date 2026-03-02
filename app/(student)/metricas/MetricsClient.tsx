@@ -129,7 +129,11 @@ export default function MetricsClient({
         })
         const data = await res.json()
         if (data.error) { setMetaSyncMsg(`Erro: ${data.error}`) }
-        else { setMetaSyncMsg(`${data.synced} registros sincronizados. Recarregue a página.`) }
+        else {
+          setMetaSyncMsg(`${data.synced} registros sincronizados. Recarregando...`)
+          window.location.reload()
+          return
+        }
       } catch { setMetaSyncMsg('Erro ao sincronizar.') }
       setMetaSyncing(false)
     } else {
@@ -142,7 +146,11 @@ export default function MetricsClient({
         })
         const data = await res.json()
         if (data.error) { setGoogleSyncMsg(`Erro: ${data.error}`) }
-        else { setGoogleSyncMsg(`${data.synced} registros sincronizados. Recarregue a página.`) }
+        else {
+          setGoogleSyncMsg(`${data.synced} registros sincronizados. Recarregando...`)
+          window.location.reload()
+          return
+        }
       } catch { setGoogleSyncMsg('Erro ao sincronizar.') }
       setGoogleSyncing(false)
     }
