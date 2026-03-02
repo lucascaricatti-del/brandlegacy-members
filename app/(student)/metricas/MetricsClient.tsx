@@ -55,7 +55,7 @@ export default function MetricsClient({
     }
     const days = PERIODS.find(p => p.key === period)?.days ?? 30
     const since = new Date()
-    since.setDate(since.getDate() - days)
+    since.setUTCDate(since.getUTCDate() - days)
     const sinceStr = since.toISOString().split('T')[0]
     return metrics.filter(m => m.date >= sinceStr)
   }, [metrics, period, customFrom, customTo])
