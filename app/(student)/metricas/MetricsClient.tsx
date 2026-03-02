@@ -13,8 +13,10 @@ type AdsRow = {
   revenue: number; cpm: number; cpc: number; ctr: number; roas: number;
 }
 
-type Period = '7d' | '14d' | '21d' | '30d' | 'custom'
+type Period = 'today' | 'yesterday' | '7d' | '14d' | '21d' | '30d' | 'custom'
 const PERIODS: { key: Period; label: string; days: number }[] = [
+  { key: 'today', label: 'Hoje', days: 0 },
+  { key: 'yesterday', label: 'Ontem', days: 1 },
   { key: '7d', label: '7 dias', days: 7 },
   { key: '14d', label: '14 dias', days: 14 },
   { key: '21d', label: '21 dias', days: 21 },
@@ -53,8 +55,19 @@ export default function MetricsClient({
     if (period === 'custom' && customFrom && customTo) {
       return metrics.filter(m => m.date >= customFrom && m.date <= customTo)
     }
+    const now = new Date()
+    const todayStr = now.toISOString().split('T')[0]
+    if (period === 'today') {
+      return metrics.filter(m => m.date === todayStr)
+    }
+    if (period === 'yesterday') {
+      const y = new Date(now)
+      y.setUTCDate(y.getUTCDate() - 1)
+      const yesterdayStr = y.toISOString().split('T')[0]
+      return metrics.filter(m => m.date === yesterdayStr)
+    }
     const days = PERIODS.find(p => p.key === period)?.days ?? 30
-    const since = new Date()
+    const since = new Date(now)
     since.setUTCDate(since.getUTCDate() - days)
     const sinceStr = since.toISOString().split('T')[0]
     return metrics.filter(m => m.date >= sinceStr)
