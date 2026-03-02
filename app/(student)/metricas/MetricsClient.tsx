@@ -159,6 +159,9 @@ export default function MetricsClient({
 
   return (
     <div className="space-y-6">
+      <div className="text-xs text-red-400 bg-red-400/10 p-2 rounded">
+        DEBUG: metaMetrics={metaMetrics.length} googleMetrics={googleMetrics.length} filtered={filtered.length} activeTab={activeTab} period={period}
+      </div>
       {/* Tab selector */}
       <div className="flex gap-1 bg-bg-card border border-border rounded-xl p-1">
         <button onClick={() => setActiveTab('meta')}
