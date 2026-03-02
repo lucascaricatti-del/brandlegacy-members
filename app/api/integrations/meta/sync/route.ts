@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const res = await fetch(
-      `https://graph.facebook.com/v21.0/act_${integration.account_id}/insights?` +
+      `https://graph.facebook.com/v21.0/act_${integration.account_id.replace(/^act_/, '')}/insights?` +
       `fields=campaign_id,campaign_name,adset_id,adset_name,spend,impressions,clicks,actions,action_values,cpm,cpc,ctr` +
       `&time_range={"since":"${since}","until":"${until}"}` +
       `&time_increment=monthly` +
