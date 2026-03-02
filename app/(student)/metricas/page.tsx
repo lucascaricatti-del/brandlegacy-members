@@ -69,22 +69,30 @@ export default async function MetricasPage() {
   since.setDate(since.getDate() - 180)
   const sinceStr = since.toISOString().split('T')[0]
 
-  const [{ data: metaMetrics }, { data: googleMetrics }] = await Promise.all([
+  const [{ data: metaMetrics, error: metaErr }, { data: googleMetrics, error: googleErr }] = await Promise.all([
     (adminSupabase as any)
       .from('ads_metrics')
       .select('*')
       .eq('workspace_id', ws.id)
       .eq('provider', 'meta_ads')
       .gte('date', sinceStr)
-      .order('date', { ascending: true }),
+      .order('date', { ascending: true })
+      .limit(5000),
     (adminSupabase as any)
       .from('ads_metrics')
       .select('*')
       .eq('workspace_id', ws.id)
       .eq('provider', 'google_ads')
       .gte('date', sinceStr)
-      .order('date', { ascending: true }),
+      .order('date', { ascending: true })
+      .limit(5000),
   ])
+
+  console.log('[metricas/page] workspace:', ws.id, ws.name)
+  console.log('[metricas/page] sinceStr:', sinceStr)
+  console.log('[metricas/page] metaMetrics:', metaMetrics?.length ?? 0, 'error:', metaErr?.message ?? 'none')
+  console.log('[metricas/page] googleMetrics:', googleMetrics?.length ?? 0, 'error:', googleErr?.message ?? 'none')
+  console.log('[metricas/page] isMetaConnected:', isMetaConnected, 'isGoogleConnected:', isGoogleConnected)
 
   const accountNames = [...new Set(
     [metaIntegration?.account_name, googleIntegration?.account_name]
