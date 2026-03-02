@@ -214,7 +214,7 @@ export async function analyzeTranscript(
 // ============================================================
 
 export async function addSessionTaskToTaskFlow(taskId: string, workspaceId: string) {
-  await requireAdmin()
+  const { user } = await requireAdmin()
   const adminSupabase = createAdminClient()
 
   const { data: sessionTask } = await adminSupabase
