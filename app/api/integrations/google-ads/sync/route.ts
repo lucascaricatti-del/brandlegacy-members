@@ -22,7 +22,10 @@ async function getAccessToken(integration: any) {
     }),
   })
   const data = await res.json()
-  if (data.error) return null
+  if (data.error) {
+    console.error('[google-ads/sync] refresh token failed:', JSON.stringify(data.error))
+    return null
+  }
   await supabase.from('workspace_integrations').update({
     access_token: data.access_token,
     token_expires_at: new Date(Date.now() + data.expires_in * 1000).toISOString(),
@@ -50,24 +53,31 @@ export async function POST(req: NextRequest) {
   const since = date_from || new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0]
   const until = date_to || new Date().toISOString().split('T')[0]
 
+  const customerId = integration.account_id.replace(/-/g, '')
+  const loginCustomerId = process.env.GOOGLE_ADS_MCC_ID?.replace(/-/g, '') || customerId
+
   try {
     const query = `SELECT campaign.id, campaign.name, metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions, metrics.conversions_value, metrics.ctr, metrics.average_cpc, metrics.average_cpm, segments.date FROM campaign WHERE segments.date BETWEEN '${since}' AND '${until}' AND campaign.status != 'REMOVED' ORDER BY segments.date`
 
     const searchRes = await fetch(
-      `https://googleads.googleapis.com/v23/customers/${integration.account_id}/googleAds:searchStream`,
+      `https://googleads.googleapis.com/v23/customers/${customerId}/googleAds:searchStream`,
       {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${accessToken}`,
           'developer-token': process.env.GOOGLE_ADS_DEVELOPER_TOKEN!,
-          'login-customer-id': integration.account_id,
+          'login-customer-id': loginCustomerId,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ query }),
       }
     )
     const searchData = await searchRes.json()
-    if (searchData.error) return NextResponse.json({ error: searchData.error.message }, { status: 400 })
+
+    if (searchData.error) {
+      console.error('[google-ads/sync] API error:', JSON.stringify(searchData.error), { customerId, loginCustomerId })
+      return NextResponse.json({ error: searchData.error.message }, { status: 400 })
+    }
 
     const results = searchData[0]?.results ?? searchData.results ?? []
     const rows = results.map((r: any) => {
@@ -89,11 +99,20 @@ export async function POST(req: NextRequest) {
     }).filter((r: any) => r.date && r.campaign_id)
 
     if (rows.length > 0) {
-      await supabase.from('ads_metrics').delete().eq('workspace_id', workspace_id).eq('provider', 'google_ads').gte('date', since).lte('date', until)
+      await supabase
+        .from('ads_metrics')
+        .delete()
+        .eq('workspace_id', workspace_id)
+        .eq('provider', 'google_ads')
+        .gte('date', since)
+        .lte('date', until)
       await supabase.from('ads_metrics').insert(rows)
     }
+
+    console.log(`[google-ads/sync] OK: ${rows.length} rows synced for workspace ${workspace_id}`)
     return NextResponse.json({ synced: rows.length, period: { since, until } })
   } catch (err: any) {
+    console.error('[google-ads/sync] unexpected error:', err.message, err.stack)
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }
