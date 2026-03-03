@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js'
 export async function POST(request: Request) {
   try {
     const payload = await request.json()
+    console.log('[YAMPI RAW PAYLOAD]', JSON.stringify(payload, null, 2))
     const resource = payload.resource
     if (!resource) return NextResponse.json({ received: true })
 
