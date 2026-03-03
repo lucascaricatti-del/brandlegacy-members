@@ -1,8 +1,9 @@
 @import "tailwindcss";
 
 /* ============================================================
-   BrandLegacy — Design System
-   Tema: Dark premium com acento dourado
+   BrandLegacy — Design System v2
+   Tema: Luxury dark premium com acento dourado
+   Inspiração: Linear, Vercel Dashboard, Raycast
    ============================================================ */
 
 @theme {
@@ -12,19 +13,21 @@
   --color-brand-gold-dark:  #C98A05;
 
   /* Backgrounds */
-  --color-bg-base:    #0F1911;
-  --color-bg-card:    #122014;
+  --color-bg-base:    #0A0F0B;
+  --color-bg-card:    #0F1911;
   --color-bg-surface: #1A4628;
   --color-bg-hover:   #1F5230;
+  --color-bg-row-alt: #0D1610;
 
   /* Bordas */
   --color-border:       #1F3D25;
   --color-border-light: #2A5233;
+  --color-border-gold:  rgba(236, 162, 6, 0.15);
 
   /* Texto */
-  --color-text-primary:   #f5f5f5;
-  --color-text-secondary: #a0a0a0;
-  --color-text-muted:     #666666;
+  --color-text-primary:   #F8FAF8;
+  --color-text-secondary: #a0aaa2;
+  --color-text-muted:     #5a6b5e;
 
   /* Status */
   --color-success: #22c55e;
@@ -33,8 +36,10 @@
   --color-info:    #3b82f6;
 
   /* Fontes */
-  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-sans: var(--font-inter), var(--font-geist-sans), system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), monospace;
+  --font-display: var(--font-display), Georgia, serif;
+  --font-data: var(--font-mono-data), 'Fira Code', monospace;
 }
 
 /* ============================================================
@@ -84,10 +89,28 @@ input[type="time"] {
 }
 
 /* ============================================================
-   Utilidades customizadas
+   Utilidades de tipografia
    ============================================================ */
 
-/* Gradiente dourado para textos especiais */
+/* Fonte display para headings premium */
+.font-display {
+  font-family: var(--font-display);
+}
+
+/* Fonte monospace para dados numéricos */
+.font-data {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tabular nums para qualquer texto numérico */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
+   Gradiente dourado para textos especiais
+   ============================================================ */
 .text-gradient-gold {
   background: linear-gradient(135deg, #ECA206 0%, #FCBB13 50%, #c28a05 100%);
   -webkit-background-clip: text;
@@ -95,12 +118,255 @@ input[type="time"] {
   background-clip: text;
 }
 
-/* Brilho sutil no card ao hover */
-.card-glow:hover {
-  box-shadow: 0 0 0 1px var(--color-brand-gold), 0 4px 24px rgba(236, 162, 6, 0.08);
+/* ============================================================
+   Card premium — borda dourada sutil + glow
+   ============================================================ */
+.card-premium {
+  border: 1px solid rgba(236, 162, 6, 0.12);
+  transition: all 250ms ease;
 }
 
-/* Animação de fade-in */
+.card-premium:hover {
+  border-color: rgba(236, 162, 6, 0.3);
+  box-shadow:
+    0 0 0 1px rgba(236, 162, 6, 0.08),
+    0 8px 32px rgba(0, 0, 0, 0.3),
+    0 0 20px rgba(236, 162, 6, 0.06);
+}
+
+/* ============================================================
+   KPI Card — gradient border + micro animation
+   ============================================================ */
+.kpi-card {
+  position: relative;
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 16px 20px;
+  transition: all 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+.kpi-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(236, 162, 6, 0.4), transparent);
+  opacity: 0;
+  transition: opacity 250ms ease;
+}
+
+.kpi-card:hover {
+  border-color: rgba(236, 162, 6, 0.2);
+  transform: translateY(-2px);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.25),
+    0 0 16px rgba(236, 162, 6, 0.05);
+}
+
+.kpi-card:hover::before {
+  opacity: 1;
+}
+
+/* ============================================================
+   Badge — pill colorido para ROAS, CPA, CTR
+   ============================================================ */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-family: var(--font-data);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+.badge-green {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.badge-yellow {
+  background: rgba(234, 179, 8, 0.15);
+  color: #facc15;
+  border: 1px solid rgba(234, 179, 8, 0.2);
+}
+
+.badge-red {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+/* ============================================================
+   Status dot — indicador de conexão
+   ============================================================ */
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot-connected {
+  background: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
+}
+
+.status-dot-disconnected {
+  background: #5a6b5e;
+}
+
+/* ============================================================
+   Botão AI Report — gradiente dourado premium
+   ============================================================ */
+.btn-ai-report {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #ECA206 0%, #FCBB13 50%, #ECA206 100%);
+  background-size: 200% 200%;
+  color: #0F1911;
+  font-weight: 600;
+  font-size: 14px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: all 250ms ease;
+  overflow: hidden;
+}
+
+.btn-ai-report:hover:not(:disabled) {
+  box-shadow:
+    0 0 20px rgba(236, 162, 6, 0.35),
+    0 4px 16px rgba(236, 162, 6, 0.2);
+  transform: translateY(-1px);
+}
+
+.btn-ai-report:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-ai-report.loading {
+  background-size: 200% 200%;
+  animation: goldShift 1.5s ease infinite;
+}
+
+/* ============================================================
+   Tabela premium — alternating rows + melhor contraste
+   ============================================================ */
+.table-premium {
+  width: 100%;
+  font-size: 13px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.table-premium thead th {
+  text-align: left;
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-card);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.table-premium thead th.text-right {
+  text-align: right;
+}
+
+.table-premium tbody tr {
+  transition: background 150ms ease;
+}
+
+.table-premium tbody tr:nth-child(odd) {
+  background: var(--color-bg-card);
+}
+
+.table-premium tbody tr:nth-child(even) {
+  background: var(--color-bg-row-alt);
+}
+
+.table-premium tbody tr:hover {
+  background: rgba(236, 162, 6, 0.05);
+}
+
+.table-premium tbody td {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(31, 61, 37, 0.5);
+  color: var(--color-text-secondary);
+}
+
+.table-premium tbody td.text-right {
+  text-align: right;
+}
+
+/* ============================================================
+   Funnel bar — barra horizontal proporcional
+   ============================================================ */
+.funnel-bar-track {
+  height: 36px;
+  background: rgba(15, 25, 17, 0.6);
+  border-radius: 8px;
+  overflow: hidden;
+  position: relative;
+}
+
+.funnel-bar-fill {
+  height: 100%;
+  border-radius: 8px;
+  transition: width 600ms cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  padding-left: 12px;
+}
+
+.funnel-bar-fill.default {
+  background: linear-gradient(90deg, rgba(236, 162, 6, 0.5), rgba(236, 162, 6, 0.25));
+}
+
+.funnel-bar-fill.critical {
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.5), rgba(239, 68, 68, 0.25));
+}
+
+.funnel-step-critical {
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  animation: pulseBorderRed 2s ease-in-out infinite;
+}
+
+/* ============================================================
+   Glassmorphism tooltip (CSS override para Recharts)
+   ============================================================ */
+.recharts-tooltip-wrapper .recharts-default-tooltip,
+.tooltip-glass {
+  background: rgba(15, 25, 17, 0.85) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(236, 162, 6, 0.2) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+  padding: 12px 16px !important;
+}
+
+/* ============================================================
+   Animações
+   ============================================================ */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -108,4 +374,49 @@ input[type="time"] {
 
 .animate-fade-in {
   animation: fadeIn 0.3s ease-out forwards;
+}
+
+@keyframes goldShift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes pulseBorderRed {
+  0%, 100% { border-color: rgba(239, 68, 68, 0.2); }
+  50%      { border-color: rgba(239, 68, 68, 0.6); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin-slow {
+  animation: spin 2s linear infinite;
+}
+
+/* ============================================================
+   Reduced motion
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .kpi-card:hover {
+    transform: none;
+  }
+  .btn-ai-report:hover {
+    transform: none;
+  }
+  .btn-ai-report.loading {
+    animation: none;
+  }
+  .funnel-step-critical {
+    animation: none;
+    border-color: rgba(239, 68, 68, 0.5);
+  }
+  .funnel-bar-fill {
+    transition: none;
+  }
+  .animate-fade-in {
+    animation: none;
+    opacity: 1;
+  }
 }
