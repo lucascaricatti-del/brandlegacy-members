@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
       if (!date) continue
 
       const existing = dailyMap.get(date) ?? { revenue: 0, orders: 0, items_sold: 0 }
-      existing.revenue += parseFloat(order.total_line_items_price || order.total_price || '0')
+      existing.revenue += parseFloat(order.subtotal_price || order.total_price || '0')
       existing.orders += 1
       existing.items_sold += (order.line_items || []).reduce((sum: number, li: any) => sum + (li.quantity || 0), 0)
       dailyMap.set(date, existing)
