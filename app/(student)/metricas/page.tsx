@@ -124,14 +124,14 @@ export default async function MetricasPage() {
       .eq('workspace_id', ws.id)
       .gte('date', sinceStr)
       .order('date', { ascending: false })
-      .limit(2000),
+      .limit(365),
     (adminSupabase as any)
       .from('yampi_orders')
       .select('*')
       .eq('workspace_id', ws.id)
       .gte('date', sinceStr)
       .order('date', { ascending: false })
-      .limit(5000),
+      .limit(10000),
   ])
 
   const accountNames = [...new Set(
