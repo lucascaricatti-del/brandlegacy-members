@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
       if (!date) continue
 
       const existing = dailyMap.get(date) ?? { revenue: 0, orders: 0, items_sold: 0 }
-      existing.revenue += parseFloat(order.total_price || '0')
+      existing.revenue += parseFloat(order.total_line_items_price || order.total_price || '0')
       existing.orders += 1
       existing.items_sold += (order.line_items || []).reduce((sum: number, li: any) => sum + (li.quantity || 0), 0)
       dailyMap.set(date, existing)
@@ -95,14 +95,16 @@ export async function POST(req: NextRequest) {
       synced_at: new Date().toISOString(),
     }))
 
+    // Sempre limpa o período, mesmo sem rows (pode ter dados antigos não-pagos)
+    await supabase
+      .from('ecommerce_metrics')
+      .delete()
+      .eq('workspace_id', workspace_id)
+      .eq('provider', 'shopify')
+      .gte('date', since)
+      .lte('date', until)
+
     if (rows.length > 0) {
-      await supabase
-        .from('ecommerce_metrics')
-        .delete()
-        .eq('workspace_id', workspace_id)
-        .eq('provider', 'shopify')
-        .gte('date', since)
-        .lte('date', until)
 
       for (let i = 0; i < rows.length; i += 500) {
         const batch = rows.slice(i, i + 500)
