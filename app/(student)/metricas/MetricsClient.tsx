@@ -549,6 +549,45 @@ export default function MetricsClient({
             </div>
           )}
 
+          {/* Top dias por receita */}
+          {filteredShopify.length > 0 && (
+            <div className="bg-bg-card border border-border rounded-xl p-6">
+              <h3 className="text-text-primary font-semibold mb-4">Top Dias por Receita</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-white/10 text-xs text-text-muted uppercase">
+                      <th className="text-left py-2">Data</th>
+                      <th className="text-right py-2">Receita</th>
+                      <th className="text-right py-2">Pedidos</th>
+                      <th className="text-right py-2">Ticket Médio</th>
+                      <th className="text-right py-2">Itens</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...filteredShopify]
+                      .sort((a, b) => (Number(b.revenue) || 0) - (Number(a.revenue) || 0))
+                      .slice(0, 15)
+                      .map((m, i) => {
+                        const rev = Number(m.revenue) || 0
+                        const ord = Number(m.orders) || 0
+                        const ticket = ord > 0 ? rev / ord : 0
+                        return (
+                          <tr key={i} className="border-t border-white/5 hover:bg-white/5">
+                            <td className="py-2 text-text-primary">{m.date}</td>
+                            <td className="py-2 text-right text-green-400">{fmtCurrency(rev)}</td>
+                            <td className="py-2 text-right text-text-secondary">{fmtNumber(ord)}</td>
+                            <td className="py-2 text-right text-text-secondary">{fmtCurrency(ticket)}</td>
+                            <td className="py-2 text-right text-text-secondary">{fmtNumber(Number(m.items_sold) || 0)}</td>
+                          </tr>
+                        )
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {filteredShopify.length === 0 && (
             <div className="bg-bg-card border border-border rounded-xl p-16 text-center">
               <p className="text-text-muted">Nenhuma métrica neste período.</p>

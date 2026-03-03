@@ -32,8 +32,9 @@ const PLATFORMS = [
     name: 'Shopify',
     description: 'Pedidos, receita, ticket médio e métricas de e-commerce.',
     color: '#96BF48',
-    oauth: true,
+    oauth: false,
     needsShop: true,
+    needsToken: true,
   },
   {
     id: 'ga4',
@@ -78,17 +79,31 @@ function PlatformCard({
   connected: Integration | null
 }) {
   const [syncing, setSyncing] = useState(false)
+  const [connecting, setConnecting] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [showAccounts, setShowAccounts] = useState(false)
   const [shopDomain, setShopDomain] = useState('')
+  const [shopToken, setShopToken] = useState('')
 
   const isConnected = connected?.status === 'active'
   const accounts: any[] = connected?.metadata?.accounts ?? []
 
-  function handleConnect() {
+  async function handleConnect() {
     if (platform.id === 'shopify') {
       if (!shopDomain.trim()) { setMessage({ type: 'error', text: 'Informe o domínio da loja.' }); return }
-      window.location.href = `/api/integrations/shopify/connect?workspace_id=${workspaceId}&shop=${encodeURIComponent(shopDomain.trim())}`
+      if (!shopToken.trim()) { setMessage({ type: 'error', text: 'Informe o Access Token.' }); return }
+      setConnecting(true); setMessage(null)
+      try {
+        const res = await fetch('/api/integrations/shopify/connect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspace_id: workspaceId, domain: shopDomain.trim(), access_token: shopToken.trim() }),
+        })
+        const data = await res.json()
+        if (data.error) { setMessage({ type: 'error', text: data.error }) }
+        else { setMessage({ type: 'success', text: `Loja ${data.shop_name} conectada!` }); window.location.reload() }
+      } catch { setMessage({ type: 'error', text: 'Erro ao conectar.' }) }
+      setConnecting(false)
       return
     }
     const provider = platform.id === 'google_ads' ? 'google-ads' : 'meta'
@@ -257,23 +272,45 @@ function PlatformCard({
         </div>
       )}
 
-      {/* Connect button */}
+      {/* Connect button — OAuth platforms */}
       {!connected && !platform.comingSoon && platform.oauth && (
         <div className="mt-4">
-          {(platform as any).needsShop && (
-            <div className="flex items-center gap-2 mb-3">
-              <input
-                type="text"
-                value={shopDomain}
-                onChange={e => setShopDomain(e.target.value)}
-                placeholder="minha-loja.myshopify.com"
-                className="flex-1 bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted"
-              />
-            </div>
-          )}
           <button onClick={handleConnect}
             className="px-4 py-2 text-sm rounded-lg bg-brand-gold text-bg-base font-medium hover:bg-brand-gold-light transition-colors">
             Conectar {platform.name}
+          </button>
+        </div>
+      )}
+
+      {/* Connect — Shopify (token-based) */}
+      {!connected && !platform.comingSoon && (platform as any).needsToken && (
+        <div className="mt-4 space-y-3">
+          <div>
+            <label className="block text-xs text-text-muted mb-1">Dominio da loja</label>
+            <input
+              type="text"
+              value={shopDomain}
+              onChange={e => setShopDomain(e.target.value)}
+              placeholder="minha-loja.myshopify.com"
+              className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-text-muted mb-1">Access Token (Admin API)</label>
+            <input
+              type="password"
+              value={shopToken}
+              onChange={e => setShopToken(e.target.value)}
+              placeholder="shpat_..."
+              className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted"
+            />
+          </div>
+          <p className="text-xs text-text-muted">
+            Crie um app privado em Shopify Admin &gt; Settings &gt; Apps &gt; Develop apps. Ative os escopos <strong className="text-text-secondary">read_orders</strong> e <strong className="text-text-secondary">read_analytics</strong>.
+          </p>
+          <button onClick={handleConnect} disabled={connecting}
+            className="px-4 py-2 text-sm rounded-lg bg-brand-gold text-bg-base font-medium hover:bg-brand-gold-light transition-colors disabled:opacity-50">
+            {connecting ? 'Conectando...' : 'Conectar Shopify'}
           </button>
         </div>
       )}
