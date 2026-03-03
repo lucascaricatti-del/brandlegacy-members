@@ -78,7 +78,7 @@ export default async function MetricasPage() {
   // Busca 180 dias de métricas
   const since = new Date()
   since.setDate(since.getDate() - 180)
-  const sinceStr = since.toISOString().split('T')[0]
+  const sinceStr = since.toLocaleDateString('sv-SE')
 
   const [{ data: metaMetrics }, { data: googleMetrics }, { data: shopifyMetrics }] = await Promise.all([
     (adminSupabase as any)
@@ -111,6 +111,18 @@ export default async function MetricasPage() {
     [metaIntegration?.account_name, googleIntegration?.account_name, shopifyIntegration?.account_name]
       .filter((name): name is string => !!name && name !== ws.name)
   )].join(' · ')
+
+  // DEBUG — remover depois
+  console.log('[METRICAS DEBUG]', {
+    workspaceId: ws.id,
+    sinceStr,
+    isMetaConnected,
+    isGoogleConnected,
+    isShopifyConnected,
+    metaMetrics: metaMetrics?.length ?? 0,
+    googleMetrics: googleMetrics?.length ?? 0,
+    shopifyMetrics: shopifyMetrics?.length ?? 0,
+  })
 
   return (
     <div className="animate-fade-in">
