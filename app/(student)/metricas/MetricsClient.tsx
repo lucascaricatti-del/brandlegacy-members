@@ -15,6 +15,11 @@ type AdsRow = {
   initiate_checkout?: number; add_payment_info?: number;
 }
 
+type EcomRow = {
+  id?: string; date: string; revenue: number; orders: number;
+  items_sold: number; avg_ticket: number; sessions: number; conversion_rate: number;
+}
+
 type Period = 'today' | 'yesterday' | '7d' | '14d' | '21d' | '30d' | 'mes_atual' | 'custom'
 const PERIODS: { key: Period; label: string; days: number }[] = [
   { key: 'today', label: 'Hoje', days: 0 },
@@ -27,18 +32,21 @@ const PERIODS: { key: Period; label: string; days: number }[] = [
   { key: 'custom', label: 'Personalizado', days: 0 },
 ]
 
-type Tab = 'meta' | 'google'
+type Tab = 'meta' | 'google' | 'vendas'
 
 function normalize(d: string) { return d?.slice(0, 10) ?? '' }
 
 export default function MetricsClient({
-  workspaceId, isMetaConnected, isGoogleConnected, metaMetrics, googleMetrics,
+  workspaceId, isMetaConnected, isGoogleConnected, isShopifyConnected,
+  metaMetrics, googleMetrics, shopifyMetrics,
 }: {
   workspaceId: string
   isMetaConnected: boolean
   isGoogleConnected: boolean
+  isShopifyConnected: boolean
   metaMetrics: AdsRow[]
   googleMetrics: AdsRow[]
+  shopifyMetrics: EcomRow[]
 }) {
   const [activeTab, setActiveTab] = useState<Tab>('meta')
   const [period, setPeriod] = useState<Period>('30d')
@@ -51,46 +59,45 @@ export default function MetricsClient({
   const [metaSyncMsg, setMetaSyncMsg] = useState('')
   const [googleSyncing, setGoogleSyncing] = useState(false)
   const [googleSyncMsg, setGoogleSyncMsg] = useState('')
+  const [shopifySyncing, setShopifySyncing] = useState(false)
+  const [shopifySyncMsg, setShopifySyncMsg] = useState('')
 
   const [reportLoading, setReportLoading] = useState(false)
   const [reportMarkdown, setReportMarkdown] = useState('')
 
-  const syncing = activeTab === 'meta' ? metaSyncing : googleSyncing
-  const syncMsg = activeTab === 'meta' ? metaSyncMsg : googleSyncMsg
+  const isAdsTab = activeTab === 'meta' || activeTab === 'google'
+  const isConnected = activeTab === 'meta' ? isMetaConnected : activeTab === 'google' ? isGoogleConnected : isShopifyConnected
+  const syncing = activeTab === 'meta' ? metaSyncing : activeTab === 'google' ? googleSyncing : shopifySyncing
+  const syncMsg = activeTab === 'meta' ? metaSyncMsg : activeTab === 'google' ? googleSyncMsg : shopifySyncMsg
 
-  const metrics = activeTab === 'meta' ? metaMetrics : googleMetrics
-  const isConnected = activeTab === 'meta' ? isMetaConnected : isGoogleConnected
-
-  const filtered = useMemo(() => {
+  // ── Period filter helper ──
+  function filterByPeriod<T extends { date: string }>(data: T[]): T[] {
     const today = new Date().toLocaleDateString('sv-SE')
-
-    if (period === 'today') return metrics.filter(m => normalize(m.date) === today)
-
+    if (period === 'today') return data.filter(m => normalize(m.date) === today)
     if (period === 'yesterday') {
-      const y = new Date()
-      y.setDate(y.getDate() - 1)
-      return metrics.filter(m => normalize(m.date) === y.toLocaleDateString('sv-SE'))
+      const y = new Date(); y.setDate(y.getDate() - 1)
+      return data.filter(m => normalize(m.date) === y.toLocaleDateString('sv-SE'))
     }
-
     if (period === 'mes_atual') {
       const firstDay = today.slice(0, 7) + '-01'
-      return metrics.filter(m => normalize(m.date) >= firstDay && normalize(m.date) <= today)
+      return data.filter(m => normalize(m.date) >= firstDay && normalize(m.date) <= today)
     }
-
     if (period === 'custom' && appliedFrom && appliedTo) {
-      return metrics.filter(m => normalize(m.date) >= appliedFrom && normalize(m.date) <= appliedTo)
+      return data.filter(m => normalize(m.date) >= appliedFrom && normalize(m.date) <= appliedTo)
     }
-
     const days = PERIODS.find(p => p.key === period)?.days ?? 30
-    const since = new Date()
-    since.setDate(since.getDate() - days)
+    const since = new Date(); since.setDate(since.getDate() - days)
     const sinceStr = since.toLocaleDateString('sv-SE')
-    return metrics.filter(m => normalize(m.date) >= sinceStr && normalize(m.date) <= today)
-  }, [metrics, period, appliedFrom, appliedTo, activeTab])
+    return data.filter(m => normalize(m.date) >= sinceStr && normalize(m.date) <= today)
+  }
+
+  // ── Ads data (Meta/Google) ──
+  const adsMetrics = activeTab === 'meta' ? metaMetrics : googleMetrics
+  const filteredAds = useMemo(() => filterByPeriod(adsMetrics), [adsMetrics, period, appliedFrom, appliedTo, activeTab])
 
   const dailyData = useMemo(() => {
     const map = new Map<string, { date: string; spend: number; revenue: number; impressions: number; clicks: number; conversions: number }>()
-    for (const m of filtered) {
+    for (const m of filteredAds) {
       const existing = map.get(m.date) ?? { date: m.date, spend: 0, revenue: 0, impressions: 0, clicks: 0, conversions: 0 }
       existing.spend += Number(m.spend) || 0
       existing.revenue += Number(m.revenue) || 0
@@ -100,11 +107,11 @@ export default function MetricsClient({
       map.set(m.date, existing)
     }
     return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date))
-  }, [filtered])
+  }, [filteredAds])
 
   const campaignData = useMemo(() => {
     const map = new Map<string, { name: string; spend: number; revenue: number; impressions: number; clicks: number; conversions: number; outbound_clicks: number }>()
-    for (const m of filtered) {
+    for (const m of filteredAds) {
       const existing = map.get(m.campaign_id) ?? { name: m.campaign_name, spend: 0, revenue: 0, impressions: 0, clicks: 0, conversions: 0, outbound_clicks: 0 }
       existing.spend += Number(m.spend) || 0
       existing.revenue += Number(m.revenue) || 0
@@ -115,7 +122,7 @@ export default function MetricsClient({
       map.set(m.campaign_id, existing)
     }
     return Array.from(map.values()).sort((a, b) => b.spend - a.spend)
-  }, [filtered])
+  }, [filteredAds])
 
   const totals = useMemo(() => {
     const spend = dailyData.reduce((s, d) => s + d.spend, 0)
@@ -123,24 +130,22 @@ export default function MetricsClient({
     const impressions = dailyData.reduce((s, d) => s + d.impressions, 0)
     const clicks = dailyData.reduce((s, d) => s + d.clicks, 0)
     const conversions = dailyData.reduce((s, d) => s + d.conversions, 0)
-    const page_views = filtered.reduce((s, m) => s + (Number(m.page_views) || 0), 0)
-    const outbound_clicks = filtered.reduce((s, m) => s + (Number(m.outbound_clicks) || 0), 0)
-    const initiate_checkout = filtered.reduce((s, m) => s + (Number(m.initiate_checkout) || 0), 0)
-    const add_payment_info = filtered.reduce((s, m) => s + (Number(m.add_payment_info) || 0), 0)
+    const page_views = filteredAds.reduce((s, m) => s + (Number(m.page_views) || 0), 0)
+    const outbound_clicks = filteredAds.reduce((s, m) => s + (Number(m.outbound_clicks) || 0), 0)
+    const initiate_checkout = filteredAds.reduce((s, m) => s + (Number(m.initiate_checkout) || 0), 0)
+    const add_payment_info = filteredAds.reduce((s, m) => s + (Number(m.add_payment_info) || 0), 0)
     const roas = spend > 0 ? revenue / spend : 0
     const cpa = conversions > 0 ? spend / conversions : 0
     const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0
     const cpm = impressions > 0 ? (spend / impressions) * 1000 : 0
-    // Meta-specific
     const cpc = outbound_clicks > 0 ? spend / outbound_clicks : 0
     const cps = page_views > 0 ? spend / page_views : 0
     const connect_rate = outbound_clicks > 0 ? (page_views / outbound_clicks) * 100 : 0
     const conversion_rate = page_views > 0 ? (conversions / page_views) * 100 : 0
-    // Google-specific
     const google_cpc = clicks > 0 ? spend / clicks : 0
     const google_conversion_rate = clicks > 0 ? (conversions / clicks) * 100 : 0
     return { spend, revenue, impressions, clicks, conversions, roas, cpa, ctr, cpm, cpc, cps, connect_rate, conversion_rate, page_views, outbound_clicks, initiate_checkout, add_payment_info, google_cpc, google_conversion_rate }
-  }, [dailyData, filtered])
+  }, [dailyData, filteredAds])
 
   // Funnel — 5 steps (Meta only)
   const funnel = useMemo(() => {
@@ -165,6 +170,26 @@ export default function MetricsClient({
     return { steps, maxDropIdx }
   }, [totals, activeTab])
 
+  // ── Shopify data ──
+  const filteredShopify = useMemo(() => filterByPeriod(shopifyMetrics), [shopifyMetrics, period, appliedFrom, appliedTo, activeTab])
+
+  const shopifyTotals = useMemo(() => {
+    const revenue = filteredShopify.reduce((s, m) => s + (Number(m.revenue) || 0), 0)
+    const orders = filteredShopify.reduce((s, m) => s + (Number(m.orders) || 0), 0)
+    const items_sold = filteredShopify.reduce((s, m) => s + (Number(m.items_sold) || 0), 0)
+    const sessions = filteredShopify.reduce((s, m) => s + (Number(m.sessions) || 0), 0)
+    const avg_ticket = orders > 0 ? revenue / orders : 0
+    const conversion_rate = sessions > 0 ? (orders / sessions) * 100 : 0
+    return { revenue, orders, items_sold, avg_ticket, sessions, conversion_rate }
+  }, [filteredShopify])
+
+  const shopifyDaily = useMemo(() => {
+    return filteredShopify
+      .map(m => ({ date: m.date, revenue: Number(m.revenue) || 0, orders: Number(m.orders) || 0 }))
+      .sort((a, b) => a.date.localeCompare(b.date))
+  }, [filteredShopify])
+
+  // ── Handlers ──
   const handleSync = async () => {
     const dateFrom = new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0]
     const dateTo = new Date().toISOString().split('T')[0]
@@ -172,29 +197,30 @@ export default function MetricsClient({
     if (activeTab === 'meta') {
       setMetaSyncing(true); setMetaSyncMsg('')
       try {
-        const res = await fetch('/api/integrations/meta/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ workspace_id: workspaceId, date_from: dateFrom, date_to: dateTo }),
-        })
+        const res = await fetch('/api/integrations/meta/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ workspace_id: workspaceId, date_from: dateFrom, date_to: dateTo }) })
         const data = await res.json()
-        if (data.error) { setMetaSyncMsg(`Erro: ${data.error}`) }
+        if (data.error) setMetaSyncMsg(`Erro: ${data.error}`)
         else { setMetaSyncMsg(`${data.synced} registros sincronizados. Recarregando...`); window.location.reload(); return }
       } catch { setMetaSyncMsg('Erro ao sincronizar.') }
       setMetaSyncing(false)
-    } else {
+    } else if (activeTab === 'google') {
       setGoogleSyncing(true); setGoogleSyncMsg('')
       try {
-        const res = await fetch('/api/integrations/google-ads/sync', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ workspace_id: workspaceId, date_from: dateFrom, date_to: dateTo }),
-        })
+        const res = await fetch('/api/integrations/google-ads/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ workspace_id: workspaceId, date_from: dateFrom, date_to: dateTo }) })
         const data = await res.json()
-        if (data.error) { setGoogleSyncMsg(`Erro: ${data.error}`) }
+        if (data.error) setGoogleSyncMsg(`Erro: ${data.error}`)
         else { setGoogleSyncMsg(`${data.synced} registros sincronizados. Recarregando...`); window.location.reload(); return }
       } catch { setGoogleSyncMsg('Erro ao sincronizar.') }
       setGoogleSyncing(false)
+    } else {
+      setShopifySyncing(true); setShopifySyncMsg('')
+      try {
+        const res = await fetch('/api/integrations/shopify/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ workspace_id: workspaceId, date_from: dateFrom, date_to: dateTo }) })
+        const data = await res.json()
+        if (data.error) setShopifySyncMsg(`Erro: ${data.error}`)
+        else { setShopifySyncMsg(`${data.synced} dias sincronizados. Recarregando...`); window.location.reload(); return }
+      } catch { setShopifySyncMsg('Erro ao sincronizar.') }
+      setShopifySyncing(false)
     }
   }
 
@@ -202,8 +228,7 @@ export default function MetricsClient({
     setReportLoading(true); setReportMarkdown('')
     try {
       const res = await fetch('/api/metricas/relatorio', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           totals,
           funnel: funnel?.steps ?? [],
@@ -211,12 +236,7 @@ export default function MetricsClient({
             const cpc = activeTab === 'meta'
               ? (c.outbound_clicks > 0 ? c.spend / c.outbound_clicks : 0)
               : (c.clicks > 0 ? c.spend / c.clicks : 0)
-            return {
-              name: c.name, spend: c.spend, revenue: c.revenue,
-              roas: c.spend > 0 ? c.revenue / c.spend : 0,
-              cpa: c.conversions > 0 ? c.spend / c.conversions : 0,
-              cpc, conversions: c.conversions,
-            }
+            return { name: c.name, spend: c.spend, revenue: c.revenue, roas: c.spend > 0 ? c.revenue / c.spend : 0, cpa: c.conversions > 0 ? c.spend / c.conversions : 0, cpc, conversions: c.conversions }
           }),
           period: PERIODS.find(p => p.key === period)?.label ?? period,
         }),
@@ -228,51 +248,46 @@ export default function MetricsClient({
     setReportLoading(false)
   }
 
+  // ── Render ──
   return (
     <div className="space-y-6">
       {/* Tab selector */}
       <div className="flex gap-1 bg-bg-card border border-border rounded-xl p-1">
-        <button onClick={() => setActiveTab('meta')}
-          className={`flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-            activeTab === 'meta' ? 'bg-brand-gold text-bg-base' : 'text-text-secondary hover:bg-bg-hover'
-          }`}>
-          Meta Ads
-        </button>
-        <button onClick={() => setActiveTab('google')}
-          className={`flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-            activeTab === 'google' ? 'bg-brand-gold text-bg-base' : 'text-text-secondary hover:bg-bg-hover'
-          }`}>
-          Google Ads
-        </button>
+        {([['meta', 'Meta Ads'], ['google', 'Google Ads'], ['vendas', 'Vendas']] as const).map(([key, label]) => (
+          <button key={key} onClick={() => setActiveTab(key)}
+            className={`flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+              activeTab === key ? 'bg-brand-gold text-bg-base' : 'text-text-secondary hover:bg-bg-hover'
+            }`}>
+            {label}
+          </button>
+        ))}
       </div>
 
       {/* Not connected */}
       {!isConnected && (
         <div className="bg-bg-card border border-border rounded-xl p-16 text-center">
           <p className="text-text-primary font-semibold text-lg mb-2">
-            {activeTab === 'meta' ? 'Meta Ads não conectado' : 'Google Ads não conectado'}
+            {activeTab === 'meta' ? 'Meta Ads não conectado' : activeTab === 'google' ? 'Google Ads não conectado' : 'Shopify não conectado'}
           </p>
           <p className="text-text-muted mb-4">
-            {activeTab === 'meta' ? 'Conecte sua conta do Meta Ads para ver métricas.' : 'Conecte sua conta do Google Ads para ver métricas.'}
+            {activeTab === 'vendas' ? 'Conecte sua loja Shopify para ver métricas de vendas.' : `Conecte sua conta para ver métricas.`}
           </p>
           <Link href="/integracoes" className="inline-block px-4 py-2 bg-brand-gold text-bg-base rounded-lg font-medium hover:opacity-90 transition-opacity">
-            {activeTab === 'meta' ? 'Conectar Meta Ads' : 'Conectar Google Ads'}
+            {activeTab === 'vendas' ? 'Conectar Shopify' : activeTab === 'meta' ? 'Conectar Meta Ads' : 'Conectar Google Ads'}
           </Link>
         </div>
       )}
 
-      {/* Connected content */}
-      {isConnected && (
+      {/* Connected — Ads tabs (Meta/Google) */}
+      {isConnected && isAdsTab && (
         <>
-          {/* Period selector + sync + report */}
+          {/* Period + sync + report */}
           <div className="flex flex-wrap items-center gap-2">
             {PERIODS.map(p => (
               <button key={p.key} onClick={() => setPeriod(p.key)}
                 className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-colors ${
                   period === p.key ? 'bg-brand-gold text-bg-base' : 'bg-bg-card border border-border text-text-secondary hover:bg-bg-hover'
-                }`}>
-                {p.label}
-              </button>
+                }`}>{p.label}</button>
             ))}
             <div className="ml-auto flex items-center gap-2">
               {syncMsg && <span className="text-xs text-text-muted">{syncMsg}</span>}
@@ -280,27 +295,21 @@ export default function MetricsClient({
                 className="px-3 py-1.5 text-sm rounded-lg font-medium bg-bg-card border border-border text-text-secondary hover:bg-bg-hover disabled:opacity-50">
                 {syncing ? 'Sincronizando...' : 'Sincronizar'}
               </button>
-              <button onClick={handleReport} disabled={reportLoading || filtered.length === 0}
+              <button onClick={handleReport} disabled={reportLoading || filteredAds.length === 0}
                 className="px-3 py-1.5 text-sm rounded-lg font-medium bg-brand-gold/20 border border-brand-gold/40 text-brand-gold hover:bg-brand-gold/30 disabled:opacity-50 transition-colors">
                 {reportLoading ? 'Gerando...' : 'Gerar Relatório IA'}
               </button>
             </div>
           </div>
 
-          {/* Custom date range */}
           {period === 'custom' && (
             <div className="flex gap-3 items-center">
               <span className="text-text-muted text-sm">De:</span>
-              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)}
-                className="bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary" />
+              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary" />
               <span className="text-text-muted text-sm">Até:</span>
-              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)}
-                className="bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary" />
-              <button onClick={() => { setAppliedFrom(customFrom); setAppliedTo(customTo) }}
-                disabled={!customFrom || !customTo}
-                className="px-4 py-1.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 transition-opacity disabled:opacity-40">
-                Buscar
-              </button>
+              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary" />
+              <button onClick={() => { setAppliedFrom(customFrom); setAppliedTo(customTo) }} disabled={!customFrom || !customTo}
+                className="px-4 py-1.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 transition-opacity disabled:opacity-40">Buscar</button>
             </div>
           )}
 
@@ -316,8 +325,7 @@ export default function MetricsClient({
               indicator={totals.cpa > 0 && totals.cpa <= 50 ? 'green' : totals.cpa <= 100 ? 'yellow' : 'red'} />
             {activeTab === 'meta'
               ? <KpiCard label="CPS" value={fmtCurrency(totals.cps)} />
-              : <KpiCard label="CPC" value={fmtCurrency(totals.google_cpc)} />
-            }
+              : <KpiCard label="CPC" value={fmtCurrency(totals.google_cpc)} />}
           </div>
 
           {/* KPI Row 2 */}
@@ -329,14 +337,13 @@ export default function MetricsClient({
               indicator={totals.ctr >= 2 ? 'green' : totals.ctr >= 1 ? 'yellow' : 'red'} />
             {activeTab === 'meta'
               ? <KpiCard label="Connect Rate" value={`${totals.connect_rate.toFixed(1)}%`} />
-              : <KpiCard label="Cliques" value={fmtNumber(totals.clicks)} />
-            }
+              : <KpiCard label="Cliques" value={fmtNumber(totals.clicks)} />}
             <KpiCard label="CPM" value={fmtCurrency(totals.cpm)}
               color={totals.cpm > 0 && totals.cpm <= 20 ? '#22c55e' : totals.cpm <= 40 ? '#eab308' : '#ef4444'}
               indicator={totals.cpm > 0 && totals.cpm <= 20 ? 'green' : totals.cpm <= 40 ? 'yellow' : 'red'} />
           </div>
 
-          {/* Funnel — 5 steps, Meta only */}
+          {/* Funnel — Meta only */}
           {funnel && (
             <div className="bg-bg-card border border-border rounded-xl p-6">
               <h3 className="text-text-primary font-semibold mb-5">Funil de Conversão</h3>
@@ -346,40 +353,29 @@ export default function MetricsClient({
                   const widthPct = maxVal > 0 ? Math.max((step.value / maxVal) * 100, 4) : 4
                   const prevValue = i > 0 ? funnel.steps[i - 1].value : 0
                   const isBiggestDrop = i === funnel.maxDropIdx
-
-                  // Label for conversion between steps
                   let convLabel: string | null = null
                   if (i > 0 && prevValue > 0) {
                     const pct = ((step.value / prevValue) * 100).toFixed(1)
-                    if (i === 1) convLabel = `Connect Rate ${pct}%`
-                    else convLabel = `${pct}% converteram`
+                    convLabel = i === 1 ? `Connect Rate ${pct}%` : `${pct}% converteram`
                   }
-
                   return (
                     <div key={i}>
                       {convLabel && (
                         <div className="flex items-center gap-2 py-1.5 pl-4">
                           <span className="text-text-muted text-xs">↓</span>
-                          <span className={`text-xs font-medium ${isBiggestDrop ? 'text-red-400 font-bold' : 'text-text-secondary'}`}>
-                            {convLabel}
-                          </span>
+                          <span className={`text-xs font-medium ${isBiggestDrop ? 'text-red-400 font-bold' : 'text-text-secondary'}`}>{convLabel}</span>
                         </div>
                       )}
-                      <div className="flex items-center gap-3">
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className={`text-sm font-medium ${isBiggestDrop ? 'text-red-400' : 'text-text-primary'}`}>{step.label}</span>
-                            <div className="flex items-center gap-3">
-                              <span className="text-xs text-text-muted">{step.costLabel}: {fmtCurrency(step.cost)}</span>
-                              <span className="text-sm font-bold text-text-primary">{fmtNumber(step.value)}</span>
-                            </div>
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className={`text-sm font-medium ${isBiggestDrop ? 'text-red-400' : 'text-text-primary'}`}>{step.label}</span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs text-text-muted">{step.costLabel}: {fmtCurrency(step.cost)}</span>
+                            <span className="text-sm font-bold text-text-primary">{fmtNumber(step.value)}</span>
                           </div>
-                          <div className="h-7 bg-bg-surface rounded-lg overflow-hidden">
-                            <div
-                              className={`h-full rounded-lg transition-all ${isBiggestDrop ? 'bg-red-500/70' : 'bg-brand-gold/60'}`}
-                              style={{ width: `${widthPct}%` }}
-                            />
-                          </div>
+                        </div>
+                        <div className="h-7 bg-bg-surface rounded-lg overflow-hidden">
+                          <div className={`h-full rounded-lg transition-all ${isBiggestDrop ? 'bg-red-500/70' : 'bg-brand-gold/60'}`} style={{ width: `${widthPct}%` }} />
                         </div>
                       </div>
                     </div>
@@ -407,13 +403,10 @@ export default function MetricsClient({
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#1F3D25" />
-                    <XAxis dataKey="date" tick={{ fill: '#8B9A8F', fontSize: 10 }} axisLine={false} tickLine={false}
-                      tickFormatter={(v: string) => v.slice(5)} />
-                    <YAxis tick={{ fill: '#8B9A8F', fontSize: 10 }} axisLine={false} tickLine={false} width={60}
-                      tickFormatter={(v: number) => `R$${(v/1000).toFixed(0)}k`} />
+                    <XAxis dataKey="date" tick={{ fill: '#8B9A8F', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v: string) => v.slice(5)} />
+                    <YAxis tick={{ fill: '#8B9A8F', fontSize: 10 }} axisLine={false} tickLine={false} width={60} tickFormatter={(v: number) => `R$${(v/1000).toFixed(0)}k`} />
                     <Tooltip contentStyle={{ backgroundColor: '#122014', border: '1px solid #1F3D25', borderRadius: 8 }}
-                      formatter={(value: any) => [`R$ ${Number(value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, '']}
-                      labelStyle={{ color: '#94a3b8' }} />
+                      formatter={(value: any) => [`R$ ${Number(value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, '']} labelStyle={{ color: '#94a3b8' }} />
                     <Area type="monotone" dataKey="spend" stroke="#ef4444" fill="url(#gSpend)" strokeWidth={2} name="Investimento" />
                     <Area type="monotone" dataKey="revenue" stroke="#22c55e" fill="url(#gRevenue)" strokeWidth={2} name="Receita" />
                   </AreaChart>
@@ -422,7 +415,7 @@ export default function MetricsClient({
             </div>
           )}
 
-          {/* Campaign breakdown */}
+          {/* Campaign table */}
           {campaignData.length > 0 && (
             <div className="bg-bg-card border border-border rounded-xl p-6">
               <h3 className="text-text-primary font-semibold mb-4">Por Campanha</h3>
@@ -444,24 +437,18 @@ export default function MetricsClient({
                     {campaignData.map((c, i) => {
                       const roas = c.spend > 0 ? c.revenue / c.spend : 0
                       const cpa = c.conversions > 0 ? c.spend / c.conversions : 0
-                      const cpc = activeTab === 'meta'
-                        ? (c.outbound_clicks > 0 ? c.spend / c.outbound_clicks : 0)
-                        : (c.clicks > 0 ? c.spend / c.clicks : 0)
+                      const cpc = activeTab === 'meta' ? (c.outbound_clicks > 0 ? c.spend / c.outbound_clicks : 0) : (c.clicks > 0 ? c.spend / c.clicks : 0)
                       const ctr = c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0
                       return (
                         <tr key={i} className="border-t border-white/5 hover:bg-white/5">
                           <td className="py-2 text-text-primary max-w-[200px] truncate">{c.name}</td>
                           <td className="py-2 text-right text-red-400">{fmtCurrency(c.spend)}</td>
                           <td className="py-2 text-right text-green-400">{fmtCurrency(c.revenue)}</td>
-                          <td className={`py-2 text-right font-medium ${roas >= 3 ? 'text-green-400' : roas >= 1.5 ? 'text-yellow-400' : 'text-red-400'}`}>
-                            {roas.toFixed(2)}x
-                          </td>
+                          <td className={`py-2 text-right font-medium ${roas >= 3 ? 'text-green-400' : roas >= 1.5 ? 'text-yellow-400' : 'text-red-400'}`}>{roas.toFixed(2)}x</td>
                           <td className="py-2 text-right text-text-secondary">{fmtCurrency(cpc)}</td>
                           <td className="py-2 text-right text-text-secondary">{fmtCurrency(cpa)}</td>
                           <td className="py-2 text-right text-text-secondary">{c.conversions}</td>
-                          <td className={`py-2 text-right ${ctr >= 2 ? 'text-green-400' : ctr >= 1 ? 'text-yellow-400' : 'text-red-400'}`}>
-                            {ctr.toFixed(2)}%
-                          </td>
+                          <td className={`py-2 text-right ${ctr >= 2 ? 'text-green-400' : ctr >= 1 ? 'text-yellow-400' : 'text-red-400'}`}>{ctr.toFixed(2)}%</td>
                         </tr>
                       )
                     })}
@@ -483,12 +470,86 @@ export default function MetricsClient({
                 [&_h3]:text-text-primary [&_h3]:text-sm [&_h3]:font-semibold
                 [&_table]:w-full [&_th]:text-left [&_th]:py-1 [&_th]:text-xs [&_th]:text-text-muted [&_th]:uppercase
                 [&_td]:py-1 [&_td]:text-sm [&_strong]:text-text-primary [&_li]:text-sm"
-                dangerouslySetInnerHTML={{ __html: markdownToHtml(reportMarkdown) }}
-              />
+                dangerouslySetInnerHTML={{ __html: markdownToHtml(reportMarkdown) }} />
             </div>
           )}
 
           {dailyData.length === 0 && (
+            <div className="bg-bg-card border border-border rounded-xl p-16 text-center">
+              <p className="text-text-muted">Nenhuma métrica neste período.</p>
+              <p className="text-text-muted text-sm mt-1">Clique em Sincronizar para importar dados.</p>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Connected — Vendas tab (Shopify) */}
+      {isConnected && activeTab === 'vendas' && (
+        <>
+          {/* Period + sync */}
+          <div className="flex flex-wrap items-center gap-2">
+            {PERIODS.map(p => (
+              <button key={p.key} onClick={() => setPeriod(p.key)}
+                className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-colors ${
+                  period === p.key ? 'bg-brand-gold text-bg-base' : 'bg-bg-card border border-border text-text-secondary hover:bg-bg-hover'
+                }`}>{p.label}</button>
+            ))}
+            <div className="ml-auto flex items-center gap-2">
+              {syncMsg && <span className="text-xs text-text-muted">{syncMsg}</span>}
+              <button onClick={handleSync} disabled={syncing}
+                className="px-3 py-1.5 text-sm rounded-lg font-medium bg-bg-card border border-border text-text-secondary hover:bg-bg-hover disabled:opacity-50">
+                {syncing ? 'Sincronizando...' : 'Sincronizar'}
+              </button>
+            </div>
+          </div>
+
+          {period === 'custom' && (
+            <div className="flex gap-3 items-center">
+              <span className="text-text-muted text-sm">De:</span>
+              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary" />
+              <span className="text-text-muted text-sm">Até:</span>
+              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary" />
+              <button onClick={() => { setAppliedFrom(customFrom); setAppliedTo(customTo) }} disabled={!customFrom || !customTo}
+                className="px-4 py-1.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 transition-opacity disabled:opacity-40">Buscar</button>
+            </div>
+          )}
+
+          {/* Shopify KPIs */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <KpiCard label="Receita" value={fmtCurrency(shopifyTotals.revenue, 0)} />
+            <KpiCard label="Pedidos" value={fmtNumber(shopifyTotals.orders)} />
+            <KpiCard label="Ticket Médio" value={fmtCurrency(shopifyTotals.avg_ticket)} />
+            <KpiCard label="Itens Vendidos" value={fmtNumber(shopifyTotals.items_sold)} />
+            <KpiCard label="Sessões" value={fmtNumber(shopifyTotals.sessions)} />
+            <KpiCard label="Taxa de Conversão" value={`${shopifyTotals.conversion_rate.toFixed(2)}%`} />
+          </div>
+
+          {/* Revenue chart */}
+          {shopifyDaily.length > 0 && (
+            <div className="bg-bg-card border border-border rounded-xl p-6">
+              <h3 className="text-text-primary font-semibold mb-4">Receita por Dia</h3>
+              <div className="h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={shopifyDaily}>
+                    <defs>
+                      <linearGradient id="gShopRevenue" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1F3D25" />
+                    <XAxis dataKey="date" tick={{ fill: '#8B9A8F', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v: string) => v.slice(5)} />
+                    <YAxis tick={{ fill: '#8B9A8F', fontSize: 10 }} axisLine={false} tickLine={false} width={60} tickFormatter={(v: number) => `R$${(v/1000).toFixed(0)}k`} />
+                    <Tooltip contentStyle={{ backgroundColor: '#122014', border: '1px solid #1F3D25', borderRadius: 8 }}
+                      formatter={(value: any) => [`R$ ${Number(value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, '']} labelStyle={{ color: '#94a3b8' }} />
+                    <Area type="monotone" dataKey="revenue" stroke="#22c55e" fill="url(#gShopRevenue)" strokeWidth={2} name="Receita" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {filteredShopify.length === 0 && (
             <div className="bg-bg-card border border-border rounded-xl p-16 text-center">
               <p className="text-text-muted">Nenhuma métrica neste período.</p>
               <p className="text-text-muted text-sm mt-1">Clique em Sincronizar para importar dados.</p>

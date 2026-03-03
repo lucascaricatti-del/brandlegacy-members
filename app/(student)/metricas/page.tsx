@@ -62,15 +62,25 @@ export default async function MetricasPage() {
     .eq('status', 'active')
     .single()
 
+  // Busca integração Shopify ativa
+  const { data: shopifyIntegration } = await (adminSupabase as any)
+    .from('workspace_integrations')
+    .select('status, account_id, account_name')
+    .eq('workspace_id', ws.id)
+    .eq('provider', 'shopify')
+    .eq('status', 'active')
+    .single()
+
   const isMetaConnected = !!metaIntegration?.account_id
   const isGoogleConnected = !!googleIntegration?.account_id
+  const isShopifyConnected = !!shopifyIntegration?.account_id
 
-  // Busca 180 dias de ads_metrics separado por provider
+  // Busca 180 dias de métricas
   const since = new Date()
   since.setDate(since.getDate() - 180)
   const sinceStr = since.toISOString().split('T')[0]
 
-  const [{ data: metaMetrics, error: metaErr }, { data: googleMetrics, error: googleErr }] = await Promise.all([
+  const [{ data: metaMetrics }, { data: googleMetrics }, { data: shopifyMetrics }] = await Promise.all([
     (adminSupabase as any)
       .from('ads_metrics')
       .select('*')
@@ -78,7 +88,7 @@ export default async function MetricasPage() {
       .eq('provider', 'meta_ads')
       .gte('date', sinceStr)
       .order('date', { ascending: false })
-      .limit(2000),
+      .limit(5000),
     (adminSupabase as any)
       .from('ads_metrics')
       .select('*')
@@ -86,17 +96,19 @@ export default async function MetricasPage() {
       .eq('provider', 'google_ads')
       .gte('date', sinceStr)
       .order('date', { ascending: false })
+      .limit(5000),
+    (adminSupabase as any)
+      .from('ecommerce_metrics')
+      .select('*')
+      .eq('workspace_id', ws.id)
+      .eq('provider', 'shopify')
+      .gte('date', sinceStr)
+      .order('date', { ascending: false })
       .limit(2000),
   ])
 
-  console.log('[metricas/page] workspace:', ws.id, ws.name)
-  console.log('[metricas/page] sinceStr:', sinceStr)
-  console.log('[metricas/page] metaMetrics:', metaMetrics?.length ?? 0, 'error:', metaErr?.message ?? 'none')
-  console.log('[metricas/page] googleMetrics:', googleMetrics?.length ?? 0, 'error:', googleErr?.message ?? 'none')
-  console.log('[metricas/page] isMetaConnected:', isMetaConnected, 'isGoogleConnected:', isGoogleConnected)
-
   const accountNames = [...new Set(
-    [metaIntegration?.account_name, googleIntegration?.account_name]
+    [metaIntegration?.account_name, googleIntegration?.account_name, shopifyIntegration?.account_name]
       .filter((name): name is string => !!name && name !== ws.name)
   )].join(' · ')
 
@@ -113,8 +125,10 @@ export default async function MetricasPage() {
         workspaceId={ws.id}
         isMetaConnected={isMetaConnected}
         isGoogleConnected={isGoogleConnected}
+        isShopifyConnected={isShopifyConnected}
         metaMetrics={(metaMetrics ?? []) as any[]}
         googleMetrics={(googleMetrics ?? []) as any[]}
+        shopifyMetrics={(shopifyMetrics ?? []) as any[]}
       />
     </div>
   )

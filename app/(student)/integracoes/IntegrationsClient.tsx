@@ -28,6 +28,14 @@ const PLATFORMS = [
     oauth: true,
   },
   {
+    id: 'shopify',
+    name: 'Shopify',
+    description: 'Pedidos, receita, ticket médio e métricas de e-commerce.',
+    color: '#96BF48',
+    oauth: true,
+    needsShop: true,
+  },
+  {
     id: 'ga4',
     name: 'Google Analytics 4',
     description: 'Sessões, usuários e comportamento do site.',
@@ -72,11 +80,17 @@ function PlatformCard({
   const [syncing, setSyncing] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [showAccounts, setShowAccounts] = useState(false)
+  const [shopDomain, setShopDomain] = useState('')
 
   const isConnected = connected?.status === 'active'
   const accounts: any[] = connected?.metadata?.accounts ?? []
 
   function handleConnect() {
+    if (platform.id === 'shopify') {
+      if (!shopDomain.trim()) { setMessage({ type: 'error', text: 'Informe o domínio da loja.' }); return }
+      window.location.href = `/api/integrations/shopify/connect?workspace_id=${workspaceId}&shop=${encodeURIComponent(shopDomain.trim())}`
+      return
+    }
     const provider = platform.id === 'google_ads' ? 'google-ads' : 'meta'
     window.location.href = `/api/integrations/${provider}/connect?workspace_id=${workspaceId}`
   }
@@ -84,7 +98,7 @@ function PlatformCard({
   async function handleSync() {
     setSyncing(true); setMessage(null)
     try {
-      const provider = platform.id === 'google_ads' ? 'google-ads' : 'meta'
+      const provider = platform.id === 'google_ads' ? 'google-ads' : platform.id === 'shopify' ? 'shopify' : 'meta'
       const res = await fetch(`/api/integrations/${provider}/sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -246,6 +260,17 @@ function PlatformCard({
       {/* Connect button */}
       {!connected && !platform.comingSoon && platform.oauth && (
         <div className="mt-4">
+          {(platform as any).needsShop && (
+            <div className="flex items-center gap-2 mb-3">
+              <input
+                type="text"
+                value={shopDomain}
+                onChange={e => setShopDomain(e.target.value)}
+                placeholder="minha-loja.myshopify.com"
+                className="flex-1 bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted"
+              />
+            </div>
+          )}
           <button onClick={handleConnect}
             className="px-4 py-2 text-sm rounded-lg bg-brand-gold text-bg-base font-medium hover:bg-brand-gold-light transition-colors">
             Conectar {platform.name}
