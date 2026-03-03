@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
   try {
     const allOrders: any[] = []
     let pageUrl: string | null =
-      `https://${domain}/admin/api/2026-01/orders.json?status=any&created_at_min=${since}T00:00:00Z&created_at_max=${until}T23:59:59Z&limit=250`
+      `https://${domain}/admin/api/2026-01/orders.json?status=any&financial_status=paid&created_at_min=${since}T00:00:00Z&created_at_max=${until}T23:59:59Z&limit=250`
     let pageNum = 0
     const MAX_PAGES = 100
 
