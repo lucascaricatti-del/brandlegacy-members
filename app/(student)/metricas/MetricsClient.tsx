@@ -131,11 +131,15 @@ export default function MetricsClient({
     const cpa = conversions > 0 ? spend / conversions : 0
     const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0
     const cpm = impressions > 0 ? (spend / impressions) * 1000 : 0
+    // Meta-specific
     const cpc = outbound_clicks > 0 ? spend / outbound_clicks : 0
     const cps = page_views > 0 ? spend / page_views : 0
     const connect_rate = outbound_clicks > 0 ? (page_views / outbound_clicks) * 100 : 0
     const conversion_rate = page_views > 0 ? (conversions / page_views) * 100 : 0
-    return { spend, revenue, impressions, clicks, conversions, roas, cpa, ctr, cpm, cpc, cps, connect_rate, conversion_rate, page_views, outbound_clicks, initiate_checkout, add_payment_info }
+    // Google-specific
+    const google_cpc = clicks > 0 ? spend / clicks : 0
+    const google_conversion_rate = clicks > 0 ? (conversions / clicks) * 100 : 0
+    return { spend, revenue, impressions, clicks, conversions, roas, cpa, ctr, cpm, cpc, cps, connect_rate, conversion_rate, page_views, outbound_clicks, initiate_checkout, add_payment_info, google_cpc, google_conversion_rate }
   }, [dailyData, filtered])
 
   // Funnel — 5 steps (Meta only)
@@ -204,7 +208,9 @@ export default function MetricsClient({
           totals,
           funnel: funnel?.steps ?? [],
           campaigns: campaignData.slice(0, 15).map(c => {
-            const cpc = c.outbound_clicks > 0 ? c.spend / c.outbound_clicks : 0
+            const cpc = activeTab === 'meta'
+              ? (c.outbound_clicks > 0 ? c.spend / c.outbound_clicks : 0)
+              : (c.clicks > 0 ? c.spend / c.clicks : 0)
             return {
               name: c.name, spend: c.spend, revenue: c.revenue,
               roas: c.spend > 0 ? c.revenue / c.spend : 0,
@@ -298,7 +304,7 @@ export default function MetricsClient({
             </div>
           )}
 
-          {/* KPI Row 1: Investimento | Receita | ROAS | CPA | CPS */}
+          {/* KPI Row 1 */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <KpiCard label="Investimento" value={fmtCurrency(totals.spend, 0)} />
             <KpiCard label="Receita" value={fmtCurrency(totals.revenue, 0)} />
@@ -308,17 +314,23 @@ export default function MetricsClient({
             <KpiCard label="CPA" value={fmtCurrency(totals.cpa)}
               color={totals.cpa > 0 && totals.cpa <= 50 ? '#22c55e' : totals.cpa <= 100 ? '#eab308' : '#ef4444'}
               indicator={totals.cpa > 0 && totals.cpa <= 50 ? 'green' : totals.cpa <= 100 ? 'yellow' : 'red'} />
-            <KpiCard label="CPS" value={fmtCurrency(totals.cps)} />
+            {activeTab === 'meta'
+              ? <KpiCard label="CPS" value={fmtCurrency(totals.cps)} />
+              : <KpiCard label="CPC" value={fmtCurrency(totals.google_cpc)} />
+            }
           </div>
 
-          {/* KPI Row 2: Conversões | Taxa de Conversão | CTR | Connect Rate | CPM */}
+          {/* KPI Row 2 */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <KpiCard label="Conversões" value={fmtNumber(totals.conversions)} />
-            <KpiCard label="Taxa de Conversão" value={`${totals.conversion_rate.toFixed(2)}%`} />
+            <KpiCard label="Taxa de Conversão" value={`${(activeTab === 'meta' ? totals.conversion_rate : totals.google_conversion_rate).toFixed(2)}%`} />
             <KpiCard label="CTR" value={`${totals.ctr.toFixed(2)}%`}
               color={totals.ctr >= 2 ? '#22c55e' : totals.ctr >= 1 ? '#eab308' : '#ef4444'}
               indicator={totals.ctr >= 2 ? 'green' : totals.ctr >= 1 ? 'yellow' : 'red'} />
-            <KpiCard label="Connect Rate" value={`${totals.connect_rate.toFixed(1)}%`} />
+            {activeTab === 'meta'
+              ? <KpiCard label="Connect Rate" value={`${totals.connect_rate.toFixed(1)}%`} />
+              : <KpiCard label="Cliques" value={fmtNumber(totals.clicks)} />
+            }
             <KpiCard label="CPM" value={fmtCurrency(totals.cpm)}
               color={totals.cpm > 0 && totals.cpm <= 20 ? '#22c55e' : totals.cpm <= 40 ? '#eab308' : '#ef4444'}
               indicator={totals.cpm > 0 && totals.cpm <= 20 ? 'green' : totals.cpm <= 40 ? 'yellow' : 'red'} />
@@ -432,7 +444,9 @@ export default function MetricsClient({
                     {campaignData.map((c, i) => {
                       const roas = c.spend > 0 ? c.revenue / c.spend : 0
                       const cpa = c.conversions > 0 ? c.spend / c.conversions : 0
-                      const cpc = c.outbound_clicks > 0 ? c.spend / c.outbound_clicks : 0
+                      const cpc = activeTab === 'meta'
+                        ? (c.outbound_clicks > 0 ? c.spend / c.outbound_clicks : 0)
+                        : (c.clicks > 0 ? c.spend / c.clicks : 0)
                       const ctr = c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0
                       return (
                         <tr key={i} className="border-t border-white/5 hover:bg-white/5">
