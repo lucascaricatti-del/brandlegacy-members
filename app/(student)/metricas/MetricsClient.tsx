@@ -717,7 +717,7 @@ function KpiCard({ label, value, badge }: {
     <div className="kpi-card">
       <p className="text-text-muted text-xs font-medium tracking-wide uppercase mb-2">{label}</p>
       <div className="flex items-end gap-2">
-        <p className="font-data text-2xl font-semibold text-text-primary leading-none">{value}</p>
+        <p className="font-data text-lg font-semibold text-text-primary leading-none">{value}</p>
         {badge && (
           <span className={`status-dot ${
             badge === 'green' ? 'bg-green-400 shadow-[0_0_6px_rgba(34,197,94,0.5)]'
