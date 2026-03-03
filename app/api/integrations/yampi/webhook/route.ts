@@ -24,7 +24,11 @@ export async function POST(request: Request) {
 
     const workspace_id = integration.workspace_id
     const order_id = String(resource.number)
-    const date = resource.created_at?.split('T')[0] ?? new Date().toLocaleDateString('sv-SE')
+    console.log('[YAMPI WEBHOOK] resource.created_at:', JSON.stringify(resource.created_at))
+    const createdAt = typeof resource.created_at === 'string'
+      ? resource.created_at
+      : resource.created_at?.date ?? resource.created_at?.value ?? ''
+    const date = createdAt.split('T')[0].split(' ')[0] || new Date().toLocaleDateString('sv-SE')
     const status = resource.status?.data?.alias ?? 'unknown'
     const payment_method = resource.transactions?.data?.[0]?.payment_method ?? null
     const coupon_code = resource.coupon?.data?.code ?? null
