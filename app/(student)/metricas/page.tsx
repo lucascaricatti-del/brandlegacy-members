@@ -139,6 +139,19 @@ export default async function MetricasPage() {
       .filter((name): name is string => !!name && name !== ws.name)
   )].join(' · ')
 
+  // DEBUG SERVER — check Vercel logs
+  console.log('[METRICAS]', {
+    ws: ws.id,
+    sinceStr,
+    isYampiConnected,
+    yampiIntegration: yampiIntegration ? { account_id: yampiIntegration.account_id, status: yampiIntegration.status } : null,
+    yampiMetrics: yampiMetrics?.length ?? 0,
+    yampiOrders: yampiOrders?.length ?? 0,
+    meta: metaMetrics?.length ?? 0,
+    google: googleMetrics?.length ?? 0,
+    shopify: shopifyMetrics?.length ?? 0,
+  })
+
   return (
     <div className="animate-fade-in">
       <div className="mb-8">

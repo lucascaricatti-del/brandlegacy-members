@@ -409,12 +409,6 @@ export default function MetricsClient({
   // ── Render ──
   return (
     <div className="space-y-6">
-      {/* DEBUG — remover depois */}
-      <div className="bg-yellow-900/20 border border-yellow-600/30 rounded-lg p-3 text-xs font-data text-yellow-300">
-        <strong>DEBUG:</strong> Meta: {metaMetrics.length} | Google: {googleMetrics.length} | Shopify: {shopifyMetrics.length} | Yampi: {yampiMetrics.length}/{yampiOrders.length}
-        | Filtered (tab={activeTab}, period={period}): {isAdsTab ? filteredAds.length : activeTab === 'yampi' ? filteredYampiMetrics.length : filteredShopify.length} rows
-      </div>
-
       {/* ═══ Tab selector ═══ */}
       <div className="flex gap-1 bg-bg-card border border-border rounded-xl p-1">
         {TABS.map(({ key, label, icon, connected }) => (
