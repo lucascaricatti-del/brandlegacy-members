@@ -1,16 +1,18 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
+const PAID_STATUSES = ['paid', 'invoiced', 'shipped', 'delivered']
+const CANCELLED_STATUSES = ['cancelled', 'refused']
+
 export async function POST(request: Request) {
   try {
     const payload = await request.json()
-    console.log('[YAMPI RAW PAYLOAD]', JSON.stringify(payload, null, 2))
     const resource = payload.resource
     if (!resource) return NextResponse.json({ received: true })
 
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
     )
 
     // Busca workspace com integração yampi ativa
@@ -24,29 +26,57 @@ export async function POST(request: Request) {
     if (!integration) return NextResponse.json({ received: true })
 
     const workspace_id = integration.workspace_id
+
+    // ── Parse com campos corretos ──
+
+    // Date
+    const createdAtRaw = resource.created_at?.date ?? resource.created_at ?? ''
+    const date = typeof createdAtRaw === 'string'
+      ? createdAtRaw.split(' ')[0]
+      : new Date().toLocaleDateString('sv-SE')
+
+    // Order ID
     const order_id = String(resource.number)
-    console.log('[YAMPI WEBHOOK] resource.created_at:', JSON.stringify(resource.created_at))
-    const createdAt = typeof resource.created_at === 'string'
-      ? resource.created_at
-      : resource.created_at?.date ?? resource.created_at?.value ?? ''
-    const date = createdAt.split('T')[0].split(' ')[0] || new Date().toLocaleDateString('sv-SE')
-    const status = resource.status?.data?.alias ?? 'unknown'
-    console.log('[YAMPI] transaction:', JSON.stringify(resource.transactions?.data?.[0]))
-    const payment_method = (resource.transactions?.data?.[0]?.payment_method ?? null)?.toLowerCase() ?? null
-    const coupon_code = resource.coupon?.data?.code ?? null
-    const state = resource.shipping_address?.data?.state ?? null
-    const revenue = parseFloat(String(resource.total_amount ?? '0').replace(',', '.')) || 0
-    const items = (resource.items?.data ?? []).map((i: any) => ({
-      product_id: i.product_id,
-      name: i.name,
-      quantity: i.quantity,
-      price: i.unit_price
+
+    // Revenue
+    const revenue = Number(resource.value_total ?? 0)
+
+    // Status
+    const statusAlias = resource.status?.data?.alias ?? 'unknown'
+    const status = PAID_STATUSES.includes(statusAlias)
+      ? statusAlias
+      : CANCELLED_STATUSES.includes(statusAlias)
+        ? 'cancelled'
+        : 'pending'
+
+    // Payment method
+    const payment_method = resource.transactions?.data?.[0]?.payment?.data?.alias ?? null
+
+    // Coupon
+    const coupon_code = resource.promocode?.data?.code
+      ?? resource.search?.data?.discount_names?.[0]
+      ?? null
+
+    // State
+    const state = resource.shipping_address?.data?.state
+      ?? resource.shipping_address?.data?.uf
+      ?? null
+
+    // Free shipping
+    const free_shipping = Number(resource.value_shipment ?? 1) === 0
+
+    // Items
+    const items = (resource.items?.data ?? []).map((item: any) => ({
+      product_id: item.product_id,
+      name: item.sku?.data?.title ?? item.item_sku ?? '',
+      quantity: Number(item.quantity),
+      price: Number(item.price ?? 0),
     }))
 
     // Upsert pedido
     await supabase.from('yampi_orders').upsert({
       workspace_id, order_id, date, status, payment_method,
-      coupon_code, state, revenue, items
+      coupon_code, state, revenue, items, free_shipping,
     }, { onConflict: 'workspace_id,order_id' })
 
     // Recalcula métricas do dia
@@ -57,10 +87,10 @@ export async function POST(request: Request) {
       .eq('date', date)
 
     if (dayOrders) {
-      const paid = dayOrders.filter(o => ['paid', 'invoiced', 'shipped', 'delivered'].includes(o.status))
-      const cancelled = dayOrders.filter(o => ['cancelled', 'refused'].includes(o.status))
+      const paid = dayOrders.filter(o => PAID_STATUSES.includes(o.status))
+      const cancelled = dayOrders.filter(o => CANCELLED_STATUSES.includes(o.status))
       const pix = dayOrders.filter(o => (o.payment_method ?? '').toLowerCase() === 'pix')
-      const pix_paid = pix.filter(o => ['paid', 'invoiced', 'shipped', 'delivered'].includes(o.status))
+      const pix_paid = pix.filter(o => PAID_STATUSES.includes(o.status))
       const revenue_total = paid.reduce((s: number, o: any) => s + Number(o.revenue), 0)
       const orders_count = paid.length
       const avg_ticket = orders_count > 0 ? revenue_total / orders_count : 0

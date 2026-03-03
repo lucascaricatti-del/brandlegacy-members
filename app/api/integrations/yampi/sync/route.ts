@@ -78,14 +78,16 @@ export async function POST(req: NextRequest) {
 
     // ── 2. Parse and upsert individual orders ──
     const orderRows = allOrders.map((order: any) => {
-      const status = order.status?.data?.alias ?? order.status_alias ?? 'unknown'
-      const transactions = order.transactions?.data ?? []
-      const paymentMethod = transactions[0]?.payment_method ?? null
-      const couponCode = order.coupon?.data?.code ?? null
-      const state = order.shipping_address?.data?.state ?? null
+      const statusAlias = order.status?.data?.alias ?? order.status_alias ?? 'unknown'
+      const paymentMethod = order.transactions?.data?.[0]?.payment?.data?.alias ?? null
+      const couponCode = order.promocode?.data?.code ?? order.search?.data?.discount_names?.[0] ?? null
+      const state = order.shipping_address?.data?.state ?? order.shipping_address?.data?.uf ?? null
+      const createdAtRaw = order.created_at?.date ?? order.created_at ?? ''
+      const date = typeof createdAtRaw === 'string' ? createdAtRaw.split(' ')[0].split('T')[0] : ''
+      const free_shipping = Number(order.value_shipment ?? 1) === 0
       const items = (order.items?.data ?? []).map((item: any) => ({
         product_id: String(item.product_id ?? item.id ?? ''),
-        name: item.name ?? item.product_name ?? '',
+        name: item.sku?.data?.title ?? item.item_sku ?? item.name ?? '',
         quantity: Number(item.quantity) || 1,
         price: Number(item.price) || 0,
       }))
@@ -93,13 +95,14 @@ export async function POST(req: NextRequest) {
       return {
         workspace_id,
         order_id: String(order.number ?? order.id),
-        date: (order.created_at ?? '').split('T')[0],
-        status,
+        date,
+        status: statusAlias,
         payment_method: paymentMethod,
         coupon_code: couponCode,
         state,
-        revenue: Number(order.total_amount) || 0,
+        revenue: Number(order.value_total) || 0,
         items,
+        free_shipping,
         synced_at: new Date().toISOString(),
       }
     })
