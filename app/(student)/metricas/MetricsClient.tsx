@@ -36,6 +36,51 @@ type Tab = 'meta' | 'google' | 'vendas'
 
 function normalize(d: string) { return d?.slice(0, 10) ?? '' }
 
+/* ── SVG Icons ── */
+function MetaIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+      <path d="M12 2.04C6.5 2.04 2 6.53 2 12.06C2 17.06 5.66 21.21 10.44 21.96V14.96H7.9V12.06H10.44V9.85C10.44 7.34 11.93 5.96 14.22 5.96C15.31 5.96 16.45 6.15 16.45 6.15V8.62H15.19C13.95 8.62 13.56 9.39 13.56 10.18V12.06H16.34L15.89 14.96H13.56V21.96C18.34 21.21 22 17.06 22 12.06C22 6.53 17.5 2.04 12 2.04Z"/>
+    </svg>
+  )
+}
+
+function GoogleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
+      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+      <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+    </svg>
+  )
+}
+
+function ShopifyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+      <path d="M15.34 3.03c-.04 0-.08.03-.12.03-.04 0-.48.12-.48.12s-.64-.64-.72-.72a.5.5 0 0 0-.36-.12h-.04c-.04-.04-.12-.12-.2-.16-.52-.52-1.2-.76-2.04-.72-.04 0-.12 0-.16.04A2.67 2.67 0 0 0 9.7 0c-1.52.2-2.28 1.88-2.52 2.84l-1.76.56c0 .04-.84.88-.84 3.16 0 5.36 3.6 11.4 3.6 11.4l6.04-2.08S15.5 3.35 15.5 3.15c0-.08-.08-.12-.16-.12z" fill="#95BF47"/>
+    </svg>
+  )
+}
+
+function SparklesIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+      <path d="M10 1l2.39 5.75L18 9.27l-4.55 3.56L14.76 19 10 15.67 5.24 19l1.31-6.17L2 9.27l5.61-2.52L10 1z"/>
+    </svg>
+  )
+}
+
+function LoadingSpinner() {
+  return (
+    <svg className="w-4 h-4 animate-spin-slow" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="10" cy="10" r="8" strokeOpacity="0.3" />
+      <path d="M10 2a8 8 0 0 1 8 8" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 export default function MetricsClient({
   workspaceId, isMetaConnected, isGoogleConnected, isShopifyConnected,
   metaMetrics, googleMetrics, shopifyMetrics,
@@ -154,7 +199,7 @@ export default function MetricsClient({
     if (outbound_clicks === 0 && page_views === 0 && initiate_checkout === 0 && add_payment_info === 0 && conversions === 0) return null
     const steps = [
       { label: 'Cliques no Link', value: outbound_clicks, cost: outbound_clicks > 0 ? spend / outbound_clicks : 0, costLabel: 'CPC' },
-      { label: 'Visualização da Página de Destino', value: page_views, cost: page_views > 0 ? spend / page_views : 0, costLabel: 'CPS' },
+      { label: 'Visualização da Página', value: page_views, cost: page_views > 0 ? spend / page_views : 0, costLabel: 'CPS' },
       { label: 'Checkout', value: initiate_checkout, cost: initiate_checkout > 0 ? spend / initiate_checkout : 0, costLabel: 'Custo/Checkout' },
       { label: 'Pagamento', value: add_payment_info, cost: add_payment_info > 0 ? spend / add_payment_info : 0, costLabel: 'Custo/Pgto' },
       { label: 'Compra', value: conversions, cost: conversions > 0 ? spend / conversions : 0, costLabel: 'CPA' },
@@ -248,55 +293,84 @@ export default function MetricsClient({
     setReportLoading(false)
   }
 
+  // ── Tab config ──
+  const TABS: { key: Tab; label: string; icon: React.ReactNode; connected: boolean }[] = [
+    { key: 'meta', label: 'Meta Ads', icon: <MetaIcon />, connected: isMetaConnected },
+    { key: 'google', label: 'Google Ads', icon: <GoogleIcon />, connected: isGoogleConnected },
+    { key: 'vendas', label: 'Vendas', icon: <ShopifyIcon />, connected: isShopifyConnected },
+  ]
+
+  // ── Custom tooltip component ──
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (!active || !payload?.length) return null
+    return (
+      <div className="tooltip-glass" style={{ background: 'rgba(15,25,17,0.85)', backdropFilter: 'blur(12px)', border: '1px solid rgba(236,162,6,0.2)', borderRadius: 10, padding: '12px 16px', boxShadow: '0 8px 32px rgba(0,0,0,0.4)' }}>
+        <p className="text-text-muted text-xs mb-2">{label}</p>
+        {payload.map((entry: any, i: number) => (
+          <p key={i} className="font-data text-sm" style={{ color: entry.stroke }}>
+            {entry.name}: R$ {Number(entry.value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </p>
+        ))}
+      </div>
+    )
+  }
+
   // ── Render ──
   return (
     <div className="space-y-6">
-      {/* Tab selector */}
+      {/* ═══ Tab selector ═══ */}
       <div className="flex gap-1 bg-bg-card border border-border rounded-xl p-1">
-        {([['meta', 'Meta Ads'], ['google', 'Google Ads'], ['vendas', 'Vendas']] as const).map(([key, label]) => (
+        {TABS.map(({ key, label, icon, connected }) => (
           <button key={key} onClick={() => setActiveTab(key)}
-            className={`flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-              activeTab === key ? 'bg-brand-gold text-bg-base' : 'text-text-secondary hover:bg-bg-hover'
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg transition-all cursor-pointer ${
+              activeTab === key
+                ? 'bg-brand-gold text-bg-base shadow-md'
+                : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'
             }`}>
-            {label}
+            {icon}
+            <span>{label}</span>
+            <span className={`status-dot ${connected ? 'status-dot-connected' : 'status-dot-disconnected'}`} />
           </button>
         ))}
       </div>
 
-      {/* Not connected */}
+      {/* ═══ Not connected ═══ */}
       {!isConnected && (
         <div className="bg-bg-card border border-border rounded-xl p-16 text-center">
-          <p className="text-text-primary font-semibold text-lg mb-2">
+          <p className="font-display text-text-primary font-semibold text-lg mb-2">
             {activeTab === 'meta' ? 'Meta Ads não conectado' : activeTab === 'google' ? 'Google Ads não conectado' : 'Shopify não conectado'}
           </p>
           <p className="text-text-muted mb-4">
-            {activeTab === 'vendas' ? 'Conecte sua loja Shopify para ver métricas de vendas.' : `Conecte sua conta para ver métricas.`}
+            {activeTab === 'vendas' ? 'Conecte sua loja Shopify para ver métricas de vendas.' : 'Conecte sua conta para ver métricas.'}
           </p>
-          <Link href="/integracoes" className="inline-block px-4 py-2 bg-brand-gold text-bg-base rounded-lg font-medium hover:opacity-90 transition-opacity">
+          <Link href="/integracoes" className="inline-block px-5 py-2.5 bg-brand-gold text-bg-base rounded-lg font-semibold hover:opacity-90 transition-opacity cursor-pointer">
             {activeTab === 'vendas' ? 'Conectar Shopify' : activeTab === 'meta' ? 'Conectar Meta Ads' : 'Conectar Google Ads'}
           </Link>
         </div>
       )}
 
-      {/* Connected — Ads tabs (Meta/Google) */}
+      {/* ═══ Connected — Ads tabs (Meta/Google) ═══ */}
       {isConnected && isAdsTab && (
         <>
           {/* Period + sync + report */}
           <div className="flex flex-wrap items-center gap-2">
             {PERIODS.map(p => (
               <button key={p.key} onClick={() => setPeriod(p.key)}
-                className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-colors ${
-                  period === p.key ? 'bg-brand-gold text-bg-base' : 'bg-bg-card border border-border text-text-secondary hover:bg-bg-hover'
+                className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-all cursor-pointer ${
+                  period === p.key
+                    ? 'bg-brand-gold text-bg-base shadow-sm'
+                    : 'bg-bg-card border border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary'
                 }`}>{p.label}</button>
             ))}
             <div className="ml-auto flex items-center gap-2">
               {syncMsg && <span className="text-xs text-text-muted">{syncMsg}</span>}
               <button onClick={handleSync} disabled={syncing}
-                className="px-3 py-1.5 text-sm rounded-lg font-medium bg-bg-card border border-border text-text-secondary hover:bg-bg-hover disabled:opacity-50">
+                className="px-3 py-1.5 text-sm rounded-lg font-medium bg-bg-card border border-border text-text-secondary hover:bg-bg-hover disabled:opacity-50 cursor-pointer transition-colors">
                 {syncing ? 'Sincronizando...' : 'Sincronizar'}
               </button>
               <button onClick={handleReport} disabled={reportLoading || filteredAds.length === 0}
-                className="px-3 py-1.5 text-sm rounded-lg font-medium bg-brand-gold/20 border border-brand-gold/40 text-brand-gold hover:bg-brand-gold/30 disabled:opacity-50 transition-colors">
+                className={`btn-ai-report ${reportLoading ? 'loading' : ''}`}>
+                {reportLoading ? <LoadingSpinner /> : <SparklesIcon />}
                 {reportLoading ? 'Gerando...' : 'Gerar Relatório IA'}
               </button>
             </div>
@@ -309,73 +383,89 @@ export default function MetricsClient({
               <span className="text-text-muted text-sm">Até:</span>
               <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary" />
               <button onClick={() => { setAppliedFrom(customFrom); setAppliedTo(customTo) }} disabled={!customFrom || !customTo}
-                className="px-4 py-1.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 transition-opacity disabled:opacity-40">Buscar</button>
+                className="px-4 py-1.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 transition-opacity disabled:opacity-40 cursor-pointer">Buscar</button>
             </div>
           )}
 
-          {/* KPI Row 1 */}
+          {/* ═══ KPI Row 1 ═══ */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <KpiCard label="Investimento" value={fmtCurrency(totals.spend, 0)} />
             <KpiCard label="Receita" value={fmtCurrency(totals.revenue, 0)} />
             <KpiCard label="ROAS" value={`${totals.roas.toFixed(2)}x`}
-              color={totals.roas >= 3 ? '#22c55e' : totals.roas >= 1.5 ? '#eab308' : '#ef4444'}
-              indicator={totals.roas >= 3 ? 'green' : totals.roas >= 1.5 ? 'yellow' : 'red'} />
+              badge={totals.roas >= 3 ? 'green' : totals.roas >= 1.5 ? 'yellow' : 'red'} />
             <KpiCard label="CPA" value={fmtCurrency(totals.cpa)}
-              color={totals.cpa > 0 && totals.cpa <= 50 ? '#22c55e' : totals.cpa <= 100 ? '#eab308' : '#ef4444'}
-              indicator={totals.cpa > 0 && totals.cpa <= 50 ? 'green' : totals.cpa <= 100 ? 'yellow' : 'red'} />
+              badge={totals.cpa > 0 && totals.cpa <= 50 ? 'green' : totals.cpa <= 100 ? 'yellow' : 'red'} />
             {activeTab === 'meta'
               ? <KpiCard label="CPS" value={fmtCurrency(totals.cps)} />
               : <KpiCard label="CPC" value={fmtCurrency(totals.google_cpc)} />}
           </div>
 
-          {/* KPI Row 2 */}
+          {/* ═══ KPI Row 2 ═══ */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <KpiCard label="Conversões" value={fmtNumber(totals.conversions)} />
             <KpiCard label="Taxa de Conversão" value={`${(activeTab === 'meta' ? totals.conversion_rate : totals.google_conversion_rate).toFixed(2)}%`} />
             <KpiCard label="CTR" value={`${totals.ctr.toFixed(2)}%`}
-              color={totals.ctr >= 2 ? '#22c55e' : totals.ctr >= 1 ? '#eab308' : '#ef4444'}
-              indicator={totals.ctr >= 2 ? 'green' : totals.ctr >= 1 ? 'yellow' : 'red'} />
+              badge={totals.ctr >= 2 ? 'green' : totals.ctr >= 1 ? 'yellow' : 'red'} />
             {activeTab === 'meta'
               ? <KpiCard label="Connect Rate" value={`${totals.connect_rate.toFixed(1)}%`} />
               : <KpiCard label="Cliques" value={fmtNumber(totals.clicks)} />}
             <KpiCard label="CPM" value={fmtCurrency(totals.cpm)}
-              color={totals.cpm > 0 && totals.cpm <= 20 ? '#22c55e' : totals.cpm <= 40 ? '#eab308' : '#ef4444'}
-              indicator={totals.cpm > 0 && totals.cpm <= 20 ? 'green' : totals.cpm <= 40 ? 'yellow' : 'red'} />
+              badge={totals.cpm > 0 && totals.cpm <= 20 ? 'green' : totals.cpm <= 40 ? 'yellow' : 'red'} />
           </div>
 
-          {/* Funnel — Meta only */}
+          {/* ═══ Funnel — Meta only ═══ */}
           {funnel && (
-            <div className="bg-bg-card border border-border rounded-xl p-6">
-              <h3 className="text-text-primary font-semibold mb-5">Funil de Conversão</h3>
-              <div className="space-y-1">
+            <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
+              <h3 className="font-display text-text-primary font-semibold text-lg mb-6">Funil de Conversão</h3>
+              <div className="space-y-3">
                 {funnel.steps.map((step, i) => {
                   const maxVal = Math.max(...funnel.steps.map(s => s.value))
-                  const widthPct = maxVal > 0 ? Math.max((step.value / maxVal) * 100, 4) : 4
+                  const widthPct = maxVal > 0 ? Math.max((step.value / maxVal) * 100, 6) : 6
                   const prevValue = i > 0 ? funnel.steps[i - 1].value : 0
-                  const isBiggestDrop = i === funnel.maxDropIdx
+                  const isCritical = i === funnel.maxDropIdx
+
+                  let dropPct: string | null = null
                   let convLabel: string | null = null
                   if (i > 0 && prevValue > 0) {
                     const pct = ((step.value / prevValue) * 100).toFixed(1)
+                    dropPct = ((1 - step.value / prevValue) * 100).toFixed(1)
                     convLabel = i === 1 ? `Connect Rate ${pct}%` : `${pct}% converteram`
                   }
+
                   return (
                     <div key={i}>
+                      {/* Drop indicator between steps */}
                       {convLabel && (
-                        <div className="flex items-center gap-2 py-1.5 pl-4">
-                          <span className="text-text-muted text-xs">↓</span>
-                          <span className={`text-xs font-medium ${isBiggestDrop ? 'text-red-400 font-bold' : 'text-text-secondary'}`}>{convLabel}</span>
+                        <div className="flex items-center gap-3 py-2 pl-2">
+                          <svg className={`w-4 h-4 ${isCritical ? 'text-red-400' : 'text-text-muted'}`} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+                            <path d="M8 2v10M4 8l4 4 4-4" />
+                          </svg>
+                          <span className={`text-xs font-medium ${isCritical ? 'text-red-400' : 'text-text-secondary'}`}>
+                            {convLabel}
+                          </span>
+                          {isCritical && dropPct && (
+                            <span className="badge badge-red text-xs">-{dropPct}% drop</span>
+                          )}
                         </div>
                       )}
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between mb-1">
-                          <span className={`text-sm font-medium ${isBiggestDrop ? 'text-red-400' : 'text-text-primary'}`}>{step.label}</span>
-                          <div className="flex items-center gap-3">
-                            <span className="text-xs text-text-muted">{step.costLabel}: {fmtCurrency(step.cost)}</span>
-                            <span className="text-sm font-bold text-text-primary">{fmtNumber(step.value)}</span>
+                      {/* Funnel step */}
+                      <div className={`rounded-xl p-3 ${isCritical ? 'funnel-step-critical' : ''}`}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className={`text-sm font-medium ${isCritical ? 'text-red-400' : 'text-text-primary'}`}>
+                            {step.label}
+                          </span>
+                          <div className="flex items-center gap-4">
+                            <span className="text-xs text-text-muted font-data">
+                              {step.costLabel}: {fmtCurrency(step.cost)}
+                            </span>
+                            <span className="font-data text-base font-semibold text-text-primary">
+                              {fmtNumber(step.value)}
+                            </span>
                           </div>
                         </div>
-                        <div className="h-7 bg-bg-surface rounded-lg overflow-hidden">
-                          <div className={`h-full rounded-lg transition-all ${isBiggestDrop ? 'bg-red-500/70' : 'bg-brand-gold/60'}`} style={{ width: `${widthPct}%` }} />
+                        <div className="funnel-bar-track">
+                          <div className={`funnel-bar-fill ${isCritical ? 'critical' : 'default'}`}
+                            style={{ width: `${widthPct}%` }} />
                         </div>
                       </div>
                     </div>
@@ -385,28 +475,27 @@ export default function MetricsClient({
             </div>
           )}
 
-          {/* Spend vs Revenue chart */}
+          {/* ═══ Spend vs Revenue chart ═══ */}
           {dailyData.length > 0 && (
-            <div className="bg-bg-card border border-border rounded-xl p-6">
-              <h3 className="text-text-primary font-semibold mb-4">Investimento vs Receita</h3>
+            <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
+              <h3 className="font-display text-text-primary font-semibold text-lg mb-5">Investimento vs Receita</h3>
               <div className="h-72">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={dailyData}>
                     <defs>
                       <linearGradient id="gSpend" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
+                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.25} />
                         <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
                       </linearGradient>
                       <linearGradient id="gRevenue" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
+                        <stop offset="5%" stopColor="#22c55e" stopOpacity={0.25} />
                         <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1F3D25" />
-                    <XAxis dataKey="date" tick={{ fill: '#8B9A8F', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v: string) => v.slice(5)} />
-                    <YAxis tick={{ fill: '#8B9A8F', fontSize: 10 }} axisLine={false} tickLine={false} width={60} tickFormatter={(v: number) => `R$${(v/1000).toFixed(0)}k`} />
-                    <Tooltip contentStyle={{ backgroundColor: '#122014', border: '1px solid #1F3D25', borderRadius: 8 }}
-                      formatter={(value: any) => [`R$ ${Number(value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, '']} labelStyle={{ color: '#94a3b8' }} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(42,82,51,0.4)" />
+                    <XAxis dataKey="date" tick={{ fill: '#5a6b5e', fontSize: 11, fontFamily: 'var(--font-data)' }} axisLine={false} tickLine={false} tickFormatter={(v: string) => v.slice(5)} />
+                    <YAxis tick={{ fill: '#5a6b5e', fontSize: 11, fontFamily: 'var(--font-data)' }} axisLine={false} tickLine={false} width={65} tickFormatter={(v: number) => `R$${(v/1000).toFixed(0)}k`} />
+                    <Tooltip content={<CustomTooltip />} />
                     <Area type="monotone" dataKey="spend" stroke="#ef4444" fill="url(#gSpend)" strokeWidth={2} name="Investimento" />
                     <Area type="monotone" dataKey="revenue" stroke="#22c55e" fill="url(#gRevenue)" strokeWidth={2} name="Receita" />
                   </AreaChart>
@@ -415,22 +504,22 @@ export default function MetricsClient({
             </div>
           )}
 
-          {/* Campaign table */}
+          {/* ═══ Campaign table ═══ */}
           {campaignData.length > 0 && (
-            <div className="bg-bg-card border border-border rounded-xl p-6">
-              <h3 className="text-text-primary font-semibold mb-4">Por Campanha</h3>
+            <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
+              <h3 className="font-display text-text-primary font-semibold text-lg mb-5">Por Campanha</h3>
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="table-premium">
                   <thead>
-                    <tr className="border-b border-white/10 text-xs text-text-muted uppercase">
-                      <th className="text-left py-2">Campanha</th>
-                      <th className="text-right py-2">Gasto</th>
-                      <th className="text-right py-2">Receita</th>
-                      <th className="text-right py-2">ROAS</th>
-                      <th className="text-right py-2">CPC</th>
-                      <th className="text-right py-2">CPA</th>
-                      <th className="text-right py-2">Conv.</th>
-                      <th className="text-right py-2">CTR</th>
+                    <tr>
+                      <th>Campanha</th>
+                      <th className="text-right">Gasto</th>
+                      <th className="text-right">Receita</th>
+                      <th className="text-right">ROAS</th>
+                      <th className="text-right">CPC</th>
+                      <th className="text-right">CPA</th>
+                      <th className="text-right">Conv.</th>
+                      <th className="text-right">CTR</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -440,15 +529,27 @@ export default function MetricsClient({
                       const cpc = activeTab === 'meta' ? (c.outbound_clicks > 0 ? c.spend / c.outbound_clicks : 0) : (c.clicks > 0 ? c.spend / c.clicks : 0)
                       const ctr = c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0
                       return (
-                        <tr key={i} className="border-t border-white/5 hover:bg-white/5">
-                          <td className="py-2 text-text-primary max-w-[200px] truncate">{c.name}</td>
-                          <td className="py-2 text-right text-red-400">{fmtCurrency(c.spend)}</td>
-                          <td className="py-2 text-right text-green-400">{fmtCurrency(c.revenue)}</td>
-                          <td className={`py-2 text-right font-medium ${roas >= 3 ? 'text-green-400' : roas >= 1.5 ? 'text-yellow-400' : 'text-red-400'}`}>{roas.toFixed(2)}x</td>
-                          <td className="py-2 text-right text-text-secondary">{fmtCurrency(cpc)}</td>
-                          <td className="py-2 text-right text-text-secondary">{fmtCurrency(cpa)}</td>
-                          <td className="py-2 text-right text-text-secondary">{c.conversions}</td>
-                          <td className={`py-2 text-right ${ctr >= 2 ? 'text-green-400' : ctr >= 1 ? 'text-yellow-400' : 'text-red-400'}`}>{ctr.toFixed(2)}%</td>
+                        <tr key={i}>
+                          <td className="text-text-primary max-w-[200px] truncate font-medium">{c.name}</td>
+                          <td className="text-right font-data text-red-400">{fmtCurrency(c.spend)}</td>
+                          <td className="text-right font-data text-green-400">{fmtCurrency(c.revenue)}</td>
+                          <td className="text-right">
+                            <span className={`badge ${roas >= 3 ? 'badge-green' : roas >= 1.5 ? 'badge-yellow' : 'badge-red'}`}>
+                              {roas.toFixed(2)}x
+                            </span>
+                          </td>
+                          <td className="text-right font-data">{fmtCurrency(cpc)}</td>
+                          <td className="text-right">
+                            <span className={`badge ${cpa > 0 && cpa <= 50 ? 'badge-green' : cpa <= 100 ? 'badge-yellow' : 'badge-red'}`}>
+                              {fmtCurrency(cpa)}
+                            </span>
+                          </td>
+                          <td className="text-right font-data">{c.conversions}</td>
+                          <td className="text-right">
+                            <span className={`badge ${ctr >= 2 ? 'badge-green' : ctr >= 1 ? 'badge-yellow' : 'badge-red'}`}>
+                              {ctr.toFixed(2)}%
+                            </span>
+                          </td>
                         </tr>
                       )
                     })}
@@ -458,18 +559,21 @@ export default function MetricsClient({
             </div>
           )}
 
-          {/* AI Report */}
+          {/* ═══ AI Report ═══ */}
           {reportMarkdown && (
-            <div className="bg-bg-card border border-border rounded-xl p-6">
+            <div className="bg-bg-card border border-brand-gold/20 rounded-xl p-6">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-text-primary font-semibold">Relatório IA</h3>
-                <button onClick={() => setReportMarkdown('')} className="text-xs text-text-muted hover:text-text-secondary">Fechar</button>
+                <div className="flex items-center gap-2">
+                  <SparklesIcon />
+                  <h3 className="font-display text-text-primary font-semibold">Relatório IA</h3>
+                </div>
+                <button onClick={() => setReportMarkdown('')} className="text-xs text-text-muted hover:text-text-secondary cursor-pointer transition-colors">Fechar</button>
               </div>
               <div className="prose prose-invert prose-sm max-w-none text-text-secondary
-                [&_h2]:text-text-primary [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-6 [&_h2]:mb-2
-                [&_h3]:text-text-primary [&_h3]:text-sm [&_h3]:font-semibold
+                [&_h2]:font-display [&_h2]:text-text-primary [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-6 [&_h2]:mb-2
+                [&_h3]:font-display [&_h3]:text-text-primary [&_h3]:text-sm [&_h3]:font-semibold
                 [&_table]:w-full [&_th]:text-left [&_th]:py-1 [&_th]:text-xs [&_th]:text-text-muted [&_th]:uppercase
-                [&_td]:py-1 [&_td]:text-sm [&_strong]:text-text-primary [&_li]:text-sm"
+                [&_td]:py-1 [&_td]:text-sm [&_td]:font-data [&_strong]:text-text-primary [&_li]:text-sm"
                 dangerouslySetInnerHTML={{ __html: markdownToHtml(reportMarkdown) }} />
             </div>
           )}
@@ -483,21 +587,23 @@ export default function MetricsClient({
         </>
       )}
 
-      {/* Connected — Vendas tab (Shopify) */}
+      {/* ═══ Connected — Vendas tab (Shopify) ═══ */}
       {isConnected && activeTab === 'vendas' && (
         <>
           {/* Period + sync */}
           <div className="flex flex-wrap items-center gap-2">
             {PERIODS.map(p => (
               <button key={p.key} onClick={() => setPeriod(p.key)}
-                className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-colors ${
-                  period === p.key ? 'bg-brand-gold text-bg-base' : 'bg-bg-card border border-border text-text-secondary hover:bg-bg-hover'
+                className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-all cursor-pointer ${
+                  period === p.key
+                    ? 'bg-brand-gold text-bg-base shadow-sm'
+                    : 'bg-bg-card border border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary'
                 }`}>{p.label}</button>
             ))}
             <div className="ml-auto flex items-center gap-2">
               {syncMsg && <span className="text-xs text-text-muted">{syncMsg}</span>}
               <button onClick={handleSync} disabled={syncing}
-                className="px-3 py-1.5 text-sm rounded-lg font-medium bg-bg-card border border-border text-text-secondary hover:bg-bg-hover disabled:opacity-50">
+                className="px-3 py-1.5 text-sm rounded-lg font-medium bg-bg-card border border-border text-text-secondary hover:bg-bg-hover disabled:opacity-50 cursor-pointer transition-colors">
                 {syncing ? 'Sincronizando...' : 'Sincronizar'}
               </button>
             </div>
@@ -510,11 +616,11 @@ export default function MetricsClient({
               <span className="text-text-muted text-sm">Até:</span>
               <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary" />
               <button onClick={() => { setAppliedFrom(customFrom); setAppliedTo(customTo) }} disabled={!customFrom || !customTo}
-                className="px-4 py-1.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 transition-opacity disabled:opacity-40">Buscar</button>
+                className="px-4 py-1.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 transition-opacity disabled:opacity-40 cursor-pointer">Buscar</button>
             </div>
           )}
 
-          {/* Shopify KPIs */}
+          {/* ═══ Shopify KPIs ═══ */}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <KpiCard label="Receita" value={fmtCurrency(shopifyTotals.revenue, 0)} />
             <KpiCard label="Pedidos" value={fmtNumber(shopifyTotals.orders)} />
@@ -524,24 +630,23 @@ export default function MetricsClient({
             <KpiCard label="Taxa de Conversão" value={`${shopifyTotals.conversion_rate.toFixed(2)}%`} />
           </div>
 
-          {/* Revenue chart */}
+          {/* ═══ Revenue chart ═══ */}
           {shopifyDaily.length > 0 && (
-            <div className="bg-bg-card border border-border rounded-xl p-6">
-              <h3 className="text-text-primary font-semibold mb-4">Receita por Dia</h3>
+            <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
+              <h3 className="font-display text-text-primary font-semibold text-lg mb-5">Receita por Dia</h3>
               <div className="h-72">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={shopifyDaily}>
                     <defs>
                       <linearGradient id="gShopRevenue" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
+                        <stop offset="5%" stopColor="#22c55e" stopOpacity={0.25} />
                         <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1F3D25" />
-                    <XAxis dataKey="date" tick={{ fill: '#8B9A8F', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v: string) => v.slice(5)} />
-                    <YAxis tick={{ fill: '#8B9A8F', fontSize: 10 }} axisLine={false} tickLine={false} width={60} tickFormatter={(v: number) => `R$${(v/1000).toFixed(0)}k`} />
-                    <Tooltip contentStyle={{ backgroundColor: '#122014', border: '1px solid #1F3D25', borderRadius: 8 }}
-                      formatter={(value: any) => [`R$ ${Number(value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, '']} labelStyle={{ color: '#94a3b8' }} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(42,82,51,0.4)" />
+                    <XAxis dataKey="date" tick={{ fill: '#5a6b5e', fontSize: 11, fontFamily: 'var(--font-data)' }} axisLine={false} tickLine={false} tickFormatter={(v: string) => v.slice(5)} />
+                    <YAxis tick={{ fill: '#5a6b5e', fontSize: 11, fontFamily: 'var(--font-data)' }} axisLine={false} tickLine={false} width={65} tickFormatter={(v: number) => `R$${(v/1000).toFixed(0)}k`} />
+                    <Tooltip content={<CustomTooltip />} />
                     <Area type="monotone" dataKey="revenue" stroke="#22c55e" fill="url(#gShopRevenue)" strokeWidth={2} name="Receita" />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -549,19 +654,19 @@ export default function MetricsClient({
             </div>
           )}
 
-          {/* Top dias por receita */}
+          {/* ═══ Top dias por receita ═══ */}
           {filteredShopify.length > 0 && (
-            <div className="bg-bg-card border border-border rounded-xl p-6">
-              <h3 className="text-text-primary font-semibold mb-4">Top Dias por Receita</h3>
+            <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
+              <h3 className="font-display text-text-primary font-semibold text-lg mb-5">Top Dias por Receita</h3>
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="table-premium">
                   <thead>
-                    <tr className="border-b border-white/10 text-xs text-text-muted uppercase">
-                      <th className="text-left py-2">Data</th>
-                      <th className="text-right py-2">Receita</th>
-                      <th className="text-right py-2">Pedidos</th>
-                      <th className="text-right py-2">Ticket Médio</th>
-                      <th className="text-right py-2">Itens</th>
+                    <tr>
+                      <th>Data</th>
+                      <th className="text-right">Receita</th>
+                      <th className="text-right">Pedidos</th>
+                      <th className="text-right">Ticket Médio</th>
+                      <th className="text-right">Itens</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -573,12 +678,12 @@ export default function MetricsClient({
                         const ord = Number(m.orders) || 0
                         const ticket = ord > 0 ? rev / ord : 0
                         return (
-                          <tr key={i} className="border-t border-white/5 hover:bg-white/5">
-                            <td className="py-2 text-text-primary">{m.date}</td>
-                            <td className="py-2 text-right text-green-400">{fmtCurrency(rev)}</td>
-                            <td className="py-2 text-right text-text-secondary">{fmtNumber(ord)}</td>
-                            <td className="py-2 text-right text-text-secondary">{fmtCurrency(ticket)}</td>
-                            <td className="py-2 text-right text-text-secondary">{fmtNumber(Number(m.items_sold) || 0)}</td>
+                          <tr key={i}>
+                            <td className="text-text-primary font-data">{m.date}</td>
+                            <td className="text-right font-data text-green-400">{fmtCurrency(rev)}</td>
+                            <td className="text-right font-data">{fmtNumber(ord)}</td>
+                            <td className="text-right font-data">{fmtCurrency(ticket)}</td>
+                            <td className="text-right font-data">{fmtNumber(Number(m.items_sold) || 0)}</td>
                           </tr>
                         )
                       })}
@@ -600,17 +705,34 @@ export default function MetricsClient({
   )
 }
 
-const INDICATOR_DOTS: Record<string, string> = { green: '🟢', yellow: '🟡', red: '🔴' }
-
-function KpiCard({ label, value, color, indicator }: { label: string; value: string; color?: string; indicator?: 'green' | 'yellow' | 'red' }) {
+/* ══════════════════════════════════════════════════════════════
+   KPI Card — premium design with gradient border hover
+   ══════════════════════════════════════════════════════════════ */
+function KpiCard({ label, value, badge }: {
+  label: string
+  value: string
+  badge?: 'green' | 'yellow' | 'red'
+}) {
   return (
-    <div className="bg-bg-card border border-border rounded-xl p-4">
-      <p className="text-text-muted text-xs font-medium mb-1">{label} {indicator && INDICATOR_DOTS[indicator]}</p>
-      <p className="text-xl font-bold" style={{ color: color || 'var(--text-primary)' }}>{value}</p>
+    <div className="kpi-card">
+      <p className="text-text-muted text-xs font-medium tracking-wide uppercase mb-2">{label}</p>
+      <div className="flex items-end gap-2">
+        <p className="font-data text-2xl font-semibold text-text-primary leading-none">{value}</p>
+        {badge && (
+          <span className={`status-dot ${
+            badge === 'green' ? 'bg-green-400 shadow-[0_0_6px_rgba(34,197,94,0.5)]'
+            : badge === 'yellow' ? 'bg-yellow-400 shadow-[0_0_6px_rgba(234,179,8,0.5)]'
+            : 'bg-red-400 shadow-[0_0_6px_rgba(239,68,68,0.5)]'
+          }`} />
+        )}
+      </div>
     </div>
   )
 }
 
+/* ══════════════════════════════════════════════════════════════
+   Formatting helpers
+   ══════════════════════════════════════════════════════════════ */
 function fmtCurrency(v: number, decimals = 2) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(v)
 }
