@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
         const purchases = actions.find((a: any) => a.action_type === 'purchase')
         const purchaseValue = row.action_values?.find((a: any) => a.action_type === 'purchase')
         const pageViews = actions.find((a: any) => a.action_type === 'landing_page_view') || actions.find((a: any) => a.action_type === 'page_view')
-        const outboundClicks = actions.find((a: any) => a.action_type === 'outbound_click')
+        const outboundClicks = actions.find((a: any) => a.action_type === 'link_click')
         const addToCart = actions.find((a: any) => a.action_type === 'add_to_cart')
         const initiateCheckout = actions.find((a: any) => a.action_type === 'initiate_checkout')
         const addPaymentInfo = actions.find((a: any) => a.action_type === 'add_payment_info')
