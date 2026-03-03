@@ -29,16 +29,25 @@ export async function POST(req: NextRequest) {
   const since = date_from || new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0]
   const until = date_to || new Date().toISOString().split('T')[0]
 
+  console.log('[shopify/sync] workspace_id:', workspace_id, 'domain:', domain)
+
   try {
-    // Fetch all orders with pagination
     const allOrders: any[] = []
     let pageUrl: string | null =
       `https://${domain}/admin/api/2026-01/orders.json?status=any&created_at_min=${since}T00:00:00Z&created_at_max=${until}T23:59:59Z&limit=250`
+    let pageNum = 0
+    const MAX_PAGES = 100
 
-    while (pageUrl) {
+    console.log('[shopify/sync] first URL:', pageUrl)
+
+    while (pageUrl && pageNum < MAX_PAGES) {
+      pageNum++
       const pageRes: Response = await fetch(pageUrl, {
         headers: { 'X-Shopify-Access-Token': integration.access_token },
+        signal: AbortSignal.timeout(10000),
       })
+
+      console.log(`[shopify/sync] page ${pageNum} status:`, pageRes.status, 'orders so far:', allOrders.length)
 
       if (!pageRes.ok) {
         const errText = await pageRes.text()
@@ -53,6 +62,10 @@ export async function POST(req: NextRequest) {
       const linkHeader: string | null = pageRes.headers.get('link')
       const nextMatch = linkHeader?.match(/<([^>]+)>;\s*rel="next"/)
       pageUrl = nextMatch ? nextMatch[1] : null
+    }
+
+    if (pageNum >= MAX_PAGES) {
+      console.warn(`[shopify/sync] hit MAX_PAGES (${MAX_PAGES}), stopping pagination`)
     }
 
     // Aggregate orders by day
