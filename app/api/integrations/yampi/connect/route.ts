@@ -12,6 +12,8 @@ const yampiHeaders = {
   'User-Token': process.env.YAMPI_TOKEN!,
   'User-Secret-Key': process.env.YAMPI_SECRET_KEY!,
   'Accept': 'application/json',
+  'Content-Type': 'application/json',
+  'User-Agent': 'BrandLegacy/1.0',
 }
 
 export async function POST(req: NextRequest) {

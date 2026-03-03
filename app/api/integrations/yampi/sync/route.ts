@@ -12,6 +12,8 @@ const yampiHeaders = {
   'User-Token': process.env.YAMPI_TOKEN!,
   'User-Secret-Key': process.env.YAMPI_SECRET_KEY!,
   'Accept': 'application/json',
+  'Content-Type': 'application/json',
+  'User-Agent': 'BrandLegacy/1.0',
 }
 
 export async function POST(req: NextRequest) {
@@ -33,8 +35,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Yampi not connected' }, { status: 404 })
   }
 
-  const since = date_from || new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0]
-  const until = date_to || new Date().toISOString().split('T')[0]
+  const fallbackSince = new Date(Date.now() - 180 * 86400000)
+  const since = date_from || fallbackSince.toLocaleDateString('sv-SE')
+  const until = date_to || new Date().toLocaleDateString('sv-SE')
 
   console.log('[yampi/sync] workspace_id:', workspace_id, 'period:', since, '→', until)
 
