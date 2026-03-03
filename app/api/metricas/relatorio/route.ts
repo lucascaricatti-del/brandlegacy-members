@@ -10,25 +10,31 @@ export async function POST(req: NextRequest) {
 
   const dataContext = JSON.stringify({ totals, funnel, campaigns, period }, null, 2)
 
-  const systemPrompt = `Você é um analista sênior de tráfego pago e e-commerce brasileiro.
-Receba os dados de performance e gere um relatório executivo em Markdown.
+  const systemPrompt = `Você é um analista sênior de mídia especializado em e-commerce brasileiro.
+Analise os dados de Meta Ads e gere um relatório executivo com:
 
-Estrutura obrigatória:
-## Resumo Executivo
-Parágrafo curto com visão geral do período.
+## VISÃO GERAL DO PERÍODO
 
-## KPIs Principais
-Tabela markdown com: Investimento, Receita, ROAS, CPA, CPM, CTR, Conversões, Taxa de Conversão, Connect Rate, CPS.
-Inclua se cada KPI está bom (🟢), aceitável (🟡) ou ruim (🔴) para e-commerce BR.
+## MÉTRICAS PRINCIPAIS
+| Métrica | Valor | Avaliação |
+Inclui: Valor Gasto, Receita, ROAS, CPA, Conversões, Taxa de Conversão, CTR, CPM, CPS, CPC, Connect Rate
+Use benchmarks reais de e-commerce BR. Avaliação: 🟢 Bom | 🟡 Atenção | 🔴 Crítico
 
-## Análise do Funil
-Se houver dados de funil, analise cada etapa, identifique o maior gargalo e sugira melhorias.
+## FUNIL DE CONVERSÃO
+Cliques no Link → Visualização da Página de Destino (Connect Rate%) → Checkout → Pagamento → Compra
+Para cada etapa: total de eventos | custo por evento | % conversão para próxima etapa
+Destaque em negrito a etapa com maior queda.
 
-## Performance por Campanha
-Destaque as 3 melhores e 3 piores campanhas por ROAS. Sugira ações para cada.
+## CAMPANHAS POR GASTO
+| Campanha | Gasto | Receita | ROAS | CPA | Conv. |
 
-## Recomendações
-3-5 ações práticas e específicas para melhorar resultados no próximo período.
+## TOP 3 INSIGHTS
+1. insight crítico
+2. oportunidade
+3. tendência
+
+## AÇÕES RECOMENDADAS
+3 a 5 ações por ordem de impacto.
 
 Regras:
 - Use valores em R$ (BRL)

@@ -30,11 +30,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const accountIdClean = integration.account_id.replace(/^act_/, '')
-    console.log('[meta/sync] account_id raw:', integration.account_id, '→ clean:', accountIdClean)
-    console.log('[meta/sync] period:', since, '→', until)
-    console.log('[meta/sync] token length:', integration.access_token?.length ?? 0)
 
-    // Primeira página
     let url: string | null =
       `https://graph.facebook.com/v21.0/act_${accountIdClean}/insights?` +
       `fields=campaign_id,campaign_name,adset_id,adset_name,spend,impressions,clicks,actions,action_values,cpm,cpc,ctr` +
@@ -47,12 +43,9 @@ export async function POST(req: NextRequest) {
     const allRows: any[] = []
     let pageNum = 0
 
-    // Segue paginação até esgotar
     while (url) {
       pageNum++
-      console.log(`[meta/sync] fetching page ${pageNum}...`)
       const pageRes: Response = await fetch(url)
-      console.log(`[meta/sync] page ${pageNum} status:`, pageRes.status)
       const data: any = await pageRes.json()
 
       if (data.error) {
@@ -60,13 +53,12 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: data.error.message }, { status: 400 })
       }
 
-      console.log(`[meta/sync] page ${pageNum} data.data length:`, data.data?.length ?? 0, 'has next:', !!data.paging?.next)
-
       const pageRows = (data.data || []).map((row: any) => {
         const actions = row.actions || []
         const purchases = actions.find((a: any) => a.action_type === 'purchase')
         const purchaseValue = row.action_values?.find((a: any) => a.action_type === 'purchase')
         const pageViews = actions.find((a: any) => a.action_type === 'landing_page_view') || actions.find((a: any) => a.action_type === 'page_view')
+        const outboundClicks = actions.find((a: any) => a.action_type === 'outbound_click')
         const addToCart = actions.find((a: any) => a.action_type === 'add_to_cart')
         const initiateCheckout = actions.find((a: any) => a.action_type === 'initiate_checkout')
         const addPaymentInfo = actions.find((a: any) => a.action_type === 'add_payment_info')
@@ -91,6 +83,7 @@ export async function POST(req: NextRequest) {
           ctr: parseFloat(row.ctr || '0'),
           roas: spend > 0 ? revenue / spend : 0,
           page_views: parseInt(pageViews?.value || '0'),
+          outbound_clicks: parseInt(outboundClicks?.value || '0'),
           add_to_cart: parseInt(addToCart?.value || '0'),
           initiate_checkout: parseInt(initiateCheckout?.value || '0'),
           add_payment_info: parseInt(addPaymentInfo?.value || '0'),
@@ -99,13 +92,10 @@ export async function POST(req: NextRequest) {
       })
 
       allRows.push(...pageRows)
-
-      // Próxima página via cursor
       url = data.paging?.next ?? null
     }
 
     if (allRows.length > 0) {
-      // Delete dados antigos do período
       await supabase
         .from('ads_metrics')
         .delete()
@@ -114,7 +104,6 @@ export async function POST(req: NextRequest) {
         .gte('date', since)
         .lte('date', until)
 
-      // Insert em batches de 500 (limite seguro do Supabase)
       for (let i = 0; i < allRows.length; i += 500) {
         const batch = allRows.slice(i, i + 500)
         const { error: insertError } = await supabase.from('ads_metrics').insert(batch)
@@ -124,10 +113,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    console.log(`[meta/sync] OK: ${allRows.length} rows synced for workspace ${workspace_id}`)
     return NextResponse.json({ synced: allRows.length, period: { since, until } })
   } catch (err: any) {
-    console.error('[meta/sync] unexpected error:', err.message, err.stack)
+    console.error('[meta/sync] unexpected error:', err.message)
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }
