@@ -305,7 +305,8 @@ export default function MetricsClient({
     let totalOrders = 0
     for (const order of filteredYampiOrders) {
       if (order.status !== 'paid' && order.status !== 'invoiced' && order.status !== 'shipped' && order.status !== 'delivered') continue
-      const method = order.payment_method === 'pix' ? 'PIX' : order.payment_method === 'credit_card' ? 'Cartao' : order.payment_method === 'boleto' ? 'Boleto' : (order.payment_method || 'Outro')
+      const pm = (order.payment_method ?? '').toLowerCase()
+      const method = pm === 'pix' ? 'PIX' : pm === 'credit_card' ? 'Cartão' : pm === 'boleto' ? 'Boleto' : pm === 'debit_card' ? 'Débito' : (order.payment_method || 'Outro')
       const existing = map.get(method) ?? { orders: 0, revenue: 0 }
       existing.orders++
       existing.revenue += order.revenue
@@ -410,17 +411,17 @@ export default function MetricsClient({
   return (
     <div className="space-y-6">
       {/* ═══ Tab selector ═══ */}
-      <div className="flex gap-1 bg-bg-card border border-border rounded-xl p-1">
+      <div className="flex gap-1 bg-bg-card border border-border rounded-xl p-1 overflow-x-auto whitespace-nowrap">
         {TABS.map(({ key, label, icon, connected }) => (
           <button key={key} onClick={() => setActiveTab(key)}
-            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg transition-all cursor-pointer ${
+            className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 px-3 py-2 md:px-4 md:py-2.5 text-xs md:text-sm font-medium rounded-lg transition-all cursor-pointer ${
               activeTab === key
                 ? 'bg-brand-gold text-bg-base shadow-md'
                 : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'
             }`}>
             {icon}
-            <span>{label}</span>
-            <span className={`status-dot ${connected ? 'status-dot-connected' : 'status-dot-disconnected'}`} />
+            <span className="truncate">{label}</span>
+            <span className={`status-dot flex-shrink-0 ${connected ? 'status-dot-connected' : 'status-dot-disconnected'}`} />
           </button>
         ))}
       </div>
@@ -443,38 +444,39 @@ export default function MetricsClient({
       {/* ═══ Connected — Ads tabs (Meta/Google) ═══ */}
       {isConnected && isAdsTab && (
         <>
-          {/* Period + sync + report */}
-          <div className="flex flex-wrap items-center gap-2">
+          {/* Period filters */}
+          <div className="flex flex-wrap gap-1.5 md:gap-2">
             {PERIODS.map(p => (
               <button key={p.key} onClick={() => setPeriod(p.key)}
-                className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-all cursor-pointer ${
+                className={`px-2 py-1 md:px-3 md:py-1.5 text-xs md:text-sm rounded-lg font-medium transition-all cursor-pointer ${
                   period === p.key
                     ? 'bg-brand-gold text-bg-base shadow-sm'
                     : 'bg-bg-card border border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary'
                 }`}>{p.label}</button>
             ))}
-            <div className="ml-auto flex items-center gap-2">
-              {syncMsg && <span className="text-xs text-text-muted">{syncMsg}</span>}
-              <button onClick={handleSync} disabled={syncing}
-                className="px-3 py-1.5 text-sm rounded-lg font-medium bg-bg-card border border-border text-text-secondary hover:bg-bg-hover disabled:opacity-50 cursor-pointer transition-colors">
-                {syncing ? 'Sincronizando...' : 'Sincronizar'}
-              </button>
-              <button onClick={handleReport} disabled={reportLoading || filteredAds.length === 0}
-                className={`btn-ai-report ${reportLoading ? 'loading' : ''}`}>
-                {reportLoading ? <LoadingSpinner /> : <SparklesIcon />}
-                {reportLoading ? 'Gerando...' : 'Gerar Relatório IA'}
-              </button>
-            </div>
+          </div>
+          {/* Sync + report */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            {syncMsg && <span className="text-xs text-text-muted">{syncMsg}</span>}
+            <button onClick={handleSync} disabled={syncing}
+              className="w-full sm:w-auto px-3 py-1.5 text-sm rounded-lg font-medium bg-bg-card border border-border text-text-secondary hover:bg-bg-hover disabled:opacity-50 cursor-pointer transition-colors">
+              {syncing ? 'Sincronizando...' : 'Sincronizar'}
+            </button>
+            <button onClick={handleReport} disabled={reportLoading || filteredAds.length === 0}
+              className={`w-full sm:w-auto btn-ai-report ${reportLoading ? 'loading' : ''}`}>
+              {reportLoading ? <LoadingSpinner /> : <SparklesIcon />}
+              {reportLoading ? 'Gerando...' : 'Gerar Relatório IA'}
+            </button>
           </div>
 
           {period === 'custom' && (
-            <div className="flex gap-3 items-center">
-              <span className="text-text-muted text-sm">De:</span>
-              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary" />
-              <span className="text-text-muted text-sm">Até:</span>
-              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary" />
+            <div className="flex flex-wrap gap-2 items-center">
+              <span className="text-text-muted text-xs md:text-sm">De:</span>
+              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="bg-bg-card border border-border rounded-lg px-2 py-1 md:px-3 md:py-1.5 text-xs md:text-sm text-text-primary flex-1 min-w-[130px]" />
+              <span className="text-text-muted text-xs md:text-sm">Até:</span>
+              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="bg-bg-card border border-border rounded-lg px-2 py-1 md:px-3 md:py-1.5 text-xs md:text-sm text-text-primary flex-1 min-w-[130px]" />
               <button onClick={() => { setAppliedFrom(customFrom); setAppliedTo(customTo) }} disabled={!customFrom || !customTo}
-                className="px-4 py-1.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 transition-opacity disabled:opacity-40 cursor-pointer">Buscar</button>
+                className="w-full sm:w-auto px-4 py-1.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 transition-opacity disabled:opacity-40 cursor-pointer">Buscar</button>
             </div>
           )}
 
@@ -570,7 +572,7 @@ export default function MetricsClient({
           {dailyData.length > 0 && (
             <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
               <h3 className="font-sans text-text-primary font-semibold text-lg mb-5">Investimento vs Receita</h3>
-              <div className="h-72">
+              <div className="h-48 md:h-72">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={dailyData}>
                     <defs>
@@ -600,7 +602,7 @@ export default function MetricsClient({
             <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
               <h3 className="font-sans text-text-primary font-semibold text-lg mb-5">Por Campanha</h3>
               <div className="overflow-x-auto">
-                <table className="table-premium">
+                <table className="table-premium min-w-[500px]">
                   <thead>
                     <tr>
                       <th>Campanha</th>
@@ -682,32 +684,32 @@ export default function MetricsClient({
       {isConnected && activeTab === 'yampi' && (
         <>
           {/* Period + sync */}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap gap-1.5 md:gap-2">
             {PERIODS.map(p => (
               <button key={p.key} onClick={() => setPeriod(p.key)}
-                className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-all cursor-pointer ${
+                className={`px-2 py-1 md:px-3 md:py-1.5 text-xs md:text-sm rounded-lg font-medium transition-all cursor-pointer ${
                   period === p.key
                     ? 'bg-brand-gold text-bg-base shadow-sm'
                     : 'bg-bg-card border border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary'
                 }`}>{p.label}</button>
             ))}
-            <div className="ml-auto flex items-center gap-2">
-              {syncMsg && <span className="text-xs text-text-muted">{syncMsg}</span>}
-              <button onClick={handleSync} disabled={syncing}
-                className="px-3 py-1.5 text-sm rounded-lg font-medium bg-bg-card border border-border text-text-secondary hover:bg-bg-hover disabled:opacity-50 cursor-pointer transition-colors">
-                {syncing ? 'Sincronizando...' : 'Sincronizar'}
-              </button>
-            </div>
+          </div>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            {syncMsg && <span className="text-xs text-text-muted">{syncMsg}</span>}
+            <button onClick={handleSync} disabled={syncing}
+              className="w-full sm:w-auto px-3 py-1.5 text-sm rounded-lg font-medium bg-bg-card border border-border text-text-secondary hover:bg-bg-hover disabled:opacity-50 cursor-pointer transition-colors">
+              {syncing ? 'Sincronizando...' : 'Sincronizar'}
+            </button>
           </div>
 
           {period === 'custom' && (
-            <div className="flex gap-3 items-center">
-              <span className="text-text-muted text-sm">De:</span>
-              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary" />
-              <span className="text-text-muted text-sm">Até:</span>
-              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary" />
+            <div className="flex flex-wrap gap-2 items-center">
+              <span className="text-text-muted text-xs md:text-sm">De:</span>
+              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="bg-bg-card border border-border rounded-lg px-2 py-1 md:px-3 md:py-1.5 text-xs md:text-sm text-text-primary flex-1 min-w-[130px]" />
+              <span className="text-text-muted text-xs md:text-sm">Até:</span>
+              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="bg-bg-card border border-border rounded-lg px-2 py-1 md:px-3 md:py-1.5 text-xs md:text-sm text-text-primary flex-1 min-w-[130px]" />
               <button onClick={() => { setAppliedFrom(customFrom); setAppliedTo(customTo) }} disabled={!customFrom || !customTo}
-                className="px-4 py-1.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 transition-opacity disabled:opacity-40 cursor-pointer">Buscar</button>
+                className="w-full sm:w-auto px-4 py-1.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 transition-opacity disabled:opacity-40 cursor-pointer">Buscar</button>
             </div>
           )}
 
@@ -732,7 +734,7 @@ export default function MetricsClient({
           {yampiDaily.length > 0 && (
             <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
               <h3 className="font-sans text-text-primary font-semibold text-lg mb-5">Receita por Dia</h3>
-              <div className="h-72">
+              <div className="h-48 md:h-72">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={yampiDaily}>
                     <defs>
@@ -757,7 +759,7 @@ export default function MetricsClient({
             <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
               <h3 className="font-sans text-text-primary font-semibold text-lg mb-5">Top 5 Produtos</h3>
               <div className="overflow-x-auto">
-                <table className="table-premium">
+                <table className="table-premium min-w-[500px]">
                   <thead>
                     <tr>
                       <th>Produto</th>
@@ -784,7 +786,7 @@ export default function MetricsClient({
             <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
               <h3 className="font-sans text-text-primary font-semibold text-lg mb-5">Por Estado</h3>
               <div className="overflow-x-auto">
-                <table className="table-premium">
+                <table className="table-premium min-w-[500px]">
                   <thead>
                     <tr>
                       <th>Estado</th>
@@ -811,7 +813,7 @@ export default function MetricsClient({
             <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
               <h3 className="font-sans text-text-primary font-semibold text-lg mb-5">Forma de Pagamento</h3>
               <div className="overflow-x-auto">
-                <table className="table-premium">
+                <table className="table-premium min-w-[500px]">
                   <thead>
                     <tr>
                       <th>Método</th>
@@ -848,32 +850,32 @@ export default function MetricsClient({
       {isConnected && activeTab === 'vendas' && (
         <>
           {/* Period + sync */}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap gap-1.5 md:gap-2">
             {PERIODS.map(p => (
               <button key={p.key} onClick={() => setPeriod(p.key)}
-                className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-all cursor-pointer ${
+                className={`px-2 py-1 md:px-3 md:py-1.5 text-xs md:text-sm rounded-lg font-medium transition-all cursor-pointer ${
                   period === p.key
                     ? 'bg-brand-gold text-bg-base shadow-sm'
                     : 'bg-bg-card border border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary'
                 }`}>{p.label}</button>
             ))}
-            <div className="ml-auto flex items-center gap-2">
-              {syncMsg && <span className="text-xs text-text-muted">{syncMsg}</span>}
-              <button onClick={handleSync} disabled={syncing}
-                className="px-3 py-1.5 text-sm rounded-lg font-medium bg-bg-card border border-border text-text-secondary hover:bg-bg-hover disabled:opacity-50 cursor-pointer transition-colors">
-                {syncing ? 'Sincronizando...' : 'Sincronizar'}
-              </button>
-            </div>
+          </div>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            {syncMsg && <span className="text-xs text-text-muted">{syncMsg}</span>}
+            <button onClick={handleSync} disabled={syncing}
+              className="w-full sm:w-auto px-3 py-1.5 text-sm rounded-lg font-medium bg-bg-card border border-border text-text-secondary hover:bg-bg-hover disabled:opacity-50 cursor-pointer transition-colors">
+              {syncing ? 'Sincronizando...' : 'Sincronizar'}
+            </button>
           </div>
 
           {period === 'custom' && (
-            <div className="flex gap-3 items-center">
-              <span className="text-text-muted text-sm">De:</span>
-              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary" />
-              <span className="text-text-muted text-sm">Até:</span>
-              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary" />
+            <div className="flex flex-wrap gap-2 items-center">
+              <span className="text-text-muted text-xs md:text-sm">De:</span>
+              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="bg-bg-card border border-border rounded-lg px-2 py-1 md:px-3 md:py-1.5 text-xs md:text-sm text-text-primary flex-1 min-w-[130px]" />
+              <span className="text-text-muted text-xs md:text-sm">Até:</span>
+              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="bg-bg-card border border-border rounded-lg px-2 py-1 md:px-3 md:py-1.5 text-xs md:text-sm text-text-primary flex-1 min-w-[130px]" />
               <button onClick={() => { setAppliedFrom(customFrom); setAppliedTo(customTo) }} disabled={!customFrom || !customTo}
-                className="px-4 py-1.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 transition-opacity disabled:opacity-40 cursor-pointer">Buscar</button>
+                className="w-full sm:w-auto px-4 py-1.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 transition-opacity disabled:opacity-40 cursor-pointer">Buscar</button>
             </div>
           )}
 
@@ -891,7 +893,7 @@ export default function MetricsClient({
           {shopifyDaily.length > 0 && (
             <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
               <h3 className="font-sans text-text-primary font-semibold text-lg mb-5">Receita por Dia</h3>
-              <div className="h-72">
+              <div className="h-48 md:h-72">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={shopifyDaily}>
                     <defs>
@@ -916,7 +918,7 @@ export default function MetricsClient({
             <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
               <h3 className="font-sans text-text-primary font-semibold text-lg mb-5">Top Dias por Receita</h3>
               <div className="overflow-x-auto">
-                <table className="table-premium">
+                <table className="table-premium min-w-[500px]">
                   <thead>
                     <tr>
                       <th>Data</th>

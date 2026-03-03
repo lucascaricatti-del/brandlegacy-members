@@ -30,10 +30,11 @@ export async function POST(request: Request) {
       : resource.created_at?.date ?? resource.created_at?.value ?? ''
     const date = createdAt.split('T')[0].split(' ')[0] || new Date().toLocaleDateString('sv-SE')
     const status = resource.status?.data?.alias ?? 'unknown'
-    const payment_method = resource.transactions?.data?.[0]?.payment_method ?? null
+    console.log('[YAMPI] transaction:', JSON.stringify(resource.transactions?.data?.[0]))
+    const payment_method = (resource.transactions?.data?.[0]?.payment_method ?? null)?.toLowerCase() ?? null
     const coupon_code = resource.coupon?.data?.code ?? null
     const state = resource.shipping_address?.data?.state ?? null
-    const revenue = Number(resource.total_amount ?? 0)
+    const revenue = parseFloat(String(resource.total_amount ?? '0').replace(',', '.')) || 0
     const items = (resource.items?.data ?? []).map((i: any) => ({
       product_id: i.product_id,
       name: i.name,
@@ -57,7 +58,7 @@ export async function POST(request: Request) {
     if (dayOrders) {
       const paid = dayOrders.filter(o => ['paid', 'invoiced', 'shipped', 'delivered'].includes(o.status))
       const cancelled = dayOrders.filter(o => ['cancelled', 'refused'].includes(o.status))
-      const pix = dayOrders.filter(o => o.payment_method === 'pix')
+      const pix = dayOrders.filter(o => (o.payment_method ?? '').toLowerCase() === 'pix')
       const pix_paid = pix.filter(o => ['paid', 'invoiced', 'shipped', 'delivered'].includes(o.status))
       const revenue_total = paid.reduce((s: number, o: any) => s + Number(o.revenue), 0)
       const orders_count = paid.length
