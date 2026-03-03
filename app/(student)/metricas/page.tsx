@@ -44,7 +44,7 @@ export default async function MetricasPage() {
 
   const ws = workspaces[0]
 
-  // Busca integração Meta ativa
+  // Busca integrações ativas
   const { data: metaIntegration } = await (adminSupabase as any)
     .from('workspace_integrations')
     .select('status, account_id, account_name')
@@ -53,7 +53,6 @@ export default async function MetricasPage() {
     .eq('status', 'active')
     .single()
 
-  // Busca integração Google ativa
   const { data: googleIntegration } = await (adminSupabase as any)
     .from('workspace_integrations')
     .select('status, account_id, account_name')
@@ -62,7 +61,6 @@ export default async function MetricasPage() {
     .eq('status', 'active')
     .single()
 
-  // Busca integração Shopify ativa
   const { data: shopifyIntegration } = await (adminSupabase as any)
     .from('workspace_integrations')
     .select('status, account_id, account_name')
@@ -71,16 +69,31 @@ export default async function MetricasPage() {
     .eq('status', 'active')
     .single()
 
+  const { data: yampiIntegration } = await (adminSupabase as any)
+    .from('workspace_integrations')
+    .select('status, account_id, account_name')
+    .eq('workspace_id', ws.id)
+    .eq('provider', 'yampi')
+    .eq('status', 'active')
+    .single()
+
   const isMetaConnected = !!metaIntegration?.account_id
   const isGoogleConnected = !!googleIntegration?.account_id
   const isShopifyConnected = !!shopifyIntegration?.account_id
+  const isYampiConnected = !!yampiIntegration?.account_id
 
   // Busca 180 dias de métricas
   const since = new Date()
   since.setDate(since.getDate() - 180)
   const sinceStr = since.toLocaleDateString('sv-SE')
 
-  const [{ data: metaMetrics }, { data: googleMetrics }, { data: shopifyMetrics }] = await Promise.all([
+  const [
+    { data: metaMetrics },
+    { data: googleMetrics },
+    { data: shopifyMetrics },
+    { data: yampiMetrics },
+    { data: yampiOrders },
+  ] = await Promise.all([
     (adminSupabase as any)
       .from('ads_metrics')
       .select('*')
@@ -105,24 +118,26 @@ export default async function MetricasPage() {
       .gte('date', sinceStr)
       .order('date', { ascending: false })
       .limit(2000),
+    (adminSupabase as any)
+      .from('yampi_metrics')
+      .select('*')
+      .eq('workspace_id', ws.id)
+      .gte('date', sinceStr)
+      .order('date', { ascending: false })
+      .limit(2000),
+    (adminSupabase as any)
+      .from('yampi_orders')
+      .select('*')
+      .eq('workspace_id', ws.id)
+      .gte('date', sinceStr)
+      .order('date', { ascending: false })
+      .limit(5000),
   ])
 
   const accountNames = [...new Set(
-    [metaIntegration?.account_name, googleIntegration?.account_name, shopifyIntegration?.account_name]
+    [metaIntegration?.account_name, googleIntegration?.account_name, shopifyIntegration?.account_name, yampiIntegration?.account_name]
       .filter((name): name is string => !!name && name !== ws.name)
   )].join(' · ')
-
-  // DEBUG — remover depois
-  console.log('[METRICAS DEBUG]', {
-    workspaceId: ws.id,
-    sinceStr,
-    isMetaConnected,
-    isGoogleConnected,
-    isShopifyConnected,
-    metaMetrics: metaMetrics?.length ?? 0,
-    googleMetrics: googleMetrics?.length ?? 0,
-    shopifyMetrics: shopifyMetrics?.length ?? 0,
-  })
 
   return (
     <div className="animate-fade-in">
@@ -138,9 +153,12 @@ export default async function MetricasPage() {
         isMetaConnected={isMetaConnected}
         isGoogleConnected={isGoogleConnected}
         isShopifyConnected={isShopifyConnected}
+        isYampiConnected={isYampiConnected}
         metaMetrics={(metaMetrics ?? []) as any[]}
         googleMetrics={(googleMetrics ?? []) as any[]}
         shopifyMetrics={(shopifyMetrics ?? []) as any[]}
+        yampiMetrics={(yampiMetrics ?? []) as any[]}
+        yampiOrders={(yampiOrders ?? []) as any[]}
       />
     </div>
   )

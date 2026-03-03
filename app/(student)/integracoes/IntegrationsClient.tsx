@@ -28,6 +28,14 @@ const PLATFORMS = [
     oauth: true,
   },
   {
+    id: 'yampi',
+    name: 'Yampi',
+    description: 'Checkout, pedidos, aprovação PIX e métricas de conversão.',
+    color: '#6C2BD9',
+    oauth: false,
+    oneClick: true,
+  },
+  {
     id: 'shopify',
     name: 'Shopify',
     description: 'Pedidos, receita, ticket médio e métricas de e-commerce.',
@@ -89,6 +97,21 @@ function PlatformCard({
   const accounts: any[] = connected?.metadata?.accounts ?? []
 
   async function handleConnect() {
+    if (platform.id === 'yampi') {
+      setConnecting(true); setMessage(null)
+      try {
+        const res = await fetch('/api/integrations/yampi/connect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspace_id: workspaceId }),
+        })
+        const data = await res.json()
+        if (data.error) { setMessage({ type: 'error', text: data.error }) }
+        else { setMessage({ type: 'success', text: 'Yampi conectada!' }); window.location.reload() }
+      } catch { setMessage({ type: 'error', text: 'Erro ao conectar.' }) }
+      setConnecting(false)
+      return
+    }
     if (platform.id === 'shopify') {
       if (!shopDomain.trim()) { setMessage({ type: 'error', text: 'Informe o domínio da loja.' }); return }
       if (!shopToken.trim()) { setMessage({ type: 'error', text: 'Informe o Access Token.' }); return }
@@ -113,7 +136,7 @@ function PlatformCard({
   async function handleSync() {
     setSyncing(true); setMessage(null)
     try {
-      const provider = platform.id === 'google_ads' ? 'google-ads' : platform.id === 'shopify' ? 'shopify' : 'meta'
+      const provider = platform.id === 'google_ads' ? 'google-ads' : platform.id === 'shopify' ? 'shopify' : platform.id === 'yampi' ? 'yampi' : 'meta'
       const res = await fetch(`/api/integrations/${provider}/sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -278,6 +301,16 @@ function PlatformCard({
           <button onClick={handleConnect}
             className="px-4 py-2 text-sm rounded-lg bg-brand-gold text-bg-base font-medium hover:bg-brand-gold-light transition-colors">
             Conectar {platform.name}
+          </button>
+        </div>
+      )}
+
+      {/* Connect — Yampi (one-click) */}
+      {!connected && !platform.comingSoon && (platform as any).oneClick && (
+        <div className="mt-4">
+          <button onClick={handleConnect} disabled={connecting}
+            className="px-4 py-2 text-sm rounded-lg bg-brand-gold text-bg-base font-medium hover:bg-brand-gold-light transition-colors disabled:opacity-50">
+            {connecting ? 'Conectando...' : `Conectar ${platform.name}`}
           </button>
         </div>
       )}

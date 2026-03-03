@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
     byWorkspace.set(int.workspace_id, list)
   }
 
-  const results = { meta: 0, google: 0, shopify: 0 }
+  const results = { meta: 0, google: 0, shopify: 0, yampi: 0 }
   const errors: string[] = []
 
   for (const [wsId, wsIntegrations] of byWorkspace) {
@@ -60,6 +60,10 @@ export async function GET(req: NextRequest) {
           const synced = await syncShopify(wsId, integration, dateFrom, dateTo)
           results.shopify += synced
           console.log(`[cron/sync-metrics] shopify OK: ws=${wsId} synced=${synced}`)
+        } else if (integration.provider === 'yampi') {
+          const synced = await syncYampi(wsId, dateFrom, dateTo)
+          results.yampi += synced
+          console.log(`[cron/sync-metrics] yampi OK: ws=${wsId} synced=${synced}`)
         }
       } catch (err: any) {
         const msg = `${integration.provider} ws=${wsId}: ${err.message}`
@@ -264,4 +268,110 @@ async function syncShopify(workspaceId: string, integration: any, since: string,
   }
 
   return rows.length
+}
+
+// ── Yampi ──
+const YAMPI_ALIAS = 'denavita-vitaminas-e-suplementos-ltda'
+const yampiHeaders = {
+  'User-Token': process.env.YAMPI_TOKEN!,
+  'User-Secret-Key': process.env.YAMPI_SECRET_KEY!,
+  'Accept': 'application/json',
+}
+
+async function syncYampi(workspaceId: string, since: string, until: string): Promise<number> {
+  const allOrders: any[] = []
+  let page = 1
+
+  while (page <= 200) {
+    const url =
+      `https://api.yampi.io/v2/${YAMPI_ALIAS}/orders?limit=100&page=${page}` +
+      `&created_at_gteq=${since}&created_at_lteq=${until}` +
+      `&include=items,transactions`
+
+    const res: Response = await fetch(url, {
+      headers: yampiHeaders,
+      signal: AbortSignal.timeout(15000),
+    })
+    if (!res.ok) throw new Error(`Yampi API ${res.status}`)
+
+    const json = await res.json()
+    const orders = json.data || []
+    allOrders.push(...orders)
+
+    const lastPage = json.meta?.pagination?.last_page ?? json.meta?.last_page ?? page
+    if (page >= lastPage || orders.length === 0) break
+    page++
+  }
+
+  const orderRows = allOrders.map((order: any) => {
+    const status = order.status?.data?.alias ?? order.status_alias ?? 'unknown'
+    const transactions = order.transactions?.data ?? []
+    const paymentMethod = transactions[0]?.payment_method ?? null
+    const items = (order.items?.data ?? []).map((item: any) => ({
+      product_id: String(item.product_id ?? item.id ?? ''),
+      name: item.name ?? item.product_name ?? '',
+      quantity: Number(item.quantity) || 1,
+      price: Number(item.price) || 0,
+    }))
+
+    return {
+      workspace_id: workspaceId,
+      order_id: String(order.number ?? order.id),
+      date: (order.created_at ?? '').split('T')[0],
+      status,
+      payment_method: paymentMethod,
+      coupon_code: order.coupon?.data?.code ?? null,
+      state: order.shipping_address?.data?.state ?? null,
+      revenue: Number(order.total_amount) || 0,
+      items,
+      synced_at: new Date().toISOString(),
+    }
+  })
+
+  if (orderRows.length > 0) {
+    for (let i = 0; i < orderRows.length; i += 200) {
+      await (supabase as any).from('yampi_orders').upsert(
+        orderRows.slice(i, i + 200),
+        { onConflict: 'workspace_id,order_id' },
+      )
+    }
+  }
+
+  const dailyMap = new Map<string, {
+    paid_revenue: number; paid_count: number; cancelled_count: number;
+    pending_count: number; total_count: number; pix_total: number; pix_paid: number;
+  }>()
+
+  for (const o of orderRows) {
+    if (!o.date) continue
+    const d = dailyMap.get(o.date) ?? { paid_revenue: 0, paid_count: 0, cancelled_count: 0, pending_count: 0, total_count: 0, pix_total: 0, pix_paid: 0 }
+    d.total_count++
+    const isPaid = o.status === 'paid' || o.status === 'invoiced' || o.status === 'shipped' || o.status === 'delivered'
+    if (isPaid) { d.paid_revenue += o.revenue; d.paid_count++ }
+    else if (o.status === 'cancelled' || o.status === 'refused') { d.cancelled_count++ }
+    else { d.pending_count++ }
+    if (o.payment_method === 'pix') { d.pix_total++; if (isPaid) d.pix_paid++ }
+    dailyMap.set(o.date, d)
+  }
+
+  const metricRows = Array.from(dailyMap.entries()).map(([date, d]) => ({
+    workspace_id: workspaceId, date,
+    revenue: d.paid_revenue, orders: d.paid_count,
+    avg_ticket: d.paid_count > 0 ? d.paid_revenue / d.paid_count : 0,
+    checkout_conversion: d.total_count > 0 ? Math.round((d.paid_count / d.total_count) * 100 * 100) / 100 : 0,
+    pix_approval_rate: d.pix_total > 0 ? Math.round((d.pix_paid / d.pix_total) * 100 * 100) / 100 : 0,
+    cancellation_rate: d.total_count > 0 ? Math.round((d.cancelled_count / d.total_count) * 100 * 100) / 100 : 0,
+    synced_at: new Date().toISOString(),
+  }))
+
+  await (supabase as any).from('yampi_metrics').delete()
+    .eq('workspace_id', workspaceId).gte('date', since).lte('date', until)
+
+  if (metricRows.length > 0) {
+    for (let i = 0; i < metricRows.length; i += 500) {
+      await (supabase as any).from('yampi_metrics').insert(metricRows.slice(i, i + 500))
+    }
+  }
+
+  return metricRows.length
 }

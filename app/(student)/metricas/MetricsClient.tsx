@@ -20,6 +20,17 @@ type EcomRow = {
   items_sold: number; avg_ticket: number; sessions: number; conversion_rate: number;
 }
 
+type YampiMetricRow = {
+  date: string; revenue: number; orders: number; avg_ticket: number;
+  checkout_conversion: number; pix_approval_rate: number; cancellation_rate: number;
+}
+
+type YampiOrderRow = {
+  order_id: string; date: string; status: string; payment_method: string | null;
+  coupon_code: string | null; state: string | null; revenue: number;
+  items: { product_id: string; name: string; quantity: number; price: number }[];
+}
+
 type Period = 'today' | 'yesterday' | '7d' | '14d' | '21d' | '30d' | 'mes_atual' | 'custom'
 const PERIODS: { key: Period; label: string; days: number }[] = [
   { key: 'today', label: 'Hoje', days: 0 },
@@ -32,7 +43,7 @@ const PERIODS: { key: Period; label: string; days: number }[] = [
   { key: 'custom', label: 'Personalizado', days: 0 },
 ]
 
-type Tab = 'meta' | 'google' | 'vendas'
+type Tab = 'meta' | 'google' | 'yampi' | 'vendas'
 
 function normalize(d: string) { return d?.slice(0, 10) ?? '' }
 
@@ -82,16 +93,19 @@ function LoadingSpinner() {
 }
 
 export default function MetricsClient({
-  workspaceId, isMetaConnected, isGoogleConnected, isShopifyConnected,
-  metaMetrics, googleMetrics, shopifyMetrics,
+  workspaceId, isMetaConnected, isGoogleConnected, isShopifyConnected, isYampiConnected,
+  metaMetrics, googleMetrics, shopifyMetrics, yampiMetrics, yampiOrders,
 }: {
   workspaceId: string
   isMetaConnected: boolean
   isGoogleConnected: boolean
   isShopifyConnected: boolean
+  isYampiConnected: boolean
   metaMetrics: AdsRow[]
   googleMetrics: AdsRow[]
   shopifyMetrics: EcomRow[]
+  yampiMetrics: YampiMetricRow[]
+  yampiOrders: YampiOrderRow[]
 }) {
   const [activeTab, setActiveTab] = useState<Tab>('meta')
   const [period, setPeriod] = useState<Period>('30d')
@@ -106,14 +120,16 @@ export default function MetricsClient({
   const [googleSyncMsg, setGoogleSyncMsg] = useState('')
   const [shopifySyncing, setShopifySyncing] = useState(false)
   const [shopifySyncMsg, setShopifySyncMsg] = useState('')
+  const [yampiSyncing, setYampiSyncing] = useState(false)
+  const [yampiSyncMsg, setYampiSyncMsg] = useState('')
 
   const [reportLoading, setReportLoading] = useState(false)
   const [reportMarkdown, setReportMarkdown] = useState('')
 
   const isAdsTab = activeTab === 'meta' || activeTab === 'google'
-  const isConnected = activeTab === 'meta' ? isMetaConnected : activeTab === 'google' ? isGoogleConnected : isShopifyConnected
-  const syncing = activeTab === 'meta' ? metaSyncing : activeTab === 'google' ? googleSyncing : shopifySyncing
-  const syncMsg = activeTab === 'meta' ? metaSyncMsg : activeTab === 'google' ? googleSyncMsg : shopifySyncMsg
+  const isConnected = activeTab === 'meta' ? isMetaConnected : activeTab === 'google' ? isGoogleConnected : activeTab === 'yampi' ? isYampiConnected : isShopifyConnected
+  const syncing = activeTab === 'meta' ? metaSyncing : activeTab === 'google' ? googleSyncing : activeTab === 'yampi' ? yampiSyncing : shopifySyncing
+  const syncMsg = activeTab === 'meta' ? metaSyncMsg : activeTab === 'google' ? googleSyncMsg : activeTab === 'yampi' ? yampiSyncMsg : shopifySyncMsg
 
   // ── Period filter helper ──
   function filterByPeriod<T extends { date: string }>(data: T[]): T[] {
@@ -234,6 +250,71 @@ export default function MetricsClient({
       .sort((a, b) => a.date.localeCompare(b.date))
   }, [filteredShopify])
 
+  // ── Yampi data ──
+  const filteredYampiMetrics = useMemo(() => filterByPeriod(yampiMetrics), [yampiMetrics, period, appliedFrom, appliedTo, activeTab])
+  const filteredYampiOrders = useMemo(() => filterByPeriod(yampiOrders), [yampiOrders, period, appliedFrom, appliedTo, activeTab])
+
+  const yampiTotals = useMemo(() => {
+    const revenue = filteredYampiMetrics.reduce((s, m) => s + (Number(m.revenue) || 0), 0)
+    const orders = filteredYampiMetrics.reduce((s, m) => s + (Number(m.orders) || 0), 0)
+    const avg_ticket = orders > 0 ? revenue / orders : 0
+    // Weighted averages for rates
+    const totalDays = filteredYampiMetrics.length
+    const checkout_conversion = totalDays > 0 ? filteredYampiMetrics.reduce((s, m) => s + (Number(m.checkout_conversion) || 0), 0) / totalDays : 0
+    const pix_approval_rate = totalDays > 0 ? filteredYampiMetrics.reduce((s, m) => s + (Number(m.pix_approval_rate) || 0), 0) / totalDays : 0
+    const cancellation_rate = totalDays > 0 ? filteredYampiMetrics.reduce((s, m) => s + (Number(m.cancellation_rate) || 0), 0) / totalDays : 0
+    return { revenue, orders, avg_ticket, checkout_conversion, pix_approval_rate, cancellation_rate }
+  }, [filteredYampiMetrics])
+
+  const yampiDaily = useMemo(() => {
+    return filteredYampiMetrics
+      .map(m => ({ date: m.date, revenue: Number(m.revenue) || 0 }))
+      .sort((a, b) => a.date.localeCompare(b.date))
+  }, [filteredYampiMetrics])
+
+  const yampiTopProducts = useMemo(() => {
+    const map = new Map<string, { name: string; quantity: number; revenue: number }>()
+    for (const order of filteredYampiOrders) {
+      if (order.status !== 'paid' && order.status !== 'invoiced' && order.status !== 'shipped' && order.status !== 'delivered') continue
+      for (const item of order.items || []) {
+        const key = item.product_id || item.name
+        const existing = map.get(key) ?? { name: item.name, quantity: 0, revenue: 0 }
+        existing.quantity += item.quantity
+        existing.revenue += item.price * item.quantity
+        map.set(key, existing)
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 5)
+  }, [filteredYampiOrders])
+
+  const yampiByState = useMemo(() => {
+    const map = new Map<string, { orders: number; revenue: number }>()
+    for (const order of filteredYampiOrders) {
+      if (order.status !== 'paid' && order.status !== 'invoiced' && order.status !== 'shipped' && order.status !== 'delivered') continue
+      const state = order.state || 'N/A'
+      const existing = map.get(state) ?? { orders: 0, revenue: 0 }
+      existing.orders++
+      existing.revenue += order.revenue
+      map.set(state, existing)
+    }
+    return Array.from(map.entries()).map(([state, d]) => ({ state, ...d })).sort((a, b) => b.revenue - a.revenue).slice(0, 10)
+  }, [filteredYampiOrders])
+
+  const yampiByPayment = useMemo(() => {
+    const map = new Map<string, { orders: number; revenue: number }>()
+    let totalOrders = 0
+    for (const order of filteredYampiOrders) {
+      if (order.status !== 'paid' && order.status !== 'invoiced' && order.status !== 'shipped' && order.status !== 'delivered') continue
+      const method = order.payment_method === 'pix' ? 'PIX' : order.payment_method === 'credit_card' ? 'Cartao' : order.payment_method === 'boleto' ? 'Boleto' : (order.payment_method || 'Outro')
+      const existing = map.get(method) ?? { orders: 0, revenue: 0 }
+      existing.orders++
+      existing.revenue += order.revenue
+      map.set(method, existing)
+      totalOrders++
+    }
+    return Array.from(map.entries()).map(([method, d]) => ({ method, ...d, pct: totalOrders > 0 ? (d.orders / totalOrders) * 100 : 0 })).sort((a, b) => b.revenue - a.revenue)
+  }, [filteredYampiOrders])
+
   // ── Handlers ──
   const handleSync = async () => {
     const dateFrom = new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0]
@@ -257,6 +338,15 @@ export default function MetricsClient({
         else { setGoogleSyncMsg(`${data.synced} registros sincronizados. Recarregando...`); window.location.reload(); return }
       } catch { setGoogleSyncMsg('Erro ao sincronizar.') }
       setGoogleSyncing(false)
+    } else if (activeTab === 'yampi') {
+      setYampiSyncing(true); setYampiSyncMsg('')
+      try {
+        const res = await fetch('/api/integrations/yampi/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ workspace_id: workspaceId, date_from: dateFrom, date_to: dateTo }) })
+        const data = await res.json()
+        if (data.error) setYampiSyncMsg(`Erro: ${data.error}`)
+        else { setYampiSyncMsg(`${data.synced} dias sincronizados. Recarregando...`); window.location.reload(); return }
+      } catch { setYampiSyncMsg('Erro ao sincronizar.') }
+      setYampiSyncing(false)
     } else {
       setShopifySyncing(true); setShopifySyncMsg('')
       try {
@@ -297,6 +387,7 @@ export default function MetricsClient({
   const TABS: { key: Tab; label: string; icon: React.ReactNode; connected: boolean }[] = [
     { key: 'meta', label: 'Meta Ads', icon: <MetaIcon />, connected: isMetaConnected },
     { key: 'google', label: 'Google Ads', icon: <GoogleIcon />, connected: isGoogleConnected },
+    { key: 'yampi', label: 'Yampi', icon: <ShopifyIcon />, connected: isYampiConnected },
     { key: 'vendas', label: 'Vendas', icon: <ShopifyIcon />, connected: isShopifyConnected },
   ]
 
@@ -320,9 +411,8 @@ export default function MetricsClient({
     <div className="space-y-6">
       {/* DEBUG — remover depois */}
       <div className="bg-yellow-900/20 border border-yellow-600/30 rounded-lg p-3 text-xs font-data text-yellow-300">
-        <strong>DEBUG:</strong> Meta: {metaMetrics.length} rows | Google: {googleMetrics.length} rows | Shopify: {shopifyMetrics.length} rows
-        | Filtered (tab={activeTab}, period={period}): {isAdsTab ? filteredAds.length : filteredShopify.length} rows
-        | dailyData: {dailyData.length} days
+        <strong>DEBUG:</strong> Meta: {metaMetrics.length} | Google: {googleMetrics.length} | Shopify: {shopifyMetrics.length} | Yampi: {yampiMetrics.length}/{yampiOrders.length}
+        | Filtered (tab={activeTab}, period={period}): {isAdsTab ? filteredAds.length : activeTab === 'yampi' ? filteredYampiMetrics.length : filteredShopify.length} rows
       </div>
 
       {/* ═══ Tab selector ═══ */}
@@ -345,13 +435,13 @@ export default function MetricsClient({
       {!isConnected && (
         <div className="bg-bg-card border border-border rounded-xl p-16 text-center">
           <p className="font-sans text-text-primary font-semibold text-lg mb-2">
-            {activeTab === 'meta' ? 'Meta Ads não conectado' : activeTab === 'google' ? 'Google Ads não conectado' : 'Shopify não conectado'}
+            {activeTab === 'meta' ? 'Meta Ads não conectado' : activeTab === 'google' ? 'Google Ads não conectado' : activeTab === 'yampi' ? 'Yampi não conectado' : 'Shopify não conectado'}
           </p>
           <p className="text-text-muted mb-4">
-            {activeTab === 'vendas' ? 'Conecte sua loja Shopify para ver métricas de vendas.' : 'Conecte sua conta para ver métricas.'}
+            {activeTab === 'yampi' ? 'Conecte a Yampi para ver métricas de checkout e vendas.' : activeTab === 'vendas' ? 'Conecte sua loja Shopify para ver métricas de vendas.' : 'Conecte sua conta para ver métricas.'}
           </p>
           <Link href="/integracoes" className="inline-block px-5 py-2.5 bg-brand-gold text-bg-base rounded-lg font-semibold hover:opacity-90 transition-opacity cursor-pointer">
-            {activeTab === 'vendas' ? 'Conectar Shopify' : activeTab === 'meta' ? 'Conectar Meta Ads' : 'Conectar Google Ads'}
+            {activeTab === 'yampi' ? 'Conectar Yampi' : activeTab === 'vendas' ? 'Conectar Shopify' : activeTab === 'meta' ? 'Conectar Meta Ads' : 'Conectar Google Ads'}
           </Link>
         </div>
       )}
@@ -586,6 +676,172 @@ export default function MetricsClient({
           )}
 
           {dailyData.length === 0 && (
+            <div className="bg-bg-card border border-border rounded-xl p-16 text-center">
+              <p className="text-text-muted">Nenhuma métrica neste período.</p>
+              <p className="text-text-muted text-sm mt-1">Clique em Sincronizar para importar dados.</p>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ═══ Connected — Yampi tab ═══ */}
+      {isConnected && activeTab === 'yampi' && (
+        <>
+          {/* Period + sync */}
+          <div className="flex flex-wrap items-center gap-2">
+            {PERIODS.map(p => (
+              <button key={p.key} onClick={() => setPeriod(p.key)}
+                className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-all cursor-pointer ${
+                  period === p.key
+                    ? 'bg-brand-gold text-bg-base shadow-sm'
+                    : 'bg-bg-card border border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary'
+                }`}>{p.label}</button>
+            ))}
+            <div className="ml-auto flex items-center gap-2">
+              {syncMsg && <span className="text-xs text-text-muted">{syncMsg}</span>}
+              <button onClick={handleSync} disabled={syncing}
+                className="px-3 py-1.5 text-sm rounded-lg font-medium bg-bg-card border border-border text-text-secondary hover:bg-bg-hover disabled:opacity-50 cursor-pointer transition-colors">
+                {syncing ? 'Sincronizando...' : 'Sincronizar'}
+              </button>
+            </div>
+          </div>
+
+          {period === 'custom' && (
+            <div className="flex gap-3 items-center">
+              <span className="text-text-muted text-sm">De:</span>
+              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary" />
+              <span className="text-text-muted text-sm">Até:</span>
+              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="bg-bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary" />
+              <button onClick={() => { setAppliedFrom(customFrom); setAppliedTo(customTo) }} disabled={!customFrom || !customTo}
+                className="px-4 py-1.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 transition-opacity disabled:opacity-40 cursor-pointer">Buscar</button>
+            </div>
+          )}
+
+          {/* Yampi KPIs Row 1 */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <KpiCard label="Receita" value={fmtCurrency(yampiTotals.revenue, 0)} />
+            <KpiCard label="Pedidos" value={fmtNumber(yampiTotals.orders)} />
+            <KpiCard label="Ticket Médio" value={fmtCurrency(yampiTotals.avg_ticket)} />
+            <KpiCard label="Aprovação PIX" value={`${yampiTotals.pix_approval_rate.toFixed(2)}%`}
+              badge={yampiTotals.pix_approval_rate >= 85 ? 'green' : yampiTotals.pix_approval_rate >= 70 ? 'yellow' : 'red'} />
+          </div>
+
+          {/* Yampi KPIs Row 2 */}
+          <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
+            <KpiCard label="Conversão Checkout" value={`${yampiTotals.checkout_conversion.toFixed(2)}%`}
+              badge={yampiTotals.checkout_conversion >= 70 ? 'green' : yampiTotals.checkout_conversion >= 50 ? 'yellow' : 'red'} />
+            <KpiCard label="Taxa Cancelamento" value={`${yampiTotals.cancellation_rate.toFixed(2)}%`}
+              badge={yampiTotals.cancellation_rate <= 5 ? 'green' : yampiTotals.cancellation_rate <= 15 ? 'yellow' : 'red'} />
+          </div>
+
+          {/* Yampi Revenue chart */}
+          {yampiDaily.length > 0 && (
+            <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
+              <h3 className="font-sans text-text-primary font-semibold text-lg mb-5">Receita por Dia</h3>
+              <div className="h-72">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={yampiDaily}>
+                    <defs>
+                      <linearGradient id="gYampiRevenue" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#22c55e" stopOpacity={0.25} />
+                        <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(42,82,51,0.4)" />
+                    <XAxis dataKey="date" tick={{ fill: '#5a6b5e', fontSize: 11, fontFamily: 'var(--font-data)' }} axisLine={false} tickLine={false} tickFormatter={(v: string) => v.slice(5)} />
+                    <YAxis tick={{ fill: '#5a6b5e', fontSize: 11, fontFamily: 'var(--font-data)' }} axisLine={false} tickLine={false} width={65} tickFormatter={(v: number) => `R$${(v/1000).toFixed(0)}k`} />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Area type="monotone" dataKey="revenue" stroke="#22c55e" fill="url(#gYampiRevenue)" strokeWidth={2} name="Receita" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
+
+          {/* Top 5 Produtos */}
+          {yampiTopProducts.length > 0 && (
+            <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
+              <h3 className="font-sans text-text-primary font-semibold text-lg mb-5">Top 5 Produtos</h3>
+              <div className="overflow-x-auto">
+                <table className="table-premium">
+                  <thead>
+                    <tr>
+                      <th>Produto</th>
+                      <th className="text-right">Qtd Vendida</th>
+                      <th className="text-right">Receita</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {yampiTopProducts.map((p, i) => (
+                      <tr key={i}>
+                        <td className="text-text-primary font-medium max-w-[250px] truncate">{p.name}</td>
+                        <td className="text-right font-data">{fmtNumber(p.quantity)}</td>
+                        <td className="text-right font-data text-green-400">{fmtCurrency(p.revenue)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Por Estado */}
+          {yampiByState.length > 0 && (
+            <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
+              <h3 className="font-sans text-text-primary font-semibold text-lg mb-5">Por Estado</h3>
+              <div className="overflow-x-auto">
+                <table className="table-premium">
+                  <thead>
+                    <tr>
+                      <th>Estado</th>
+                      <th className="text-right">Pedidos</th>
+                      <th className="text-right">Receita</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {yampiByState.map((s, i) => (
+                      <tr key={i}>
+                        <td className="text-text-primary font-medium">{s.state}</td>
+                        <td className="text-right font-data">{fmtNumber(s.orders)}</td>
+                        <td className="text-right font-data text-green-400">{fmtCurrency(s.revenue)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Forma de Pagamento */}
+          {yampiByPayment.length > 0 && (
+            <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
+              <h3 className="font-sans text-text-primary font-semibold text-lg mb-5">Forma de Pagamento</h3>
+              <div className="overflow-x-auto">
+                <table className="table-premium">
+                  <thead>
+                    <tr>
+                      <th>Método</th>
+                      <th className="text-right">Pedidos</th>
+                      <th className="text-right">% do Total</th>
+                      <th className="text-right">Receita</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {yampiByPayment.map((p, i) => (
+                      <tr key={i}>
+                        <td className="text-text-primary font-medium">{p.method}</td>
+                        <td className="text-right font-data">{fmtNumber(p.orders)}</td>
+                        <td className="text-right font-data">{p.pct.toFixed(1)}%</td>
+                        <td className="text-right font-data text-green-400">{fmtCurrency(p.revenue)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {filteredYampiMetrics.length === 0 && (
             <div className="bg-bg-card border border-border rounded-xl p-16 text-center">
               <p className="text-text-muted">Nenhuma métrica neste período.</p>
               <p className="text-text-muted text-sm mt-1">Clique em Sincronizar para importar dados.</p>
