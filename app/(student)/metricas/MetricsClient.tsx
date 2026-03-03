@@ -337,7 +337,7 @@ export default function MetricsClient({
       {/* ═══ Not connected ═══ */}
       {!isConnected && (
         <div className="bg-bg-card border border-border rounded-xl p-16 text-center">
-          <p className="font-display text-text-primary font-semibold text-lg mb-2">
+          <p className="font-sans text-text-primary font-semibold text-lg mb-2">
             {activeTab === 'meta' ? 'Meta Ads não conectado' : activeTab === 'google' ? 'Google Ads não conectado' : 'Shopify não conectado'}
           </p>
           <p className="text-text-muted mb-4">
@@ -416,7 +416,7 @@ export default function MetricsClient({
           {/* ═══ Funnel — Meta only ═══ */}
           {funnel && (
             <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
-              <h3 className="font-display text-text-primary font-semibold text-lg mb-6">Funil de Conversão</h3>
+              <h3 className="font-sans text-text-primary font-semibold text-lg mb-6">Funil de Conversão</h3>
               <div className="space-y-3">
                 {funnel.steps.map((step, i) => {
                   const maxVal = Math.max(...funnel.steps.map(s => s.value))
@@ -478,7 +478,7 @@ export default function MetricsClient({
           {/* ═══ Spend vs Revenue chart ═══ */}
           {dailyData.length > 0 && (
             <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
-              <h3 className="font-display text-text-primary font-semibold text-lg mb-5">Investimento vs Receita</h3>
+              <h3 className="font-sans text-text-primary font-semibold text-lg mb-5">Investimento vs Receita</h3>
               <div className="h-72">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={dailyData}>
@@ -507,7 +507,7 @@ export default function MetricsClient({
           {/* ═══ Campaign table ═══ */}
           {campaignData.length > 0 && (
             <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
-              <h3 className="font-display text-text-primary font-semibold text-lg mb-5">Por Campanha</h3>
+              <h3 className="font-sans text-text-primary font-semibold text-lg mb-5">Por Campanha</h3>
               <div className="overflow-x-auto">
                 <table className="table-premium">
                   <thead>
@@ -565,13 +565,13 @@ export default function MetricsClient({
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
                   <SparklesIcon />
-                  <h3 className="font-display text-text-primary font-semibold">Relatório IA</h3>
+                  <h3 className="font-sans text-text-primary font-semibold">Relatório IA</h3>
                 </div>
                 <button onClick={() => setReportMarkdown('')} className="text-xs text-text-muted hover:text-text-secondary cursor-pointer transition-colors">Fechar</button>
               </div>
               <div className="prose prose-invert prose-sm max-w-none text-text-secondary
-                [&_h2]:font-display [&_h2]:text-text-primary [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-6 [&_h2]:mb-2
-                [&_h3]:font-display [&_h3]:text-text-primary [&_h3]:text-sm [&_h3]:font-semibold
+                [&_h2]:font-sans [&_h2]:text-text-primary [&_h2]:text-base [&_h2]:font-semibold [&_h2]:mt-6 [&_h2]:mb-2
+                [&_h3]:font-sans [&_h3]:text-text-primary [&_h3]:text-sm [&_h3]:font-semibold
                 [&_table]:w-full [&_th]:text-left [&_th]:py-1 [&_th]:text-xs [&_th]:text-text-muted [&_th]:uppercase
                 [&_td]:py-1 [&_td]:text-sm [&_td]:font-data [&_strong]:text-text-primary [&_li]:text-sm"
                 dangerouslySetInnerHTML={{ __html: markdownToHtml(reportMarkdown) }} />
@@ -633,7 +633,7 @@ export default function MetricsClient({
           {/* ═══ Revenue chart ═══ */}
           {shopifyDaily.length > 0 && (
             <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
-              <h3 className="font-display text-text-primary font-semibold text-lg mb-5">Receita por Dia</h3>
+              <h3 className="font-sans text-text-primary font-semibold text-lg mb-5">Receita por Dia</h3>
               <div className="h-72">
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={shopifyDaily}>
@@ -657,7 +657,7 @@ export default function MetricsClient({
           {/* ═══ Top dias por receita ═══ */}
           {filteredShopify.length > 0 && (
             <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
-              <h3 className="font-display text-text-primary font-semibold text-lg mb-5">Top Dias por Receita</h3>
+              <h3 className="font-sans text-text-primary font-semibold text-lg mb-5">Top Dias por Receita</h3>
               <div className="overflow-x-auto">
                 <table className="table-premium">
                   <thead>
