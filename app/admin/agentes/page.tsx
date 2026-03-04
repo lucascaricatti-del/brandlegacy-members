@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import AgentLogsClient from './AgentLogsClient'
+import AgentMap from '@/components/admin/AgentMap'
 
 export default async function AdminAgentesPage() {
   const supabase = await createClient()
@@ -84,6 +85,8 @@ export default async function AdminAgentesPage() {
 
   return (
     <div className="animate-fade-in">
+      <AgentMap />
+
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-text-primary">Agentes</h1>
