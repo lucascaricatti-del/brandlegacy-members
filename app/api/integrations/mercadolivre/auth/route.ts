@@ -35,16 +35,33 @@ export async function GET(req: NextRequest) {
   const codeVerifier = generateCodeVerifier()
   const codeChallenge = await generateCodeChallenge(codeVerifier)
 
-  // Save code_verifier temporarily
-  await (adminSupabase as any)
+  // Save code_verifier temporarily — delete first then insert to avoid constraint issues
+  const { error: deleteErr } = await (adminSupabase as any)
     .from('workspace_integrations')
-    .upsert({
+    .delete()
+    .eq('workspace_id', workspaceId)
+    .eq('provider', 'mercadolivre_pending')
+
+  if (deleteErr) {
+    console.error('[ml/auth] delete pending error:', JSON.stringify(deleteErr))
+  }
+
+  const { error: insertErr } = await (adminSupabase as any)
+    .from('workspace_integrations')
+    .insert({
       workspace_id: workspaceId,
       provider: 'mercadolivre_pending',
       status: 'pending',
       metadata: { code_verifier: codeVerifier },
       updated_at: new Date().toISOString(),
-    }, { onConflict: 'workspace_id,provider' })
+    })
+
+  if (insertErr) {
+    console.error('[ml/auth] insert pending error:', JSON.stringify(insertErr))
+    return NextResponse.json({ error: 'Failed to save code_verifier', detail: insertErr.message }, { status: 500 })
+  }
+
+  console.log('[ml/auth] code_verifier saved for workspace:', workspaceId)
 
   const state = `${workspaceId}:${Date.now()}`
 
