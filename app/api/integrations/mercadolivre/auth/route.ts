@@ -46,13 +46,16 @@ export async function GET(req: NextRequest) {
     console.error('[ml/auth] delete pending error:', JSON.stringify(deleteErr))
   }
 
+  const state = `${workspaceId}:${Date.now()}`
+
   const { error: insertErr } = await (adminSupabase as any)
     .from('workspace_integrations')
     .insert({
       workspace_id: workspaceId,
       provider: 'mercadolivre_pending',
       status: 'pending',
-      metadata: { code_verifier: codeVerifier },
+      access_token: 'pending',
+      metadata: { code_verifier: codeVerifier, state },
       updated_at: new Date().toISOString(),
     })
 
@@ -62,8 +65,6 @@ export async function GET(req: NextRequest) {
   }
 
   console.log('[ml/auth] code_verifier saved for workspace:', workspaceId)
-
-  const state = `${workspaceId}:${Date.now()}`
 
   const params = new URLSearchParams({
     response_type: 'code',

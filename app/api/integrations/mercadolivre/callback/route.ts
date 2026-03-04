@@ -68,13 +68,20 @@ export async function GET(req: NextRequest) {
     console.error('[ml/callback] fetch user info error:', e)
   }
 
-  // Save integration
+  // Save integration — delete first then insert to avoid constraint issues
   await (adminSupabase as any)
     .from('workspace_integrations')
-    .upsert({
+    .delete()
+    .eq('workspace_id', workspaceId)
+    .eq('provider', 'mercadolivre')
+
+  const { error: saveErr } = await (adminSupabase as any)
+    .from('workspace_integrations')
+    .insert({
       workspace_id: workspaceId,
       provider: 'mercadolivre',
       status: 'active',
+      access_token: tokens.access_token,
       account_id: String(userId),
       account_name: sellerNickname,
       metadata: {
@@ -85,7 +92,12 @@ export async function GET(req: NextRequest) {
         seller_nickname: sellerNickname,
       },
       updated_at: new Date().toISOString(),
-    }, { onConflict: 'workspace_id,provider' })
+    })
+
+  if (saveErr) {
+    console.error('[ml/callback] save integration error:', JSON.stringify(saveErr))
+    return NextResponse.redirect(new URL('/integracoes?error=save_failed', req.url))
+  }
 
   // Delete pending row
   await (adminSupabase as any)
