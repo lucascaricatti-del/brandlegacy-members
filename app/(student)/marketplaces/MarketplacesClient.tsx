@@ -14,6 +14,21 @@ type Order = {
   currency: string
 }
 
+type Claim = {
+  claim_id: string
+  order_id: string | null
+  type: string
+  status: string
+  reason: string
+  amount: number
+  created_at_ml: string | null
+}
+
+type InventorySummary = {
+  total_items: number
+  total_stock: number
+}
+
 type Tab = 'mercadolivre' | 'shopee' | 'magalu' | 'netshoes'
 
 const TABS: { id: Tab; name: string; color: string; textColor: string; icon: string; enabled: boolean }[] = [
@@ -37,10 +52,14 @@ function formatBRL(v: number) {
 export default function MarketplacesClient({
   workspaceId,
   orders,
+  claims,
+  inventory,
   isConnected,
 }: {
   workspaceId: string
   orders: Order[]
+  claims: Claim[]
+  inventory: InventorySummary
   isConnected: boolean
 }) {
   const [activeTab, setActiveTab] = useState<Tab>('mercadolivre')
@@ -169,6 +188,58 @@ export default function MarketplacesClient({
                 <KPICard label="Ticket Médio" value={formatBRL(kpis.avgTicket)} />
                 <KPICard label="Taxas ML" value={formatBRL(kpis.totalFee)} />
                 <KPICard label="Receita Líquida" value={formatBRL(kpis.netRevenue)} highlight />
+              </div>
+
+              {/* Inventory + Claims Summary */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* Inventory Card */}
+                <div className="bg-bg-card border border-border rounded-xl p-4">
+                  <h3 className="text-sm font-semibold text-text-primary mb-3">Estoque</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs text-text-muted">Anúncios Ativos</p>
+                      <p className="text-xl font-bold text-text-primary">{inventory.total_items.toLocaleString('pt-BR')}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-text-muted">Unidades em Estoque</p>
+                      <p className="text-xl font-bold text-text-primary">{inventory.total_stock.toLocaleString('pt-BR')}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Claims Card */}
+                <div className="bg-bg-card border border-border rounded-xl p-4">
+                  <h3 className="text-sm font-semibold text-text-primary mb-3">Reclamações / Chargebacks</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs text-text-muted">Total</p>
+                      <p className="text-xl font-bold text-red-400">{claims.length.toLocaleString('pt-BR')}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-text-muted">Valor Total</p>
+                      <p className="text-xl font-bold text-red-400">
+                        {formatBRL(claims.reduce((s, c) => s + (c.amount || 0), 0))}
+                      </p>
+                    </div>
+                  </div>
+                  {claims.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-border">
+                      <div className="flex flex-wrap gap-2 text-xs">
+                        {Object.entries(
+                          claims.reduce<Record<string, number>>((acc, c) => {
+                            const s = c.status || 'unknown'
+                            acc[s] = (acc[s] || 0) + 1
+                            return acc
+                          }, {})
+                        ).map(([status, count]) => (
+                          <span key={status} className="px-2 py-0.5 rounded-full bg-bg-surface text-text-muted border border-border">
+                            {status}: {count}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Orders Table */}

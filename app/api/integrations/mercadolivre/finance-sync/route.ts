@@ -30,7 +30,7 @@ function getMonthChunks(months: number): { from: string; to: string; label: stri
 }
 
 export async function POST(req: NextRequest) {
-  const { workspace_id } = await req.json()
+  const { workspace_id, force } = await req.json()
 
   if (!workspace_id) {
     return NextResponse.json({ error: 'workspace_id required' }, { status: 400 })
@@ -54,7 +54,8 @@ export async function POST(req: NextRequest) {
     const sellerId = integration.metadata.seller_id
 
     // Smart sync: if last_finance_sync exists, fetch last 2 days only; otherwise 6 months
-    const lastFinanceSync = integration.metadata.last_finance_sync
+    // force: true bypasses smart sync and pulls full 6 months
+    const lastFinanceSync = force ? null : integration.metadata.last_finance_sync
     let monthChunks: { from: string; to: string; label: string }[]
 
     if (lastFinanceSync) {

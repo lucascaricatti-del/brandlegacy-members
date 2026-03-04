@@ -54,17 +54,39 @@ export default async function MarketplacesPage() {
 
   const isConnected = !!mlIntegration
 
-  // Fetch last 90 days of orders (client will filter by period)
+  // Fetch last 90 days of orders, claims, and inventory summary
   let orders: any[] = []
+  let claims: any[] = []
+  let inventory = { total_items: 0, total_stock: 0 }
+
   if (isConnected) {
     const since = new Date(Date.now() - 90 * 86400000).toISOString().split('T')[0]
-    const { data } = await (adminSupabase as any)
-      .from('ml_orders')
-      .select('order_id, date, status, revenue, net_revenue, marketplace_fee, buyer_nickname, items, currency')
-      .eq('workspace_id', ws.id)
-      .gte('date', since)
-      .order('date', { ascending: false })
-    orders = data ?? []
+
+    const [ordersRes, claimsRes, inventoryRes] = await Promise.all([
+      (adminSupabase as any)
+        .from('ml_orders')
+        .select('order_id, date, status, revenue, net_revenue, marketplace_fee, buyer_nickname, items, currency')
+        .eq('workspace_id', ws.id)
+        .gte('date', since)
+        .order('date', { ascending: false }),
+      (adminSupabase as any)
+        .from('ml_claims')
+        .select('claim_id, order_id, type, status, reason, amount, created_at_ml')
+        .eq('workspace_id', ws.id),
+      (adminSupabase as any)
+        .from('ml_inventory')
+        .select('available_qty, total_qty')
+        .eq('workspace_id', ws.id),
+    ])
+
+    orders = ordersRes.data ?? []
+    claims = claimsRes.data ?? []
+
+    const invItems = inventoryRes.data ?? []
+    inventory = {
+      total_items: invItems.length,
+      total_stock: invItems.reduce((s: number, i: any) => s + (i.available_qty || 0), 0),
+    }
   }
 
   return (
@@ -78,6 +100,8 @@ export default async function MarketplacesPage() {
       <MarketplacesClient
         workspaceId={ws.id}
         orders={orders}
+        claims={claims}
+        inventory={inventory}
         isConnected={isConnected}
       />
     </div>
