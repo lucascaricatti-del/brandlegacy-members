@@ -57,20 +57,21 @@ export async function POST(req: NextRequest) {
     const sellerId = integration.metadata.seller_id
     const monthChunks = getMonthChunks(syncMonths)
     let totalSynced = 0
-    const monthResults: { month: string; orders: number }[] = []
+    const monthResults: { month: string; operations: number }[] = []
 
     for (const chunk of monthChunks) {
-      const monthOrders: any[] = []
+      const monthOps: any[] = []
       let offset = 0
       const limit = 50
 
-      // Paginate orders for this month
+      // Paginate billing charges for this month
       while (true) {
         const url =
-          `https://api.mercadolibre.com/orders/search?seller=${sellerId}` +
-          `&order.date_created.from=${chunk.from}` +
-          `&order.date_created.to=${chunk.to}` +
-          `&sort=date_desc&limit=${limit}&offset=${offset}`
+          `https://api.mercadolibre.com/billing/integration_charges` +
+          `?user_id=${sellerId}` +
+          `&date_from=${chunk.from}` +
+          `&date_to=${chunk.to}` +
+          `&limit=${limit}&offset=${offset}`
 
         const res: Response = await fetch(url, {
           headers: { Authorization: `Bearer ${accessToken}` },
@@ -79,67 +80,51 @@ export async function POST(req: NextRequest) {
 
         if (!res.ok) {
           const errText = await res.text()
-          console.error(`[ml/sync] ${chunk.label} offset=${offset} error:`, res.status, errText)
+          console.error(`[ml/finance-sync] ${chunk.label} offset=${offset} error:`, res.status, errText)
           break
         }
 
         const json = await res.json()
-        const orders = json.results || []
-        monthOrders.push(...orders)
+        const results = json.results || json.data || []
+        monthOps.push(...results)
 
-        const total = json.paging?.total ?? 0
-        if (offset + limit >= total || orders.length === 0) break
+        const total = json.paging?.total ?? json.total ?? 0
+        if (offset + limit >= total || results.length === 0) break
         offset += limit
 
         await delay(200)
       }
 
-      // Parse orders (no billing_info — fees come from finance-sync)
-      const orderRows = monthOrders.map((order: any) => {
-        const revenue = Number(order.total_amount || 0)
-        const createdAt = order.date_created || ''
+      // Parse and upsert
+      const opRows = monthOps.map((op: any) => {
+        const createdAt = op.date_created || op.created_at || ''
         const date = createdAt.split('T')[0] || ''
-
-        const items = (order.order_items || []).map((item: any) => ({
-          item_id: String(item.item?.id || ''),
-          title: item.item?.title || '',
-          quantity: Number(item.quantity || 1),
-          unit_price: Number(item.unit_price || 0),
-          sku: item.item?.seller_sku || null,
-        }))
-
-        const payment = order.payments?.[0] || {}
 
         return {
           workspace_id,
-          order_id: String(order.id),
+          operation_id: String(op.id || op.charge_id || op.operation_id),
           date,
-          status: order.status || 'unknown',
-          revenue,
-          shipping_cost: 0,
-          marketplace_fee: 0,
-          net_revenue: revenue,
-          payment_method: payment.payment_method_id || null,
-          payment_status: payment.status || null,
-          buyer_id: String(order.buyer?.id || ''),
-          buyer_nickname: order.buyer?.nickname || '',
-          items,
-          shipping_id: order.shipping?.id ? String(order.shipping.id) : null,
-          currency: order.currency_id || 'BRL',
+          type: op.type || op.charge_type || 'charge',
+          status: op.status || 'processed',
+          amount: Number(op.total_amount || op.amount || 0),
+          net_amount: Number(op.net_amount || op.total_amount || op.amount || 0),
+          fee_amount: Number(op.fee_amount || op.marketplace_fee || 0),
+          description: op.description || op.name || op.detail?.description || '',
+          reference_id: op.reference_id || op.order_id ? String(op.reference_id || op.order_id) : null,
+          currency: op.currency_id || 'BRL',
           synced_at: new Date().toISOString(),
         }
       })
 
-      // Upsert in batches
       let monthSynced = 0
-      if (orderRows.length > 0) {
-        for (let i = 0; i < orderRows.length; i += 200) {
-          const batch = orderRows.slice(i, i + 200)
+      if (opRows.length > 0) {
+        for (let i = 0; i < opRows.length; i += 200) {
+          const batch = opRows.slice(i, i + 200)
           const { error: upsertErr } = await (adminSupabase as any)
-            .from('ml_orders')
-            .upsert(batch, { onConflict: 'workspace_id,order_id' })
+            .from('ml_finance_operations')
+            .upsert(batch, { onConflict: 'workspace_id,operation_id' })
           if (upsertErr) {
-            console.error(`[ml/sync] ${chunk.label} upsert error:`, upsertErr.message)
+            console.error(`[ml/finance-sync] ${chunk.label} upsert error:`, upsertErr.message)
           } else {
             monthSynced += batch.length
           }
@@ -147,8 +132,8 @@ export async function POST(req: NextRequest) {
       }
 
       totalSynced += monthSynced
-      monthResults.push({ month: chunk.label, orders: monthSynced })
-      console.log(`[ml/sync] month ${chunk.label}: ${monthSynced} orders`)
+      monthResults.push({ month: chunk.label, operations: monthSynced })
+      console.log(`[ml/finance-sync] month ${chunk.label}: ${monthSynced} operations`)
 
       await delay(200)
     }
@@ -159,7 +144,7 @@ export async function POST(req: NextRequest) {
       months: monthResults,
     })
   } catch (err: any) {
-    console.error('[ml/sync] error:', err.message)
+    console.error('[ml/finance-sync] error:', err.message)
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }
