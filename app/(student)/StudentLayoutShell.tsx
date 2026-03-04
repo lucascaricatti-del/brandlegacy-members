@@ -74,6 +74,7 @@ export default function StudentLayoutShell({
           <div className="pt-2 mt-2 border-t border-border space-y-1">
             <NavItem href="/team" icon={<IconTeam />} label="Equipe" onNavigate={() => setOpen(false)} />
             <NavItem href="/integracoes" icon={<IconIntegracoes />} label="Integrações" onNavigate={() => setOpen(false)} />
+            <NavItem href="/marketplaces" icon={<IconMarketplaces />} label="Marketplaces" onNavigate={() => setOpen(false)} />
           </div>
 
           {profile?.role === 'admin' && (
@@ -292,6 +293,13 @@ function NavItemSoon({ href, label, onNavigate }: { href: string; label: string;
       <span>{label}</span>
       <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded-full bg-white/5 text-text-muted/50">em breve</span>
     </Link>
+  )
+}
+function IconMarketplaces() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" />
+    </svg>
   )
 }
 function IconLogout() {
