@@ -75,19 +75,19 @@ export async function POST(req: NextRequest) {
     let totalSynced = 0
     const monthResults: { month: string; operations: number }[] = []
 
+    let isFirstRequest = true
+
     for (const chunk of monthChunks) {
       const monthOps: any[] = []
       let offset = 0
       const limit = 50
 
-      // Paginate billing charges for this month
+      // Paginate collections (payments received) for this month
       while (true) {
         const url =
-          `https://api.mercadolibre.com/billing/integration_charges` +
-          `?user_id=${sellerId}` +
-          `&date_from=${chunk.from}` +
-          `&date_to=${chunk.to}` +
-          `&limit=${limit}&offset=${offset}`
+          `https://api.mercadolibre.com/collections/search` +
+          `?seller_id=${sellerId}` +
+          `&offset=${offset}&limit=${limit}`
 
         const res: Response = await fetch(url, {
           headers: { Authorization: `Bearer ${accessToken}` },
@@ -101,7 +101,14 @@ export async function POST(req: NextRequest) {
         }
 
         const json = await res.json()
-        const results = json.results || json.data || []
+
+        // Log first raw response to see the actual structure
+        if (isFirstRequest) {
+          console.log(`[ml/finance-sync] RAW FIRST RESPONSE:`, JSON.stringify(json).slice(0, 2000))
+          isFirstRequest = false
+        }
+
+        const results = json.results || json.data || json.elements || []
         monthOps.push(...results)
 
         const total = json.paging?.total ?? json.total ?? 0
