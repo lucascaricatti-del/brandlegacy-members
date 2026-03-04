@@ -255,22 +255,35 @@ export default function MetricsClient({
   const filteredYampiOrders = useMemo(() => filterByPeriod(yampiOrders), [yampiOrders, period, appliedFrom, appliedTo, activeTab])
 
   const yampiTotals = useMemo(() => {
-    const revenue = filteredYampiMetrics.reduce((s, m) => s + (Number(m.revenue) || 0), 0)
-    const orders = filteredYampiMetrics.reduce((s, m) => s + (Number(m.orders) || 0), 0)
+    const PAID = ['paid', 'invoiced', 'shipped', 'delivered']
+    const CANCELLED = ['cancelled', 'refused']
+    const paidOrders = filteredYampiOrders.filter(o => PAID.includes(o.status))
+    const cancelledOrders = filteredYampiOrders.filter(o => CANCELLED.includes(o.status))
+    const pixOrders = filteredYampiOrders.filter(o => (o.payment_method ?? '').toLowerCase() === 'pix')
+    const pixPaid = pixOrders.filter(o => PAID.includes(o.status))
+
+    const revenue = paidOrders.reduce((s, o) => s + (Number(o.revenue) || 0), 0)
+    const orders = paidOrders.length
     const avg_ticket = orders > 0 ? revenue / orders : 0
-    // Weighted averages for rates
-    const totalDays = filteredYampiMetrics.length
-    const checkout_conversion = totalDays > 0 ? filteredYampiMetrics.reduce((s, m) => s + (Number(m.checkout_conversion) || 0), 0) / totalDays : 0
-    const pix_approval_rate = totalDays > 0 ? filteredYampiMetrics.reduce((s, m) => s + (Number(m.pix_approval_rate) || 0), 0) / totalDays : 0
-    const cancellation_rate = totalDays > 0 ? filteredYampiMetrics.reduce((s, m) => s + (Number(m.cancellation_rate) || 0), 0) / totalDays : 0
+    const total = filteredYampiOrders.length
+    const checkout_conversion = total > 0 ? Math.round((orders / total) * 100 * 100) / 100 : 0
+    const pix_approval_rate = pixOrders.length > 0 ? Math.round((pixPaid.length / pixOrders.length) * 100 * 100) / 100 : 0
+    const cancellation_rate = total > 0 ? Math.round((cancelledOrders.length / total) * 100 * 100) / 100 : 0
     return { revenue, orders, avg_ticket, checkout_conversion, pix_approval_rate, cancellation_rate }
-  }, [filteredYampiMetrics])
+  }, [filteredYampiOrders])
 
   const yampiDaily = useMemo(() => {
-    return filteredYampiMetrics
-      .map(m => ({ date: m.date, revenue: Number(m.revenue) || 0 }))
+    const PAID = ['paid', 'invoiced', 'shipped', 'delivered']
+    const map = new Map<string, number>()
+    for (const o of filteredYampiOrders) {
+      if (!PAID.includes(o.status)) continue
+      const rev = map.get(o.date) ?? 0
+      map.set(o.date, rev + (Number(o.revenue) || 0))
+    }
+    return Array.from(map.entries())
+      .map(([date, revenue]) => ({ date, revenue }))
       .sort((a, b) => a.date.localeCompare(b.date))
-  }, [filteredYampiMetrics])
+  }, [filteredYampiOrders])
 
   const yampiTopProducts = useMemo(() => {
     const map = new Map<string, { name: string; quantity: number; revenue: number }>()
