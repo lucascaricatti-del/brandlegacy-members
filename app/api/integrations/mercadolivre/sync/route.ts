@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
   try {
     const accessToken = await getMlToken(workspace_id)
 
-    // Get seller_id
+    // Get seller_id and check last_sync
     const { data: integration } = await (adminSupabase as any)
       .from('workspace_integrations')
       .select('metadata')
@@ -56,7 +56,12 @@ export async function POST(req: NextRequest) {
     }
 
     const sellerId = integration.metadata.seller_id
-    const monthChunks = getMonthChunks(syncMonths)
+    // Smart sync: if last_sync exists, only sync last 1 month; otherwise use requested months
+    const lastSync = integration.metadata.last_sync
+    const effectiveMonths = lastSync && !months && !days ? 1 : syncMonths
+    const monthChunks = getMonthChunks(effectiveMonths)
+
+    console.log(`[ml/sync] smart sync: last_sync=${lastSync || 'none'}, months=${effectiveMonths}`)
     let totalSynced = 0
     const monthResults: { month: string; orders: number }[] = []
     const upsertErrors: string[] = []
@@ -133,19 +138,39 @@ export async function POST(req: NextRequest) {
 
       // Upsert in batches
       let monthSynced = 0
+      console.log(`[ml/sync] ${chunk.label}: ${orderRows.length} orders to upsert`)
       if (orderRows.length > 0) {
+        console.log(`[ml/sync] sample row:`, JSON.stringify(orderRows[0], null, 2))
         for (let i = 0; i < orderRows.length; i += 200) {
           const batch = orderRows.slice(i, i + 200)
-          const { error: upsertErr } = await (adminSupabase as any)
-            .from('ml_orders')
-            .upsert(batch, { onConflict: 'workspace_id,order_id' })
-          if (upsertErr) {
-            const errDetail = `${chunk.label} batch ${i}: ${upsertErr.message} | code: ${upsertErr.code} | details: ${upsertErr.details} | hint: ${upsertErr.hint}`
-            console.error(`[ml/sync] UPSERT ERROR:`, errDetail)
-            console.error(`[ml/sync] sample row keys:`, Object.keys(batch[0]))
-            upsertErrors.push(errDetail)
-          } else {
-            monthSynced += batch.length
+          try {
+            const { data: upsertData, error: upsertErr } = await (adminSupabase as any)
+              .from('ml_orders')
+              .upsert(batch, { onConflict: 'workspace_id,order_id' })
+              .select('order_id')
+            if (upsertErr) {
+              console.error(`[ml/sync] UPSERT ERROR full object:`, JSON.stringify(upsertErr, null, 2))
+              console.error(`[ml/sync] UPSERT ERROR details:`, {
+                month: chunk.label,
+                batchStart: i,
+                batchSize: batch.length,
+                message: upsertErr.message,
+                code: upsertErr.code,
+                details: upsertErr.details,
+                hint: upsertErr.hint,
+                status: upsertErr.status,
+              })
+              console.error(`[ml/sync] sample row keys:`, Object.keys(batch[0]))
+              console.error(`[ml/sync] sample row values:`, JSON.stringify(batch[0], null, 2))
+              upsertErrors.push(`${chunk.label} batch ${i}: ${upsertErr.message} | code: ${upsertErr.code} | details: ${upsertErr.details} | hint: ${upsertErr.hint}`)
+            } else {
+              console.log(`[ml/sync] ${chunk.label} batch ${i}: upserted ${upsertData?.length ?? batch.length} rows`)
+              monthSynced += batch.length
+            }
+          } catch (upsertCatchErr: any) {
+            console.error(`[ml/sync] UPSERT EXCEPTION:`, upsertCatchErr)
+            console.error(`[ml/sync] UPSERT EXCEPTION stack:`, upsertCatchErr?.stack)
+            upsertErrors.push(`${chunk.label} batch ${i}: EXCEPTION: ${upsertCatchErr?.message}`)
           }
         }
       }
@@ -157,10 +182,20 @@ export async function POST(req: NextRequest) {
       await delay(200)
     }
 
+    // Update last_sync in metadata
+    await (adminSupabase as any)
+      .from('workspace_integrations')
+      .update({
+        metadata: { ...integration.metadata, last_sync: new Date().toLocaleDateString('sv-SE') },
+      })
+      .eq('workspace_id', workspace_id)
+      .eq('provider', 'mercadolivre')
+
     return NextResponse.json({
       synced: totalSynced,
       months_processed: monthResults.length,
       months: monthResults,
+      smart: !!lastSync,
       ...(upsertErrors.length > 0 && { upsert_errors: upsertErrors }),
     })
   } catch (err: any) {

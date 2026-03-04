@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
 
   const { data: integration } = await supabase
     .from('workspace_integrations')
-    .select('access_token, account_id')
+    .select('access_token, account_id, metadata')
     .eq('workspace_id', workspace_id)
     .eq('provider', 'meta_ads')
     .eq('status', 'active')
@@ -25,8 +25,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Meta not connected or no account' }, { status: 404 })
   }
 
-  const since = date_from || new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]
-  const until = date_to || new Date().toISOString().split('T')[0]
+  // Smart sync: if last_sync exists, only sync last 2 days; otherwise full 180 days
+  const lastSync = (integration as any).metadata?.last_sync
+  const fallbackSince = new Date(Date.now() - 180 * 86400000).toLocaleDateString('sv-SE')
+  const smartSince = lastSync
+    ? new Date(Date.now() - 2 * 86400000).toLocaleDateString('sv-SE')
+    : fallbackSince
+  const since = date_from || smartSince
+  const until = date_to || new Date().toLocaleDateString('sv-SE')
+
+  console.log(`[meta/sync] smart sync: last_sync=${lastSync || 'none'}, period=${since}→${until}`)
 
   try {
     const accountIdClean = integration.account_id.replace(/^act_/, '')
@@ -113,7 +121,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ synced: allRows.length, period: { since, until } })
+    // Update last_sync in metadata
+    const existingMeta = (integration as any).metadata || {}
+    await supabase
+      .from('workspace_integrations')
+      .update({ metadata: { ...existingMeta, last_sync: new Date().toLocaleDateString('sv-SE') } })
+      .eq('workspace_id', workspace_id)
+      .eq('provider', 'meta_ads')
+
+    return NextResponse.json({ synced: allRows.length, period: { since, until }, smart: !!lastSync })
   } catch (err: any) {
     console.error('[meta/sync] unexpected error:', err.message)
     return NextResponse.json({ error: err.message }, { status: 500 })

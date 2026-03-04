@@ -50,8 +50,16 @@ export async function POST(req: NextRequest) {
   const accessToken = await getAccessToken(integration)
   if (!accessToken) return NextResponse.json({ error: 'Token expired, reconnect' }, { status: 401 })
 
-  const since = date_from || new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0]
-  const until = date_to || new Date().toISOString().split('T')[0]
+  // Smart sync: if last_sync exists, only sync last 2 days; otherwise full 180 days
+  const lastSync = (integration as any).metadata?.last_sync
+  const fallbackSince = new Date(Date.now() - 180 * 86400000).toLocaleDateString('sv-SE')
+  const smartSince = lastSync
+    ? new Date(Date.now() - 2 * 86400000).toLocaleDateString('sv-SE')
+    : fallbackSince
+  const since = date_from || smartSince
+  const until = date_to || new Date().toLocaleDateString('sv-SE')
+
+  console.log(`[google-ads/sync] smart sync: last_sync=${lastSync || 'none'}, period=${since}→${until}`)
 
   const customerId = integration.account_id.replace(/-/g, '')
   const loginCustomerId = process.env.GOOGLE_ADS_MCC_ID?.replace(/-/g, '') || customerId
@@ -109,8 +117,16 @@ export async function POST(req: NextRequest) {
       await supabase.from('ads_metrics').insert(rows)
     }
 
+    // Update last_sync in metadata
+    const existingMeta = (integration as any).metadata || {}
+    await supabase
+      .from('workspace_integrations')
+      .update({ metadata: { ...existingMeta, last_sync: new Date().toLocaleDateString('sv-SE') } })
+      .eq('workspace_id', workspace_id)
+      .eq('provider', 'google_ads')
+
     console.log(`[google-ads/sync] OK: ${rows.length} rows synced for workspace ${workspace_id}`)
-    return NextResponse.json({ synced: rows.length, period: { since, until } })
+    return NextResponse.json({ synced: rows.length, period: { since, until }, smart: !!lastSync })
   } catch (err: any) {
     console.error('[google-ads/sync] unexpected error:', err.message, err.stack)
     return NextResponse.json({ error: err.message }, { status: 500 })
