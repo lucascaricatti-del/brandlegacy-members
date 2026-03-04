@@ -112,7 +112,6 @@ export async function POST(request: Request) {
             items,
             shipping_id: order.shipping?.id ? String(order.shipping.id) : null,
             currency: order.currency_id || 'BRL',
-            synced_at: new Date().toISOString(),
           }, { onConflict: 'workspace_id,order_id' })
 
         console.log('[ml/webhook] order upserted:', orderId)
@@ -152,7 +151,6 @@ export async function POST(request: Request) {
             resolution_type: claim.resolution?.reason || null,
             resolution_status: claim.resolution?.status || null,
             created_at_ml: claim.date_created || null,
-            synced_at: new Date().toISOString(),
           }, { onConflict: 'workspace_id,claim_id' })
 
         console.log('[ml/webhook] claim upserted:', claimId)

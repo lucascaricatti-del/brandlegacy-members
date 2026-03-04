@@ -30,13 +30,14 @@ function getMonthChunks(months: number): { from: string; to: string; label: stri
 }
 
 export async function POST(req: NextRequest) {
-  const { workspace_id, months } = await req.json()
+  const { workspace_id, months, days } = await req.json()
 
   if (!workspace_id) {
     return NextResponse.json({ error: 'workspace_id required' }, { status: 400 })
   }
 
-  const syncMonths = months || 6
+  // Support both months and days params
+  const syncMonths = days ? Math.max(1, Math.ceil(days / 30)) : (months || 6)
 
   try {
     const accessToken = await getMlToken(workspace_id)
@@ -58,6 +59,7 @@ export async function POST(req: NextRequest) {
     const monthChunks = getMonthChunks(syncMonths)
     let totalSynced = 0
     const monthResults: { month: string; orders: number }[] = []
+    const upsertErrors: string[] = []
 
     for (const chunk of monthChunks) {
       const monthOrders: any[] = []
@@ -126,7 +128,6 @@ export async function POST(req: NextRequest) {
           items,
           shipping_id: order.shipping?.id ? String(order.shipping.id) : null,
           currency: order.currency_id || 'BRL',
-          synced_at: new Date().toISOString(),
         }
       })
 
@@ -139,7 +140,10 @@ export async function POST(req: NextRequest) {
             .from('ml_orders')
             .upsert(batch, { onConflict: 'workspace_id,order_id' })
           if (upsertErr) {
-            console.error(`[ml/sync] ${chunk.label} upsert error:`, upsertErr.message)
+            const errDetail = `${chunk.label} batch ${i}: ${upsertErr.message} | code: ${upsertErr.code} | details: ${upsertErr.details} | hint: ${upsertErr.hint}`
+            console.error(`[ml/sync] UPSERT ERROR:`, errDetail)
+            console.error(`[ml/sync] sample row keys:`, Object.keys(batch[0]))
+            upsertErrors.push(errDetail)
           } else {
             monthSynced += batch.length
           }
@@ -157,6 +161,7 @@ export async function POST(req: NextRequest) {
       synced: totalSynced,
       months_processed: monthResults.length,
       months: monthResults,
+      ...(upsertErrors.length > 0 && { upsert_errors: upsertErrors }),
     })
   } catch (err: any) {
     console.error('[ml/sync] error:', err.message)

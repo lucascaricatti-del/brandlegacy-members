@@ -112,7 +112,6 @@ export async function POST(req: NextRequest) {
           description: op.description || op.name || op.detail?.description || '',
           reference_id: op.reference_id || op.order_id ? String(op.reference_id || op.order_id) : null,
           currency: op.currency_id || 'BRL',
-          synced_at: new Date().toISOString(),
         }
       })
 
