@@ -43,7 +43,7 @@ export default async function IntegracoesPage() {
 
   const ws = workspaces[0]
 
-  // Busca integrações de workspace_integrations
+  // Busca todas as integrações (ads + marketplaces)
   const { data: integrations } = await (adminSupabase as any)
     .from('workspace_integrations')
     .select('id, workspace_id, provider, account_id, account_name, status, metadata, updated_at')

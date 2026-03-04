@@ -39,7 +39,6 @@ export async function POST(req: NextRequest) {
   try {
     const accessToken = await getMlToken(workspace_id)
 
-    // Get seller_id and check last_finance_sync
     const { data: integration } = await (adminSupabase as any)
       .from('workspace_integrations')
       .select('metadata')
@@ -59,7 +58,6 @@ export async function POST(req: NextRequest) {
     let monthChunks: { from: string; to: string; label: string }[]
 
     if (lastFinanceSync) {
-      // Last 2 days
       const twoDaysAgo = new Date(Date.now() - 2 * 86400000)
       const now = new Date()
       monthChunks = [{
@@ -82,11 +80,12 @@ export async function POST(req: NextRequest) {
       let offset = 0
       const limit = 50
 
-      // Paginate collections (payments received) for this month
+      // Paginate money_movements for this period
       while (true) {
         const url =
-          `https://api.mercadolibre.com/collections/search` +
-          `?seller_id=${sellerId}` +
+          `https://api.mercadolibre.com/users/${sellerId}/movements` +
+          `?begin_date=${encodeURIComponent(chunk.from)}` +
+          `&end_date=${encodeURIComponent(chunk.to)}` +
           `&offset=${offset}&limit=${limit}`
 
         const res: Response = await fetch(url, {
@@ -102,17 +101,18 @@ export async function POST(req: NextRequest) {
 
         const json = await res.json()
 
-        // Log first raw response to see the actual structure
+        // Log first raw response
         if (isFirstRequest) {
           console.log(`[ml/finance-sync] RAW FIRST RESPONSE:`, JSON.stringify(json).slice(0, 2000))
           isFirstRequest = false
         }
 
-        const results = json.results || json.data || json.elements || []
+        const results = json.results || json.data || []
         monthOps.push(...results)
 
         const total = json.paging?.total ?? json.total ?? 0
-        if (offset + limit >= total || results.length === 0) break
+        // ML API limits offset to 10000
+        if (offset + limit >= total || offset + limit >= 10000 || results.length === 0) break
         offset += limit
 
         await delay(200)
@@ -120,23 +120,23 @@ export async function POST(req: NextRequest) {
 
       // Parse and upsert
       const opRows = monthOps.map((op: any) => {
-        const createdAt = op.date_created || op.created_at || ''
-        const date = createdAt.split('T')[0] || ''
+        const createdAt = op.date_created || op.date || ''
+        const date = createdAt ? createdAt.split('T')[0] : null
 
         return {
           workspace_id,
-          operation_id: String(op.id || op.charge_id || op.operation_id),
-          date,
-          type: op.type || op.charge_type || 'charge',
+          operation_id: String(op.id || op.movement_id || op.reference_id || `${chunk.label}-${offset}`),
+          date: date || chunk.from.split('T')[0],
+          type: op.type || op.movement_type || 'movement',
           status: op.status || 'processed',
-          amount: Number(op.total_amount || op.amount || 0),
-          net_amount: Number(op.net_amount || op.total_amount || op.amount || 0),
+          amount: Number(op.amount || op.transaction_amount || op.total_amount || 0),
+          net_amount: Number(op.net_amount || op.amount || 0),
           fee_amount: Number(op.fee_amount || op.marketplace_fee || 0),
-          description: op.description || op.name || op.detail?.description || '',
-          reference_id: op.reference_id || op.order_id ? String(op.reference_id || op.order_id) : null,
+          description: op.description || op.detail?.description || op.reason || '',
+          reference_id: op.reference_id ? String(op.reference_id) : null,
           currency: op.currency_id || 'BRL',
         }
-      })
+      }).filter((r: any) => r.date)
 
       let monthSynced = 0
       if (opRows.length > 0) {

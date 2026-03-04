@@ -1,231 +1,278 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 
-type Integration = {
-  id: string
-  provider: string
-  account_id: string | null
-  account_name: string | null
+type Order = {
+  order_id: string
+  date: string
   status: string
-  metadata: any
-  updated_at: string
+  revenue: number
+  net_revenue: number
+  marketplace_fee: number
+  buyer_nickname: string
+  items: any[]
+  currency: string
 }
 
-const MARKETPLACES = [
-  {
-    id: 'mercadolivre',
-    name: 'Mercado Livre',
-    description: 'Pedidos, receita líquida, taxas marketplace, reclamações e reputação.',
-    color: '#FFE600',
-    textColor: '#2D3277',
-    icon: 'ML',
-    oauth: true,
-  },
-  {
-    id: 'shopee',
-    name: 'Shopee',
-    description: 'Pedidos, receita, taxas de comissão e métricas de loja.',
-    color: '#EE4D2D',
-    textColor: '#fff',
-    icon: 'SP',
-    comingSoon: true,
-  },
-  {
-    id: 'magalu',
-    name: 'Magalu',
-    description: 'Pedidos, faturamento e performance no marketplace.',
-    color: '#0086FF',
-    textColor: '#fff',
-    icon: 'MG',
-    comingSoon: true,
-  },
-  {
-    id: 'netshoes',
-    name: 'Netshoes',
-    description: 'Pedidos, receita e métricas de operação esportiva.',
-    color: '#000000',
-    textColor: '#fff',
-    icon: 'NS',
-    comingSoon: true,
-  },
+type Tab = 'mercadolivre' | 'shopee' | 'magalu' | 'netshoes'
+
+const TABS: { id: Tab; name: string; color: string; textColor: string; icon: string; enabled: boolean }[] = [
+  { id: 'mercadolivre', name: 'Mercado Livre', color: '#FFE600', textColor: '#2D3277', icon: 'ML', enabled: true },
+  { id: 'shopee', name: 'Shopee', color: '#EE4D2D', textColor: '#fff', icon: 'SP', enabled: false },
+  { id: 'magalu', name: 'Magalu', color: '#0086FF', textColor: '#fff', icon: 'MG', enabled: false },
+  { id: 'netshoes', name: 'Netshoes', color: '#000000', textColor: '#fff', icon: 'NS', enabled: false },
 ]
+
+const PERIODS = [
+  { label: '7d', days: 7 },
+  { label: '14d', days: 14 },
+  { label: '30d', days: 30 },
+  { label: '90d', days: 90 },
+]
+
+function formatBRL(v: number) {
+  return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
 
 export default function MarketplacesClient({
   workspaceId,
-  integrations,
+  orders,
+  isConnected,
 }: {
   workspaceId: string
-  integrations: Integration[]
+  orders: Order[]
+  isConnected: boolean
 }) {
-  const connectedMap = new Map(integrations.map((i) => [i.provider, i]))
-
-  return (
-    <div className="grid gap-4">
-      {MARKETPLACES.map((mp) => (
-        <MarketplaceCard
-          key={mp.id}
-          marketplace={mp}
-          workspaceId={workspaceId}
-          connected={connectedMap.get(mp.id) ?? null}
-        />
-      ))}
-    </div>
-  )
-}
-
-function MarketplaceCard({
-  marketplace,
-  workspaceId,
-  connected,
-}: {
-  marketplace: (typeof MARKETPLACES)[number]
-  workspaceId: string
-  connected: Integration | null
-}) {
+  const [activeTab, setActiveTab] = useState<Tab>('mercadolivre')
+  const [period, setPeriod] = useState(30)
   const [syncing, setSyncing] = useState(false)
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [syncMsg, setSyncMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-  const isConnected = connected?.status === 'active'
+  const cutoff = useMemo(() => {
+    const d = new Date()
+    d.setDate(d.getDate() - period)
+    return d.toISOString().split('T')[0]
+  }, [period])
 
-  async function handleConnect() {
-    if (marketplace.id === 'mercadolivre') {
-      window.location.href = `/api/integrations/mercadolivre/auth?workspace_id=${workspaceId}`
-      return
-    }
-  }
+  const filtered = useMemo(() => {
+    return orders.filter((o) => o.date >= cutoff)
+  }, [orders, cutoff])
+
+  const kpis = useMemo(() => {
+    const totalRevenue = filtered.reduce((s, o) => s + o.revenue, 0)
+    const totalOrders = filtered.length
+    const avgTicket = totalOrders > 0 ? totalRevenue / totalOrders : 0
+    const totalFee = filtered.reduce((s, o) => s + (o.marketplace_fee || 0), 0)
+    const netRevenue = filtered.reduce((s, o) => s + (o.net_revenue || o.revenue), 0)
+    return { totalRevenue, totalOrders, avgTicket, totalFee, netRevenue }
+  }, [filtered])
 
   async function handleSync() {
-    setSyncing(true)
-    setMessage(null)
+    setSyncing(true); setSyncMsg(null)
     try {
-      const res = await fetch(`/api/integrations/${marketplace.id}/sync`, {
+      const res = await fetch('/api/integrations/mercadolivre/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace_id: workspaceId, days: 30 }),
+        body: JSON.stringify({ workspace_id: workspaceId }),
       })
       const data = await res.json()
-      if (data.error) setMessage({ type: 'error', text: data.error })
-      else setMessage({ type: 'success', text: `${data.synced} pedidos sincronizados!` })
+      if (data.error) setSyncMsg({ type: 'error', text: data.error })
+      else {
+        setSyncMsg({ type: 'success', text: `${data.synced} pedidos sincronizados!` })
+        setTimeout(() => window.location.reload(), 1500)
+      }
     } catch {
-      setMessage({ type: 'error', text: 'Erro ao sincronizar.' })
+      setSyncMsg({ type: 'error', text: 'Erro ao sincronizar.' })
     }
     setSyncing(false)
   }
 
-  async function handleDisconnect() {
-    if (!confirm(`Desconectar ${marketplace.name}? Dados de métricas serão removidos.`)) return
-    setMessage(null)
-    try {
-      const res = await fetch('/api/integrations/disconnect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace_id: workspaceId, provider: marketplace.id }),
-      })
-      const data = await res.json()
-      if (data.error) setMessage({ type: 'error', text: data.error })
-      else window.location.reload()
-    } catch {
-      setMessage({ type: 'error', text: 'Erro ao desconectar.' })
-    }
-  }
+  const tab = TABS.find((t) => t.id === activeTab)!
 
   return (
-    <div className="bg-bg-card border border-border rounded-xl p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div
-            className="w-10 h-10 rounded-lg flex items-center justify-center font-bold text-sm"
-            style={{ backgroundColor: marketplace.color, color: marketplace.textColor }}
+    <div className="space-y-6">
+      {/* Tabs */}
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => t.enabled && setActiveTab(t.id)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+              activeTab === t.id
+                ? 'bg-bg-surface text-text-primary border border-border'
+                : t.enabled
+                  ? 'text-text-muted hover:text-text-secondary hover:bg-bg-card'
+                  : 'text-text-muted/50 cursor-not-allowed'
+            }`}
+            disabled={!t.enabled}
           >
-            {marketplace.icon}
-          </div>
-          <div>
-            <h3 className="text-text-primary font-semibold">{marketplace.name}</h3>
-            <p className="text-text-muted text-sm">{marketplace.description}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {marketplace.comingSoon ? (
-            <span className="text-xs px-2.5 py-1 rounded-full bg-bg-surface text-text-muted font-medium border border-border">
-              Em breve
+            <span
+              className="w-6 h-6 rounded flex items-center justify-center text-xs font-bold"
+              style={{ backgroundColor: t.color, color: t.textColor }}
+            >
+              {t.icon}
             </span>
-          ) : isConnected ? (
-            <span className="text-xs px-2.5 py-1 rounded-full bg-success/15 text-success font-medium">
-              Conectado
-            </span>
-          ) : (
-            <span className="text-xs px-2.5 py-1 rounded-full bg-bg-surface text-text-muted font-medium border border-border">
-              Não conectado
-            </span>
-          )}
-        </div>
+            {t.name}
+            {!t.enabled && <span className="text-[10px] bg-bg-surface px-1.5 py-0.5 rounded-full border border-border">Em breve</span>}
+          </button>
+        ))}
       </div>
 
-      {/* Connected info */}
-      {isConnected && (
-        <div className="mt-4 pt-4 border-t border-border">
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
-            {connected.account_name && (
-              <span className="text-text-secondary">
-                <span className="text-text-muted">Vendedor:</span> {connected.account_name}
-                {connected.account_id && <span className="text-text-muted ml-1">({connected.account_id})</span>}
-              </span>
-            )}
-            {connected.updated_at && (
-              <span className="text-text-secondary">
-                <span className="text-text-muted">Última sync:</span>{' '}
-                {new Date(connected.updated_at).toLocaleDateString('pt-BR', {
-                  day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
-                })}
-              </span>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-2 mt-3">
-            <button
-              onClick={handleSync}
-              disabled={syncing}
-              className="px-3 py-1.5 text-sm rounded-lg bg-brand-gold text-bg-base font-medium hover:bg-brand-gold-light transition-colors disabled:opacity-50"
-            >
-              {syncing ? 'Sincronizando...' : 'Sincronizar'}
-            </button>
-            <button
-              onClick={handleConnect}
-              className="px-3 py-1.5 text-sm rounded-lg border border-border text-text-secondary hover:bg-bg-hover transition-colors"
-            >
-              Reconectar
-            </button>
-            <button
-              onClick={handleDisconnect}
-              className="px-3 py-1.5 text-sm rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors"
-            >
-              Desconectar
-            </button>
-          </div>
-        </div>
+      {/* ML Tab Content */}
+      {activeTab === 'mercadolivre' && (
+        <>
+          {!isConnected ? (
+            <div className="bg-bg-card border border-border rounded-xl p-12 text-center">
+              <div className="w-16 h-16 rounded-xl flex items-center justify-center font-bold text-2xl mx-auto mb-4"
+                style={{ backgroundColor: '#FFE600', color: '#2D3277' }}>ML</div>
+              <h3 className="text-lg font-semibold text-text-primary mb-2">Mercado Livre não conectado</h3>
+              <p className="text-text-muted text-sm mb-4">
+                Conecte sua conta na página de <a href="/integracoes" className="text-brand-gold hover:underline">Integrações</a> para visualizar métricas.
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Period Filter + Sync */}
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex gap-1 bg-bg-card border border-border rounded-lg p-1">
+                  {PERIODS.map((p) => (
+                    <button
+                      key={p.days}
+                      onClick={() => setPeriod(p.days)}
+                      className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+                        period === p.days
+                          ? 'bg-brand-gold text-bg-base font-medium'
+                          : 'text-text-muted hover:text-text-secondary'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2">
+                  {syncMsg && (
+                    <span className={`text-xs ${syncMsg.type === 'success' ? 'text-success' : 'text-error'}`}>
+                      {syncMsg.text}
+                    </span>
+                  )}
+                  <button onClick={handleSync} disabled={syncing}
+                    className="px-3 py-1.5 text-sm rounded-lg border border-border text-text-secondary hover:bg-bg-hover transition-colors disabled:opacity-50">
+                    {syncing ? 'Sincronizando...' : 'Atualizar dados'}
+                  </button>
+                </div>
+              </div>
+
+              {/* KPI Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <KPICard label="Receita Bruta" value={formatBRL(kpis.totalRevenue)} />
+                <KPICard label="Pedidos" value={kpis.totalOrders.toLocaleString('pt-BR')} />
+                <KPICard label="Ticket Médio" value={formatBRL(kpis.avgTicket)} />
+                <KPICard label="Taxas ML" value={formatBRL(kpis.totalFee)} />
+                <KPICard label="Receita Líquida" value={formatBRL(kpis.netRevenue)} highlight />
+              </div>
+
+              {/* Orders Table */}
+              <div className="bg-bg-card border border-border rounded-xl overflow-hidden">
+                <div className="px-4 py-3 border-b border-border">
+                  <h3 className="text-sm font-semibold text-text-primary">
+                    Pedidos ({filtered.length.toLocaleString('pt-BR')})
+                  </h3>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-text-muted text-xs border-b border-border">
+                        <th className="text-left px-4 py-2.5 font-medium">Data</th>
+                        <th className="text-left px-4 py-2.5 font-medium">Pedido</th>
+                        <th className="text-left px-4 py-2.5 font-medium">Comprador</th>
+                        <th className="text-left px-4 py-2.5 font-medium">Itens</th>
+                        <th className="text-left px-4 py-2.5 font-medium">Status</th>
+                        <th className="text-right px-4 py-2.5 font-medium">Receita</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="px-4 py-8 text-center text-text-muted">
+                            Nenhum pedido no período selecionado.
+                          </td>
+                        </tr>
+                      ) : (
+                        filtered.slice(0, 100).map((order) => (
+                          <tr key={order.order_id} className="border-b border-border/50 hover:bg-bg-hover/50 transition-colors">
+                            <td className="px-4 py-2.5 text-text-secondary whitespace-nowrap">
+                              {new Date(order.date + 'T12:00:00').toLocaleDateString('pt-BR')}
+                            </td>
+                            <td className="px-4 py-2.5 text-text-muted font-mono text-xs">
+                              #{order.order_id}
+                            </td>
+                            <td className="px-4 py-2.5 text-text-secondary">
+                              {order.buyer_nickname || '—'}
+                            </td>
+                            <td className="px-4 py-2.5 text-text-secondary">
+                              {Array.isArray(order.items) ? order.items.length : 0} item(s)
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <OrderStatus status={order.status} />
+                            </td>
+                            <td className="px-4 py-2.5 text-right text-text-primary font-medium">
+                              {formatBRL(order.revenue)}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {filtered.length > 100 && (
+                  <div className="px-4 py-2 border-t border-border text-center text-xs text-text-muted">
+                    Mostrando 100 de {filtered.length.toLocaleString('pt-BR')} pedidos
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </>
       )}
 
-      {/* Connect button */}
-      {!connected && !marketplace.comingSoon && (
-        <div className="mt-4">
-          <button
-            onClick={handleConnect}
-            className="px-4 py-2 text-sm rounded-lg bg-brand-gold text-bg-base font-medium hover:bg-brand-gold-light transition-colors"
-          >
-            Conectar {marketplace.name}
-          </button>
-        </div>
-      )}
-
-      {/* Message */}
-      {message && (
-        <div className={`mt-3 text-sm px-3 py-2 rounded-lg ${
-          message.type === 'success' ? 'bg-success/10 text-success' : 'bg-error/10 text-error'
-        }`}>
-          {message.text}
+      {/* Other tabs */}
+      {activeTab !== 'mercadolivre' && (
+        <div className="bg-bg-card border border-border rounded-xl p-12 text-center">
+          <div className="w-16 h-16 rounded-xl flex items-center justify-center font-bold text-2xl mx-auto mb-4"
+            style={{ backgroundColor: tab.color, color: tab.textColor }}>{tab.icon}</div>
+          <h3 className="text-lg font-semibold text-text-primary mb-2">{tab.name}</h3>
+          <p className="text-text-muted text-sm">Integração em breve.</p>
         </div>
       )}
     </div>
+  )
+}
+
+function KPICard({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div className={`rounded-xl p-4 border ${highlight ? 'bg-brand-gold/10 border-brand-gold/30' : 'bg-bg-card border-border'}`}>
+      <p className="text-xs text-text-muted mb-1">{label}</p>
+      <p className={`text-lg font-bold ${highlight ? 'text-brand-gold' : 'text-text-primary'}`}>{value}</p>
+    </div>
+  )
+}
+
+function OrderStatus({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    paid: 'bg-success/15 text-success',
+    confirmed: 'bg-success/15 text-success',
+    cancelled: 'bg-red-500/15 text-red-400',
+    pending: 'bg-yellow-500/15 text-yellow-400',
+  }
+  const labels: Record<string, string> = {
+    paid: 'Pago',
+    confirmed: 'Confirmado',
+    cancelled: 'Cancelado',
+    pending: 'Pendente',
+  }
+  return (
+    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${styles[status] || 'bg-bg-surface text-text-muted'}`}>
+      {labels[status] || status}
+    </span>
   )
 }
