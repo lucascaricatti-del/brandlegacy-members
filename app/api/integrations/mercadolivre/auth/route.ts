@@ -58,6 +58,6 @@ export async function GET(req: NextRequest) {
   })
 
   return NextResponse.redirect(
-    `https://auth.mercadolibre.com.br/authorization?${params.toString()}`
+    `https://auth.mercadolivre.com.br/authorization?${params.toString()}`
   )
 }
