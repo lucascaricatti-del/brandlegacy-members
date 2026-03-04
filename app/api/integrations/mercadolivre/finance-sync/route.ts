@@ -30,18 +30,16 @@ function getMonthChunks(months: number): { from: string; to: string; label: stri
 }
 
 export async function POST(req: NextRequest) {
-  const { workspace_id, months } = await req.json()
+  const { workspace_id } = await req.json()
 
   if (!workspace_id) {
     return NextResponse.json({ error: 'workspace_id required' }, { status: 400 })
   }
 
-  const syncMonths = months || 6
-
   try {
     const accessToken = await getMlToken(workspace_id)
 
-    // Get seller_id
+    // Get seller_id and check last_finance_sync
     const { data: integration } = await (adminSupabase as any)
       .from('workspace_integrations')
       .select('metadata')
@@ -55,7 +53,25 @@ export async function POST(req: NextRequest) {
     }
 
     const sellerId = integration.metadata.seller_id
-    const monthChunks = getMonthChunks(syncMonths)
+
+    // Smart sync: if last_finance_sync exists, fetch last 2 days only; otherwise 6 months
+    const lastFinanceSync = integration.metadata.last_finance_sync
+    let monthChunks: { from: string; to: string; label: string }[]
+
+    if (lastFinanceSync) {
+      // Last 2 days
+      const twoDaysAgo = new Date(Date.now() - 2 * 86400000)
+      const now = new Date()
+      monthChunks = [{
+        from: twoDaysAgo.toISOString().split('T')[0] + 'T00:00:00.000-00:00',
+        to: now.toISOString().split('T')[0] + 'T23:59:59.999-00:00',
+        label: 'last-2-days',
+      }]
+    } else {
+      monthChunks = getMonthChunks(6)
+    }
+
+    console.log(`[ml/finance-sync] smart sync: last_finance_sync=${lastFinanceSync || 'none'}, chunks=${monthChunks.length}`)
     let totalSynced = 0
     const monthResults: { month: string; operations: number }[] = []
 
@@ -137,10 +153,20 @@ export async function POST(req: NextRequest) {
       await delay(200)
     }
 
+    // Update last_finance_sync in metadata
+    await (adminSupabase as any)
+      .from('workspace_integrations')
+      .update({
+        metadata: { ...integration.metadata, last_finance_sync: new Date().toLocaleDateString('sv-SE') },
+      })
+      .eq('workspace_id', workspace_id)
+      .eq('provider', 'mercadolivre')
+
     return NextResponse.json({
       synced: totalSynced,
       months_processed: monthResults.length,
       months: monthResults,
+      smart: !!lastFinanceSync,
     })
   } catch (err: any) {
     console.error('[ml/finance-sync] error:', err.message)
