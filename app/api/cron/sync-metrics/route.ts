@@ -82,10 +82,10 @@ async function syncMeta(workspaceId: string, integration: any, since: string, un
   const accountIdClean = integration.account_id.replace(/^act_/, '')
 
   let url: string | null =
-    `https://graph.facebook.com/v21.0/act_${accountIdClean}/insights?` +
+    `https://graph.facebook.com/v22.0/act_${accountIdClean}/insights?` +
     `fields=campaign_id,campaign_name,adset_id,adset_name,spend,impressions,clicks,actions,action_values,cpm,cpc,ctr` +
     `&time_range={"since":"${since}","until":"${until}"}` +
-    `&time_increment=1&level=campaign&limit=500` +
+    `&time_increment=1&level=campaign&limit=100` +
     `&access_token=${integration.access_token}`
 
   const allRows: any[] = []

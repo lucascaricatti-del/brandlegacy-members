@@ -6,14 +6,17 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 )
 
-function getWeekChunks(since: string, until: string): { since: string; until: string }[] {
+function getDateChunks(since: string, until: string): { since: string; until: string }[] {
   const chunks: { since: string; until: string }[] = []
   const start = new Date(since)
   const end = new Date(until)
 
+  // Use 30-day chunks to stay within Meta API limits while not creating too many requests
+  const chunkDays = 30
+
   while (start < end) {
     const chunkEnd = new Date(start)
-    chunkEnd.setDate(chunkEnd.getDate() + 6)
+    chunkEnd.setDate(chunkEnd.getDate() + chunkDays - 1)
     if (chunkEnd > end) chunkEnd.setTime(end.getTime())
 
     chunks.push({
@@ -21,7 +24,7 @@ function getWeekChunks(since: string, until: string): { since: string; until: st
       until: chunkEnd.toLocaleDateString('sv-SE'),
     })
 
-    start.setDate(start.getDate() + 7)
+    start.setDate(start.getDate() + chunkDays)
   }
 
   return chunks
@@ -62,8 +65,8 @@ export async function POST(req: NextRequest) {
     const allRows: any[] = []
 
     // Split into weekly chunks to avoid "Please reduce the amount of data" error
-    const weekChunks = getWeekChunks(since, until)
-    console.log(`[meta/sync] splitting into ${weekChunks.length} weekly chunks`)
+    const weekChunks = getDateChunks(since, until)
+    console.log(`[meta/sync] splitting into ${weekChunks.length} chunks (30-day each)`)
 
     for (const chunk of weekChunks) {
       let url: string | null =
@@ -76,13 +79,29 @@ export async function POST(req: NextRequest) {
         `&access_token=${integration.access_token}`
 
       while (url) {
+        // Log URL without access_token for debugging
+        const urlForLog = url.replace(/access_token=[^&]+/, 'access_token=REDACTED')
+        console.log(`[meta/sync] fetching: ${urlForLog}`)
+
         const pageRes: Response = await fetch(url)
         const data: any = await pageRes.json()
 
         if (data.error) {
-          console.error(`[meta/sync] API error for chunk ${chunk.since}→${chunk.until}:`, JSON.stringify(data.error))
-          // If this chunk still fails, skip it and continue with next
-          break
+          const metaError = {
+            url_called: urlForLog,
+            http_status: pageRes.status,
+            chunk: `${chunk.since}→${chunk.until}`,
+            error_type: data.error.type,
+            error_code: data.error.code,
+            error_subcode: data.error.error_subcode,
+            message: data.error.message,
+            error_user_title: data.error.error_user_title,
+            error_user_msg: data.error.error_user_msg,
+            fbtrace_id: data.error.fbtrace_id,
+            full_error: data.error,
+          }
+          console.error(`[meta/sync] META API ERROR:`, JSON.stringify(metaError, null, 2))
+          return NextResponse.json({ error: 'Meta API error', meta_error: metaError }, { status: 502 })
         }
 
         const pageRows = (data.data || []).map((row: any) => {
