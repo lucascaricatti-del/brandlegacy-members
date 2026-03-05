@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 type Metrics = {
   total_revenue: number
@@ -14,6 +14,13 @@ type Metrics = {
   total_frete: number
   total_fees: number
   total_net: number
+}
+
+type ManualCosts = {
+  ml_ads_cost: number
+  ml_fulfillment_cost: number
+  ml_return_fee: number
+  ml_other_fees: number
 }
 
 type TopProduct = {
@@ -89,6 +96,10 @@ const EMPTY_METRICS: Metrics = {
   total_frete: 0, total_fees: 0, total_net: 0,
 }
 
+const EMPTY_MANUAL: ManualCosts = {
+  ml_ads_cost: 0, ml_fulfillment_cost: 0, ml_return_fee: 0, ml_other_fees: 0,
+}
+
 export default function MarketplacesClient({
   workspaceId,
   claims,
@@ -109,26 +120,48 @@ export default function MarketplacesClient({
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [metrics, setMetrics] = useState<Metrics>(EMPTY_METRICS)
+  const [manualCosts, setManualCosts] = useState<ManualCosts>(EMPTY_MANUAL)
   const [topProducts, setTopProducts] = useState<TopProduct[]>([])
   const [loading, setLoading] = useState(true)
+  const [toast, setToast] = useState<string | null>(null)
+
+  // Current date range ref for manual cost saves
+  const currentRangeRef = useRef<{ date_from: string; date_to: string }>({ date_from: '', date_to: '' })
 
   const fetchData = useCallback(async (p: Period, cFrom?: string, cTo?: string) => {
     setLoading(true)
     try {
       const range = getDateRange(p, cFrom, cTo)
-      const res = await fetch('/api/marketplace/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace_id: workspaceId, ...range }),
-      })
-      const data = await res.json()
-      if (data.error) {
-        console.error('[marketplaces] API error:', data.error)
+      currentRangeRef.current = range
+
+      const [ordersRes, manualRes] = await Promise.all([
+        fetch('/api/marketplace/orders', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspace_id: workspaceId, ...range }),
+        }),
+        fetch(`/api/marketplace/manual-costs?workspace_id=${workspaceId}&date_from=${range.date_from}&date_to=${range.date_to}`),
+      ])
+
+      const ordersData = await ordersRes.json()
+      const manualData = await manualRes.json()
+
+      if (ordersData.error) {
+        console.error('[marketplaces] API error:', ordersData.error)
         setMetrics(EMPTY_METRICS)
         setTopProducts([])
       } else {
-        setMetrics(data.metrics ?? EMPTY_METRICS)
-        setTopProducts(data.top_products ?? [])
+        setMetrics(ordersData.metrics ?? EMPTY_METRICS)
+        setTopProducts(ordersData.top_products ?? [])
+      }
+
+      if (!manualData.error) {
+        setManualCosts({
+          ml_ads_cost: manualData.ml_ads_cost ?? 0,
+          ml_fulfillment_cost: manualData.ml_fulfillment_cost ?? 0,
+          ml_return_fee: manualData.ml_return_fee ?? 0,
+          ml_other_fees: manualData.ml_other_fees ?? 0,
+        })
       }
     } catch (err) {
       console.error('[marketplaces] fetch error:', err)
@@ -165,14 +198,49 @@ export default function MarketplacesClient({
     setSyncing(false)
   }
 
-  const margin = metrics.total_revenue > 0
-    ? (metrics.total_net / metrics.total_revenue) * 100
-    : 0
+  async function saveManualCost(field: keyof ManualCosts, value: number) {
+    const range = currentRangeRef.current
+    const month = range.date_from.slice(0, 7) + '-01'
+    const body = { workspace_id: workspaceId, month, ...manualCosts, [field]: value }
+
+    try {
+      const res = await fetch('/api/marketplace/manual-costs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (data.error) {
+        console.error('[manual-costs] save error:', data.error)
+        return
+      }
+      setManualCosts(prev => ({ ...prev, [field]: value }))
+      setToast('Salvo!')
+      setTimeout(() => setToast(null), 2000)
+    } catch (err) {
+      console.error('[manual-costs] save error:', err)
+    }
+  }
+
+  // Computed values
+  const totalManualCosts = manualCosts.ml_ads_cost + manualCosts.ml_fulfillment_cost + manualCosts.ml_return_fee + manualCosts.ml_other_fees
+  const totalAutoFees = metrics.total_fees
+  const totalAllCosts = totalAutoFees + totalManualCosts
+  const vendasLiquidas = metrics.total_revenue - totalAllCosts
+  const hasManualCosts = totalManualCosts > 0
+  const margin = metrics.total_revenue > 0 ? (vendasLiquidas / metrics.total_revenue) * 100 : 0
 
   const tab = TABS.find((t) => t.id === activeTab)!
 
   return (
     <div className="space-y-6">
+      {/* Toast */}
+      {toast && (
+        <div className="fixed top-4 right-4 z-50 bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-medium shadow-lg animate-fade-in">
+          {toast}
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="flex gap-2 overflow-x-auto pb-1">
         {TABS.map((t) => (
@@ -253,7 +321,7 @@ export default function MarketplacesClient({
                 </button>
               </div>
 
-              {/* ═══════════════ SECTION 1: VISÃO GERAL ═══════════════ */}
+              {/* ═══════════════ SECTION 1: VISAO GERAL ═══════════════ */}
               <SectionTitle title="Visão Geral" />
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
                 <KPICard label="Vendas Brutas" value={formatBRL(metrics.total_revenue)} />
@@ -266,31 +334,76 @@ export default function MarketplacesClient({
               {/* ═══════════════ SECTION 2: CUSTOS ═══════════════ */}
               <SectionTitle title="Custos" />
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                <CostCard label="Tarifas de Vendas" value={metrics.total_commission} />
-                <CostCard label="Tarifa Envios" value={metrics.total_frete} />
-                <CostCard label="Tarifa Fixa" value={metrics.total_fixed_fee} />
-                <LockedCard label="Custo Ads" />
-                <LockedCard label="Custo Produto" />
-                <LockedCard label="Impostos" />
-                <CostCard label="CUSTO TOTAL" value={metrics.total_fees} highlight />
+                {/* Automatic costs */}
+                <AutoCostCard
+                  label="Tarifas de Venda Totais"
+                  value={metrics.total_commission}
+                  tooltip="Comissão cobrada pelo Mercado Livre por cada venda realizada. Varia entre 10% e 16% dependendo da categoria e tipo de anúncio."
+                />
+                <AutoCostCard
+                  label="Tarifas de Envio"
+                  value={metrics.total_frete}
+                  tooltip="Custo do frete pago pelo vendedor. Inclui envios por sua conta e desconto por reputação já aplicado pelo ML."
+                />
+                <AutoCostCard
+                  label="Tarifa Fixa"
+                  value={metrics.total_fixed_fee}
+                  tooltip="Tarifa fixa de R$6,00 cobrada por unidade vendida em anúncios Premium (Gold Pro)."
+                />
+
+                {/* Manual costs */}
+                <ManualCostCard
+                  label="Investimento por Campanha de Publicidade"
+                  value={manualCosts.ml_ads_cost}
+                  tooltip="Investimento em ML Ads (Product Ads). Não disponível via API — preencha manualmente consultando Mercado Livre > Publicidade > Relatórios."
+                  onSave={(v) => saveManualCost('ml_ads_cost', v)}
+                />
+                <ManualCostCard
+                  label="Custos do Mercado Envios Full"
+                  value={manualCosts.ml_fulfillment_cost}
+                  tooltip="Custo de armazenamento e operação no fulfillment do Mercado Livre. Não disponível via API — consulte Mercado Livre > Envios Full > Custos."
+                  onSave={(v) => saveManualCost('ml_fulfillment_cost', v)}
+                />
+                <ManualCostCard
+                  label="Tarifas de Devolução"
+                  value={manualCosts.ml_return_fee}
+                  tooltip="Custos gerados por devoluções e estornos. Não disponível via API — consulte Mercado Livre > Vendas > Devoluções."
+                  onSave={(v) => saveManualCost('ml_return_fee', v)}
+                />
+                <ManualCostCard
+                  label="Outras Tarifas"
+                  value={manualCosts.ml_other_fees}
+                  tooltip="Outras cobranças diversas do Mercado Livre não categorizadas acima."
+                  onSave={(v) => saveManualCost('ml_other_fees', v)}
+                />
+
+                {/* Total */}
+                <TotalCostCard
+                  totalAll={totalAllCosts}
+                  totalAuto={totalAutoFees}
+                  totalManual={totalManualCosts}
+                />
               </div>
+              <p className="text-[11px] text-text-muted/60 -mt-1">Valores referentes ao período selecionado</p>
 
               {/* ═══════════════ SECTION 3: RESULTADO ═══════════════ */}
               <SectionTitle title="Resultado" />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <ResultCard
                   label="Vendas Líquidas"
-                  value={formatBRL(metrics.total_net)}
+                  value={formatBRL(vendasLiquidas)}
                   color="green"
+                  note={hasManualCosts ? '* Inclui custos manuais' : undefined}
                 />
                 <ResultCard
                   label="Margem de Contribuição"
                   value={metrics.total_revenue > 0 ? `${margin.toFixed(1)}%` : '—'}
                   color={margin >= 30 ? 'green' : margin >= 15 ? 'yellow' : 'red'}
+                  note={hasManualCosts ? '* Inclui custos manuais' : undefined}
                 />
               </div>
 
-              {/* ═══════════════ SECTION 4: TOP 10 ANÚNCIOS ═══════════════ */}
+              {/* ═══════════════ SECTION 4: TOP 10 ANUNCIOS ═══════════════ */}
               <SectionTitle title="Top 10 Anúncios" />
               {topProducts.length > 0 ? (
                 <div className="bg-bg-card border border-border rounded-xl p-4">
@@ -396,9 +509,7 @@ export default function MarketplacesClient({
 /* ═══════════════ Subcomponents ═══════════════ */
 
 function SectionTitle({ title }: { title: string }) {
-  return (
-    <h2 className="text-base font-semibold text-text-primary mt-2">{title}</h2>
-  )
+  return <h2 className="text-base font-semibold text-text-primary mt-2">{title}</h2>
 }
 
 function KPICard({ label, value, negative }: { label: string; value: string; negative?: boolean }) {
@@ -410,32 +521,183 @@ function KPICard({ label, value, negative }: { label: string; value: string; neg
   )
 }
 
-function CostCard({ label, value, highlight }: { label: string; value: number; highlight?: boolean }) {
+function InfoTooltip({ text }: { text: string }) {
+  const [show, setShow] = useState(false)
   return (
-    <div className={`rounded-xl p-4 border ${highlight ? 'bg-red-500/10 border-red-500/30' : 'bg-bg-card border-border'}`}>
-      <p className="text-xs text-text-muted mb-1">{label}</p>
-      <p className={`text-lg font-bold ${highlight ? 'text-red-400' : 'text-red-400'}`}>
-        -{formatBRL(value)}
-      </p>
-    </div>
-  )
-}
-
-function LockedCard({ label }: { label: string }) {
-  return (
-    <div className="bg-bg-card border border-border rounded-xl p-4 opacity-50">
-      <p className="text-xs text-text-muted mb-1">{label}</p>
-      <div className="flex items-center gap-1.5">
-        <svg className="w-4 h-4 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+    <span className="relative inline-block">
+      <span
+        className="cursor-help text-text-muted/60 hover:text-text-muted transition-colors"
+        onMouseEnter={() => setShow(true)}
+        onMouseLeave={() => setShow(false)}
+      >
+        <svg className="w-3.5 h-3.5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <circle cx="12" cy="12" r="10" />
+          <path d="M12 16v-4M12 8h.01" />
         </svg>
-        <span className="text-sm text-text-muted">Em breve</span>
+      </span>
+      {show && (
+        <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a1a] text-white text-[11px] leading-snug rounded-lg shadow-xl max-w-[250px] w-max z-50 pointer-events-none">
+          {text}
+          <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1a1a1a]" />
+        </span>
+      )}
+    </span>
+  )
+}
+
+function SourceBadge({ type }: { type: 'auto' | 'manual' }) {
+  return type === 'auto' ? (
+    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
+      Automático
+    </span>
+  ) : (
+    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-500/15 text-yellow-400 border border-yellow-500/20">
+      Manual
+    </span>
+  )
+}
+
+function AutoCostCard({ label, value, tooltip }: { label: string; value: number; tooltip: string }) {
+  return (
+    <div className="bg-bg-card border border-border rounded-xl p-4">
+      <div className="flex items-start justify-between gap-1 mb-1">
+        <p className="text-xs text-text-muted leading-tight">{label}</p>
+        <div className="flex items-center gap-1 shrink-0">
+          <InfoTooltip text={tooltip} />
+          <SourceBadge type="auto" />
+        </div>
       </div>
+      <p className="text-lg font-bold text-red-400">-{formatBRL(value)}</p>
     </div>
   )
 }
 
-function ResultCard({ label, value, color }: { label: string; value: string; color: 'green' | 'yellow' | 'red' }) {
+function ManualCostCard({
+  label,
+  value,
+  tooltip,
+  onSave,
+}: {
+  label: string
+  value: number
+  tooltip: string
+  onSave: (v: number) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [input, setInput] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  function startEdit() {
+    setInput(value > 0 ? value.toString() : '')
+    setEditing(true)
+    setTimeout(() => inputRef.current?.focus(), 50)
+  }
+
+  function handleSave() {
+    const parsed = parseFloat(input.replace(',', '.')) || 0
+    onSave(parsed)
+    setEditing(false)
+  }
+
+  function handleCancel() {
+    setEditing(false)
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter') handleSave()
+    if (e.key === 'Escape') handleCancel()
+  }
+
+  return (
+    <div className="bg-bg-card border border-border rounded-xl p-4 group">
+      <div className="flex items-start justify-between gap-1 mb-1">
+        <p className="text-xs text-text-muted leading-tight">{label}</p>
+        <div className="flex items-center gap-1 shrink-0">
+          <InfoTooltip text={tooltip} />
+          <SourceBadge type="manual" />
+        </div>
+      </div>
+
+      {editing ? (
+        <div className="flex items-center gap-1.5 mt-1">
+          <span className="text-sm text-text-muted">R$</span>
+          <input
+            ref={inputRef}
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            className="w-full bg-bg-surface border border-border rounded px-2 py-1 text-sm text-text-primary outline-none focus:border-brand-gold"
+            placeholder="0,00"
+          />
+          <button onClick={handleSave} className="text-emerald-400 hover:text-emerald-300 shrink-0" title="Salvar">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </button>
+          <button onClick={handleCancel} className="text-red-400 hover:text-red-300 shrink-0" title="Cancelar">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between">
+          {value > 0 ? (
+            <p className="text-lg font-bold text-red-400">-{formatBRL(value)}</p>
+          ) : (
+            <button onClick={startEdit} className="text-sm text-text-muted/60 hover:text-text-muted flex items-center gap-1 transition-colors">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
+              Clique para adicionar
+            </button>
+          )}
+          {value > 0 && (
+            <button
+              onClick={startEdit}
+              className="opacity-0 group-hover:opacity-100 text-text-muted/60 hover:text-text-muted transition-all"
+              title="Editar"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TotalCostCard({ totalAll, totalAuto, totalManual }: { totalAll: number; totalAuto: number; totalManual: number }) {
+  const [showBreakdown, setShowBreakdown] = useState(false)
+  return (
+    <div
+      className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 relative"
+      onMouseEnter={() => setShowBreakdown(true)}
+      onMouseLeave={() => setShowBreakdown(false)}
+    >
+      <p className="text-xs text-text-muted mb-1 font-semibold">CUSTO TOTAL</p>
+      <p className="text-lg font-bold text-red-400">-{formatBRL(totalAll)}</p>
+      {showBreakdown && (
+        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-[#1a1a1a] text-white text-[11px] rounded-lg shadow-xl w-max z-50 pointer-events-none space-y-0.5">
+          <div className="flex justify-between gap-4">
+            <span className="text-emerald-400">Automático:</span>
+            <span>-{formatBRL(totalAuto)}</span>
+          </div>
+          <div className="flex justify-between gap-4">
+            <span className="text-yellow-400">Manual:</span>
+            <span>-{formatBRL(totalManual)}</span>
+          </div>
+          <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1a1a1a]" />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ResultCard({ label, value, color, note }: { label: string; value: string; color: 'green' | 'yellow' | 'red'; note?: string }) {
   const colorMap = {
     green: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', text: 'text-emerald-400' },
     yellow: { bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', text: 'text-yellow-400' },
@@ -446,6 +708,7 @@ function ResultCard({ label, value, color }: { label: string; value: string; col
     <div className={`rounded-xl p-5 border ${c.bg} ${c.border}`}>
       <p className="text-xs text-text-muted mb-1">{label}</p>
       <p className={`text-2xl font-bold ${c.text}`}>{value}</p>
+      {note && <p className="text-[10px] text-text-muted/60 mt-1">{note}</p>}
     </div>
   )
 }
