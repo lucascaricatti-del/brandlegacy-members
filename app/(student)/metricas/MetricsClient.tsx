@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import {
   AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -109,8 +110,11 @@ export default function MetricsClient({
   yampiOrders: YampiOrderRow[]
   initialTab?: Tab
 }) {
-  const forcedTab = initialTab // when coming from sidebar submenu (e.g. ?tab=meta)
-  const [activeTab, setActiveTab] = useState<Tab>(initialTab ?? 'meta')
+  const searchParams = useSearchParams()
+  const urlTab = searchParams.get('tab') as Tab | null
+  const resolvedInitial = urlTab ?? initialTab ?? 'meta'
+  const forcedTab = urlTab ?? initialTab // when coming from sidebar submenu (e.g. ?tab=meta)
+  const [activeTab, setActiveTab] = useState<Tab>(resolvedInitial)
   const [period, setPeriod] = useState<Period>('30d')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
@@ -125,6 +129,13 @@ export default function MetricsClient({
   const [shopifySyncMsg, setShopifySyncMsg] = useState('')
   const [yampiSyncing, setYampiSyncing] = useState(false)
   const [yampiSyncMsg, setYampiSyncMsg] = useState('')
+
+  // Sync activeTab when URL ?tab= changes (e.g. sidebar navigation)
+  useEffect(() => {
+    if (urlTab && (urlTab === 'meta' || urlTab === 'google' || urlTab === 'yampi')) {
+      setActiveTab(urlTab)
+    }
+  }, [urlTab])
 
   const [reportLoading, setReportLoading] = useState(false)
   const [reportMarkdown, setReportMarkdown] = useState('')

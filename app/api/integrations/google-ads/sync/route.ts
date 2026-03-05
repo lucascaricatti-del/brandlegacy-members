@@ -52,12 +52,12 @@ export async function POST(req: NextRequest) {
 
   // Smart sync: if last_sync exists, always re-fetch last 3 days; otherwise full 180 days
   const lastSync = (integration as any).metadata?.last_sync
-  const fallbackSince = new Date(Date.now() - 180 * 86400000).toLocaleDateString('sv-SE')
+  const fallbackSince = new Date(Date.now() - 180 * 86400000).toISOString().slice(0, 10)
   const smartSince = lastSync
-    ? new Date(Date.now() - 3 * 86400000).toLocaleDateString('sv-SE')
+    ? new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10)
     : fallbackSince
   const since = date_from || smartSince
-  const until = date_to || new Date().toLocaleDateString('sv-SE')
+  const until = date_to || new Date().toISOString().slice(0, 10)
 
   console.log(`[google-ads/sync] smart sync: last_sync=${lastSync || 'none'}, period=${since}→${until}`)
 

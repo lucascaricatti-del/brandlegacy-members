@@ -80,6 +80,7 @@ export default function StudentLayoutShell({
             <CollapsibleSection title="Métricas de Mídia" icon={<IconMetricasMidia />} isOpen={midiaOpen} onToggle={() => setMidiaOpen(!midiaOpen)} href="/metricas" onNavigate={() => setOpen(false)}>
               <SubNavItem href="/metricas?tab=meta" label="Meta" onNavigate={() => setOpen(false)} />
               <SubNavItem href="/metricas?tab=google" label="Google" onNavigate={() => setOpen(false)} />
+              <SubNavItem href="/metricas?tab=yampi" label="Yampi" onNavigate={() => setOpen(false)} />
               <div className="flex items-center gap-2 px-3 py-2 pl-9 text-xs text-text-muted/60">
                 <span>Influenciadores</span>
                 <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/5 text-text-muted/50">em breve</span>

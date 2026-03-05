@@ -6,25 +6,29 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 )
 
+function toYMD(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
+
 function getDateChunks(since: string, until: string): { since: string; until: string }[] {
   const chunks: { since: string; until: string }[] = []
-  const start = new Date(since)
-  const end = new Date(until)
+  const start = new Date(since + 'T00:00:00Z')
+  const end = new Date(until + 'T00:00:00Z')
 
   // Use 30-day chunks to stay within Meta API limits while not creating too many requests
   const chunkDays = 30
 
-  while (start < end) {
+  while (start <= end) {
     const chunkEnd = new Date(start)
-    chunkEnd.setDate(chunkEnd.getDate() + chunkDays - 1)
+    chunkEnd.setUTCDate(chunkEnd.getUTCDate() + chunkDays - 1)
     if (chunkEnd > end) chunkEnd.setTime(end.getTime())
 
     chunks.push({
-      since: start.toLocaleDateString('sv-SE'),
-      until: chunkEnd.toLocaleDateString('sv-SE'),
+      since: toYMD(start),
+      until: toYMD(chunkEnd),
     })
 
-    start.setDate(start.getDate() + chunkDays)
+    start.setUTCDate(start.getUTCDate() + chunkDays)
   }
 
   return chunks
@@ -52,12 +56,12 @@ export async function POST(req: NextRequest) {
   // Smart sync: if last_sync exists, always re-fetch last 3 days (Meta has 48h attribution delay);
   // otherwise full 180 days for first sync
   const lastSync = (integration as any).metadata?.last_sync
-  const fallbackSince = new Date(Date.now() - 180 * 86400000).toLocaleDateString('sv-SE')
+  const fallbackSince = toYMD(new Date(Date.now() - 180 * 86400000))
   const smartSince = lastSync
-    ? new Date(Date.now() - 3 * 86400000).toLocaleDateString('sv-SE')
+    ? toYMD(new Date(Date.now() - 3 * 86400000))
     : fallbackSince
   const since = date_from || smartSince
-  const until = date_to || new Date().toLocaleDateString('sv-SE')
+  const until = date_to || toYMD(new Date())
 
   console.log(`[meta/sync] smart sync: last_sync=${lastSync || 'none'}, period=${since}→${until}`)
 
@@ -149,6 +153,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (allRows.length > 0) {
+      // Delete existing rows in range then insert
       await supabase
         .from('ads_metrics')
         .delete()
@@ -159,24 +164,18 @@ export async function POST(req: NextRequest) {
 
       for (let i = 0; i < allRows.length; i += 500) {
         const batch = allRows.slice(i, i + 500)
-        const { error: insertError, count } = await supabase.from('ads_metrics').insert(batch)
+        const { error: insertError } = await supabase.from('ads_metrics').insert(batch)
         if (insertError) {
-          console.error(`[meta/sync] insert batch ${i}-${i + batch.length} failed:`, insertError.message, insertError.code, insertError.details)
-        } else {
-          console.log(`[meta/sync] inserted batch ${i}-${i + batch.length}: ${batch.length} rows`)
+          console.error(`[meta/sync] insert batch error:`, insertError.message)
         }
       }
-      // Log per-date breakdown
-      const byDate: Record<string, number> = {}
-      for (const r of allRows) { byDate[r.date] = (byDate[r.date] || 0) + 1 }
-      console.log('[meta/sync] rows by date:', JSON.stringify(byDate))
     }
 
     // Update last_sync in metadata
     const existingMeta = (integration as any).metadata || {}
     await supabase
       .from('workspace_integrations')
-      .update({ metadata: { ...existingMeta, last_sync: new Date().toLocaleDateString('sv-SE') } })
+      .update({ metadata: { ...existingMeta, last_sync: toYMD(new Date()) } })
       .eq('workspace_id', workspace_id)
       .eq('provider', 'meta_ads')
 
