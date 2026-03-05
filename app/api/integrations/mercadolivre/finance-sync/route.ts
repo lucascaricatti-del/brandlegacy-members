@@ -109,11 +109,19 @@ export async function POST(req: NextRequest) {
 
         const json = await res.json()
 
-        // Log first raw response
+        // Capture first raw response for debug
         if (isFirstRequest) {
-          const rawStr = JSON.stringify(json).slice(0, 2000)
-          console.log(`[ml/finance-sync] RAW FIRST RESPONSE:`, rawStr)
-          debugFirstResponse = JSON.parse(JSON.stringify(json).slice(0, 3000) + (JSON.stringify(json).length > 3000 ? '..."truncated"}' : ''))
+          console.log(`[ml/finance-sync] RAW FIRST RESPONSE:`, JSON.stringify(json).slice(0, 2000))
+          try {
+            debugFirstResponse = {
+              keys: Object.keys(json),
+              results_count: (json.results || []).length,
+              data_count: (json.data || []).length,
+              paging: json.paging || null,
+              total: json.total ?? null,
+              sample: JSON.stringify(json).slice(0, 1500),
+            }
+          } catch { debugFirstResponse = { raw: 'parse error' } }
           isFirstRequest = false
         }
 
