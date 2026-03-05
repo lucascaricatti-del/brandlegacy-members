@@ -299,11 +299,14 @@ function PlatformCard({
                 {connected.account_id && <span className="text-text-muted ml-1">({connected.account_id})</span>}
               </span>
             )}
-            {connected.updated_at && (
-              <span className="text-text-secondary">
-                <span className="text-text-muted">Atualizado:</span>{' '}
-                {new Date(connected.updated_at).toLocaleDateString('pt-BR', {
-                  day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+            {connected.metadata?.last_sync && (
+              <span className="text-text-secondary flex items-center gap-1">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted">
+                  <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+                </svg>
+                <span className="text-text-muted">Última sync:</span>{' '}
+                {new Date(connected.metadata.last_sync).toLocaleDateString('pt-BR', {
+                  day: '2-digit', month: '2-digit', year: 'numeric',
                 })}
               </span>
             )}
@@ -507,10 +510,15 @@ function MarketplaceCard({
                 <span className="text-text-muted">Vendedor:</span> {connected.account_name}
               </span>
             )}
-            {connected.updated_at && (
-              <span className="text-text-secondary">
+            {connected.metadata?.last_sync && (
+              <span className="text-text-secondary flex items-center gap-1">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-muted">
+                  <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+                </svg>
                 <span className="text-text-muted">Última sync:</span>{' '}
-                {new Date(connected.updated_at).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                {new Date(connected.metadata.last_sync).toLocaleDateString('pt-BR', {
+                  day: '2-digit', month: '2-digit', year: 'numeric',
+                })}
               </span>
             )}
           </div>

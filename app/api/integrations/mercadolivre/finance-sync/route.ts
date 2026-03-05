@@ -70,91 +70,89 @@ export async function POST(req: NextRequest) {
       monthChunks = getMonthChunks(6)
     }
 
-    console.log(`[ml/finance-sync] smart sync: last_finance_sync=${lastFinanceSync || 'none'}, chunks=${monthChunks.length}`)
-    let totalSynced = 0
-    const monthResults: { month: string; operations: number }[] = []
-    let debugFirstResponse: any = null
-    let debugFirstError: string | null = null
+    // Use collections/search (only endpoint that works without special permissions)
+    // No date filters supported — fetch all and filter client-side
+    console.log(`[ml/finance-sync] fetching collections for seller ${sellerId}`)
 
-    let isFirstRequest = true
+    const allCollections: any[] = []
+    let offset = 0
+    const limit = 50
+    let debugInfo: any = null
 
-    for (const chunk of monthChunks) {
-      const monthOps: any[] = []
-      let offset = 0
-      const limit = 50
+    while (true) {
+      const url =
+        `https://api.mercadolibre.com/collections/search` +
+        `?seller_id=${sellerId}` +
+        `&offset=${offset}&limit=${limit}`
 
-      // Paginate payments/search by date range
-      while (true) {
-        const url =
-          `https://api.mercadolibre.com/v1/payments/search` +
-          `?sort=date_created` +
-          `&criteria=desc` +
-          `&begin_date=${encodeURIComponent(chunk.from)}` +
-          `&end_date=${encodeURIComponent(chunk.to)}` +
-          `&offset=${offset}&limit=${limit}`
+      const res: Response = await fetch(url, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(15000),
+      })
 
-        const res: Response = await fetch(url, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          signal: AbortSignal.timeout(15000),
-        })
-
-        if (!res.ok) {
-          const errText = await res.text()
-          console.error(`[ml/finance-sync] ${chunk.label} offset=${offset} error:`, res.status, errText)
-          if (isFirstRequest) {
-            debugFirstError = `${res.status}: ${errText.slice(0, 500)}`
-            isFirstRequest = false
-          }
-          break
-        }
-
-        const json = await res.json()
-
-        // Capture first raw response for debug
-        if (isFirstRequest) {
-          console.log(`[ml/finance-sync] RAW FIRST RESPONSE:`, JSON.stringify(json).slice(0, 2000))
-          try {
-            debugFirstResponse = {
-              keys: Object.keys(json),
-              results_count: (json.results || []).length,
-              paging: json.paging || null,
-              first_result_keys: json.results?.[0] ? Object.keys(json.results[0]) : [],
-              first_collection_keys: json.results?.[0]?.collection ? Object.keys(json.results[0].collection) : [],
-            }
-          } catch { debugFirstResponse = { raw: 'parse error' } }
-          isFirstRequest = false
-        }
-
-        const results = json.results || []
-        monthOps.push(...results)
-
-        const total = json.paging?.total ?? 0
-        // ML API limits offset to 10000
-        if (offset + limit >= total || offset + limit >= 10000 || results.length === 0) break
-        offset += limit
-
-        await delay(200)
+      if (!res.ok) {
+        const errText = await res.text()
+        console.error(`[ml/finance-sync] offset=${offset} error:`, res.status, errText)
+        break
       }
 
-      // Parse payments into finance operations
-      const opRows = monthOps.map((p: any) => {
-        const createdAt = p.date_created || p.date_approved || ''
-        const date = createdAt ? createdAt.split('T')[0] : null
+      const json = await res.json()
+
+      if (offset === 0) {
+        debugInfo = {
+          paging: json.paging,
+          first_result_keys: json.results?.[0] ? Object.keys(json.results[0]) : [],
+          first_collection_keys: json.results?.[0]?.collection ? Object.keys(json.results[0].collection) : [],
+        }
+      }
+
+      const results = json.results || []
+      for (const r of results) {
+        const col = r.collection || r
+        allCollections.push(col)
+      }
+
+      const total = json.paging?.total ?? 0
+      if (offset + limit >= total || offset + limit >= 10000 || results.length === 0) break
+      offset += limit
+
+      await delay(200)
+    }
+
+    console.log(`[ml/finance-sync] fetched ${allCollections.length} collections total`)
+
+    // Filter by date range and group by month chunks
+    let totalSynced = 0
+    const monthResults: { month: string; operations: number }[] = []
+
+    for (const chunk of monthChunks) {
+      const chunkFrom = chunk.from.split('T')[0]
+      const chunkTo = chunk.to.split('T')[0]
+
+      const monthOps = allCollections.filter((col: any) => {
+        const createdAt = col.date_created || col.date_approved || ''
+        const date = createdAt.split('T')[0]
+        return date >= chunkFrom && date <= chunkTo
+      })
+
+      const opRows = monthOps.map((col: any) => {
+        const createdAt = col.date_created || col.date_approved || ''
+        const date = createdAt ? createdAt.split('T')[0] : chunk.from.split('T')[0]
 
         return {
           workspace_id,
-          operation_id: String(p.id),
-          date: date || chunk.from.split('T')[0],
-          type: p.payment_type || p.payment_method_id || p.operation_type || 'payment',
-          status: p.status || 'approved',
-          amount: Number(p.transaction_amount || p.total_paid_amount || 0),
-          net_amount: Number(p.net_received_amount || p.transaction_amount || 0),
-          fee_amount: Number(p.fee_details?.reduce((s: number, f: any) => s + (f.amount || 0), 0) || p.marketplace_fee || 0),
-          description: p.description || p.reason || '',
-          reference_id: p.external_reference ? String(p.external_reference) : (p.order?.id ? String(p.order.id) : null),
-          currency: p.currency_id || 'BRL',
+          operation_id: String(col.id),
+          date,
+          type: col.payment_type || col.operation_type || 'payment',
+          status: col.status || 'approved',
+          amount: Number(col.transaction_amount || col.total_paid_amount || 0),
+          net_amount: Number(col.net_received_amount || col.transaction_amount || 0),
+          fee_amount: Number(col.marketplace_fee || 0),
+          description: col.reason || col.description || '',
+          reference_id: col.external_reference ? String(col.external_reference) : null,
+          currency: col.currency_id || 'BRL',
         }
-      }).filter((r: any) => r.date && r.operation_id)
+      }).filter((r: any) => r.operation_id)
 
       let monthSynced = 0
       if (opRows.length > 0) {
@@ -174,8 +172,6 @@ export async function POST(req: NextRequest) {
       totalSynced += monthSynced
       monthResults.push({ month: chunk.label, operations: monthSynced })
       console.log(`[ml/finance-sync] month ${chunk.label}: ${monthSynced} operations`)
-
-      await delay(200)
     }
 
     // Update last_finance_sync in metadata
@@ -192,8 +188,8 @@ export async function POST(req: NextRequest) {
       months_processed: monthResults.length,
       months: monthResults,
       smart: !!lastFinanceSync,
-      ...(debugFirstResponse && { _debug_first_response: debugFirstResponse }),
-      ...(debugFirstError && { _debug_first_error: debugFirstError }),
+      total_collections_fetched: allCollections.length,
+      ...(debugInfo && { _debug: debugInfo }),
     })
   } catch (err: any) {
     console.error('[ml/finance-sync] error:', err.message)
