@@ -43,7 +43,7 @@ const PERIODS: { key: Period; label: string; days: number }[] = [
   { key: 'custom', label: 'Personalizado', days: 0 },
 ]
 
-type Tab = 'meta' | 'google' | 'yampi' | 'vendas'
+type Tab = 'meta' | 'google' | 'yampi'
 
 function normalize(d: string) { return d?.slice(0, 10) ?? '' }
 
@@ -95,6 +95,7 @@ function LoadingSpinner() {
 export default function MetricsClient({
   workspaceId, isMetaConnected, isGoogleConnected, isShopifyConnected, isYampiConnected,
   metaMetrics, googleMetrics, shopifyMetrics, yampiMetrics, yampiOrders,
+  initialTab,
 }: {
   workspaceId: string
   isMetaConnected: boolean
@@ -106,8 +107,9 @@ export default function MetricsClient({
   shopifyMetrics: EcomRow[]
   yampiMetrics: YampiMetricRow[]
   yampiOrders: YampiOrderRow[]
+  initialTab?: Tab
 }) {
-  const [activeTab, setActiveTab] = useState<Tab>('meta')
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab ?? 'meta')
   const [period, setPeriod] = useState<Period>('30d')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
@@ -127,9 +129,9 @@ export default function MetricsClient({
   const [reportMarkdown, setReportMarkdown] = useState('')
 
   const isAdsTab = activeTab === 'meta' || activeTab === 'google'
-  const isConnected = activeTab === 'meta' ? isMetaConnected : activeTab === 'google' ? isGoogleConnected : activeTab === 'yampi' ? isYampiConnected : isShopifyConnected
-  const syncing = activeTab === 'meta' ? metaSyncing : activeTab === 'google' ? googleSyncing : activeTab === 'yampi' ? yampiSyncing : shopifySyncing
-  const syncMsg = activeTab === 'meta' ? metaSyncMsg : activeTab === 'google' ? googleSyncMsg : activeTab === 'yampi' ? yampiSyncMsg : shopifySyncMsg
+  const isConnected = activeTab === 'meta' ? isMetaConnected : activeTab === 'google' ? isGoogleConnected : isYampiConnected
+  const syncing = activeTab === 'meta' ? metaSyncing : activeTab === 'google' ? googleSyncing : yampiSyncing
+  const syncMsg = activeTab === 'meta' ? metaSyncMsg : activeTab === 'google' ? googleSyncMsg : yampiSyncMsg
 
   // ── Period filter helper ──
   function filterByPeriod<T extends { date: string }>(data: T[]): T[] {
@@ -361,15 +363,6 @@ export default function MetricsClient({
         else { setYampiSyncMsg(`${data.synced} dias sincronizados. Recarregando...`); window.location.reload(); return }
       } catch { setYampiSyncMsg('Erro ao sincronizar.') }
       setYampiSyncing(false)
-    } else {
-      setShopifySyncing(true); setShopifySyncMsg('')
-      try {
-        const res = await fetch('/api/integrations/shopify/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ workspace_id: workspaceId, date_from: dateFrom, date_to: dateTo }) })
-        const data = await res.json()
-        if (data.error) setShopifySyncMsg(`Erro: ${data.error}`)
-        else { setShopifySyncMsg(`${data.synced} dias sincronizados. Recarregando...`); window.location.reload(); return }
-      } catch { setShopifySyncMsg('Erro ao sincronizar.') }
-      setShopifySyncing(false)
     }
   }
 
@@ -402,7 +395,6 @@ export default function MetricsClient({
     { key: 'meta', label: 'Meta Ads', icon: <MetaIcon />, connected: isMetaConnected },
     { key: 'google', label: 'Google Ads', icon: <GoogleIcon />, connected: isGoogleConnected },
     { key: 'yampi', label: 'Yampi', icon: <ShopifyIcon />, connected: isYampiConnected },
-    { key: 'vendas', label: 'Vendas', icon: <ShopifyIcon />, connected: isShopifyConnected },
   ]
 
   // ── Custom tooltip component ──
@@ -443,13 +435,13 @@ export default function MetricsClient({
       {!isConnected && (
         <div className="bg-bg-card border border-border rounded-xl p-16 text-center">
           <p className="font-sans text-text-primary font-semibold text-lg mb-2">
-            {activeTab === 'meta' ? 'Meta Ads não conectado' : activeTab === 'google' ? 'Google Ads não conectado' : activeTab === 'yampi' ? 'Yampi não conectado' : 'Shopify não conectado'}
+            {activeTab === 'meta' ? 'Meta Ads não conectado' : activeTab === 'google' ? 'Google Ads não conectado' : 'Yampi não conectado'}
           </p>
           <p className="text-text-muted mb-4">
-            {activeTab === 'yampi' ? 'Conecte a Yampi para ver métricas de checkout e vendas.' : activeTab === 'vendas' ? 'Conecte sua loja Shopify para ver métricas de vendas.' : 'Conecte sua conta para ver métricas.'}
+            {activeTab === 'yampi' ? 'Conecte a Yampi para ver métricas de checkout e vendas.' : 'Conecte sua conta para ver métricas.'}
           </p>
           <Link href="/integracoes" className="inline-block px-5 py-2.5 bg-brand-gold text-bg-base rounded-lg font-semibold hover:opacity-90 transition-opacity cursor-pointer">
-            {activeTab === 'yampi' ? 'Conectar Yampi' : activeTab === 'vendas' ? 'Conectar Shopify' : activeTab === 'meta' ? 'Conectar Meta Ads' : 'Conectar Google Ads'}
+            {activeTab === 'yampi' ? 'Conectar Yampi' : activeTab === 'meta' ? 'Conectar Meta Ads' : 'Conectar Google Ads'}
           </Link>
         </div>
       )}
@@ -859,120 +851,6 @@ export default function MetricsClient({
         </>
       )}
 
-      {/* ═══ Connected — Vendas tab (Shopify) ═══ */}
-      {isConnected && activeTab === 'vendas' && (
-        <>
-          {/* Period + sync */}
-          <div className="flex flex-wrap gap-1.5 md:gap-2">
-            {PERIODS.map(p => (
-              <button key={p.key} onClick={() => setPeriod(p.key)}
-                className={`px-2 py-1 md:px-3 md:py-1.5 text-xs md:text-sm rounded-lg font-medium transition-all cursor-pointer ${
-                  period === p.key
-                    ? 'bg-brand-gold text-bg-base shadow-sm'
-                    : 'bg-bg-card border border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary'
-                }`}>{p.label}</button>
-            ))}
-          </div>
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-            {syncMsg && <span className="text-xs text-text-muted">{syncMsg}</span>}
-            <button onClick={handleSync} disabled={syncing}
-              className="w-full sm:w-auto px-3 py-1.5 text-sm rounded-lg font-medium bg-bg-card border border-border text-text-secondary hover:bg-bg-hover disabled:opacity-50 cursor-pointer transition-colors">
-              {syncing ? 'Sincronizando...' : 'Sincronizar'}
-            </button>
-          </div>
-
-          {period === 'custom' && (
-            <div className="flex flex-wrap gap-2 items-center">
-              <span className="text-text-muted text-xs md:text-sm">De:</span>
-              <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="bg-bg-card border border-border rounded-lg px-2 py-1 md:px-3 md:py-1.5 text-xs md:text-sm text-text-primary flex-1 min-w-[130px]" />
-              <span className="text-text-muted text-xs md:text-sm">Até:</span>
-              <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="bg-bg-card border border-border rounded-lg px-2 py-1 md:px-3 md:py-1.5 text-xs md:text-sm text-text-primary flex-1 min-w-[130px]" />
-              <button onClick={() => { setAppliedFrom(customFrom); setAppliedTo(customTo) }} disabled={!customFrom || !customTo}
-                className="w-full sm:w-auto px-4 py-1.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 transition-opacity disabled:opacity-40 cursor-pointer">Buscar</button>
-            </div>
-          )}
-
-          {/* ═══ Shopify KPIs ═══ */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            <KpiCard label="Receita" value={fmtCurrency(shopifyTotals.revenue, 0)} />
-            <KpiCard label="Pedidos" value={fmtNumber(shopifyTotals.orders)} />
-            <KpiCard label="Ticket Médio" value={fmtCurrency(shopifyTotals.avg_ticket)} />
-            <KpiCard label="Itens Vendidos" value={fmtNumber(shopifyTotals.items_sold)} />
-            <KpiCard label="Sessões" value={fmtNumber(shopifyTotals.sessions)} />
-            <KpiCard label="Taxa de Conversão" value={`${shopifyTotals.conversion_rate.toFixed(2)}%`} />
-          </div>
-
-          {/* ═══ Revenue chart ═══ */}
-          {shopifyDaily.length > 0 && (
-            <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
-              <h3 className="font-sans text-text-primary font-semibold text-lg mb-5">Receita por Dia</h3>
-              <div className="h-48 md:h-72">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={shopifyDaily}>
-                    <defs>
-                      <linearGradient id="gShopRevenue" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#22c55e" stopOpacity={0.25} />
-                        <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(42,82,51,0.4)" />
-                    <XAxis dataKey="date" tick={{ fill: '#5a6b5e', fontSize: 11, fontFamily: 'var(--font-data)' }} axisLine={false} tickLine={false} tickFormatter={(v: string) => v.slice(5)} />
-                    <YAxis tick={{ fill: '#5a6b5e', fontSize: 11, fontFamily: 'var(--font-data)' }} axisLine={false} tickLine={false} width={65} tickFormatter={(v: number) => `R$${(v/1000).toFixed(0)}k`} />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Area type="monotone" dataKey="revenue" stroke="#22c55e" fill="url(#gShopRevenue)" strokeWidth={2} name="Receita" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          )}
-
-          {/* ═══ Top dias por receita ═══ */}
-          {filteredShopify.length > 0 && (
-            <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
-              <h3 className="font-sans text-text-primary font-semibold text-lg mb-5">Top Dias por Receita</h3>
-              <div className="overflow-x-auto">
-                <table className="table-premium min-w-[500px]">
-                  <thead>
-                    <tr>
-                      <th>Data</th>
-                      <th className="text-right">Receita</th>
-                      <th className="text-right">Pedidos</th>
-                      <th className="text-right">Ticket Médio</th>
-                      <th className="text-right">Itens</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[...filteredShopify]
-                      .sort((a, b) => (Number(b.revenue) || 0) - (Number(a.revenue) || 0))
-                      .slice(0, 15)
-                      .map((m, i) => {
-                        const rev = Number(m.revenue) || 0
-                        const ord = Number(m.orders) || 0
-                        const ticket = ord > 0 ? rev / ord : 0
-                        return (
-                          <tr key={i}>
-                            <td className="text-text-primary font-data">{m.date}</td>
-                            <td className="text-right font-data text-green-400">{fmtCurrency(rev)}</td>
-                            <td className="text-right font-data">{fmtNumber(ord)}</td>
-                            <td className="text-right font-data">{fmtCurrency(ticket)}</td>
-                            <td className="text-right font-data">{fmtNumber(Number(m.items_sold) || 0)}</td>
-                          </tr>
-                        )
-                      })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {filteredShopify.length === 0 && (
-            <div className="bg-bg-card border border-border rounded-xl p-16 text-center">
-              <p className="text-text-muted">Nenhuma métrica neste período.</p>
-              <p className="text-text-muted text-sm mt-1">Clique em Sincronizar para importar dados.</p>
-            </div>
-          )}
-        </>
-      )}
     </div>
   )
 }

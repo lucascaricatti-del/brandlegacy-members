@@ -6,7 +6,12 @@ import MetricsClient from './MetricsClient'
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Métricas — BrandLegacy' }
 
-export default async function MetricasPage() {
+export default async function MetricasPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>
+}) {
+  const { tab } = await searchParams
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -172,6 +177,7 @@ export default async function MetricasPage() {
         shopifyMetrics={(shopifyMetrics ?? []) as any[]}
         yampiMetrics={(yampiMetrics ?? []) as any[]}
         yampiOrders={(yampiOrders ?? []) as any[]}
+        initialTab={(tab as 'meta' | 'google' | 'yampi') || undefined}
       />
     </div>
   )

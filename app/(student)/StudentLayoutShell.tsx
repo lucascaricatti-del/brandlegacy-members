@@ -57,7 +57,15 @@ export default function StudentLayoutShell({
             <NavItem href="/dashboard" icon={<IconDashboard />} label="Dashboard" onNavigate={() => setOpen(false)} />
             <NavItem href="/entregas" icon={<IconEntregas />} label="Controle de Entregas" onNavigate={() => setOpen(false)} />
             <NavItem href="/workspace/tasks" icon={<IconTasks />} label="Tarefas" onNavigate={() => setOpen(false)} />
-            <NavItem href="/metricas" icon={<IconMetricas />} label="Métricas" onNavigate={() => setOpen(false)} />
+            <div className="space-y-0.5">
+              <p className="text-text-muted text-[10px] font-medium px-3 pt-2 pb-1 uppercase tracking-wider">Mídia</p>
+              <SubNavItem href="/metricas?tab=meta" label="Meta" onNavigate={() => setOpen(false)} />
+              <SubNavItem href="/metricas?tab=google" label="Google" onNavigate={() => setOpen(false)} />
+              <div className="flex items-center gap-2 px-3 py-2 text-xs text-text-muted/60">
+                <span>Influenciadores</span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/5 text-text-muted/50">em breve</span>
+              </div>
+            </div>
             <NavItem href="/performance" icon={<IconPerformance />} label="Performance" onNavigate={() => setOpen(false)} />
             <NavItem href="/ferramentas/calculadora-cenarios" icon={<IconCalc />} label="Calculadora Estratégica" onNavigate={() => setOpen(false)} />
             <NavItem href="/ferramentas/planejamento-midia" icon={<IconPlanMidia />} label="Planejamento de Mídia" onNavigate={() => setOpen(false)} />

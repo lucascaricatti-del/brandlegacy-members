@@ -1,6 +1,23 @@
 'use client'
 
-import { useState, useTransition, useEffect, useCallback, useRef } from 'react'
+import { useState, useTransition, useEffect, useCallback, useRef, useMemo } from 'react'
+import {
+  DndContext,
+  closestCorners,
+  DragEndEvent,
+  DragStartEvent,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  useDroppable,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import {
   createTask,
   createTaskAdmin,
@@ -108,6 +125,7 @@ export default function TaskFlowClient({ workspaceId, tasks, members = [], isAdm
   const [quickFilter, setQuickFilter] = useState<QuickFilter>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkMode, setBulkMode] = useState(false)
+  const [viewMode, setViewMode] = useState<'lista' | 'kanban'>('lista')
 
   const todayStr = new Date().toISOString().split('T')[0]
 
@@ -205,6 +223,24 @@ export default function TaskFlowClient({ workspaceId, tasks, members = [], isAdm
           {isAdmin ? 'Tarefas do Mentorado' : 'Minhas Tarefas'}
         </h1>
         <div className="flex items-center gap-2">
+          <div className="flex bg-bg-surface rounded-lg p-0.5 border border-border">
+            <button
+              onClick={() => setViewMode('lista')}
+              className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+                viewMode === 'lista' ? 'bg-brand-gold text-bg-base font-medium' : 'text-text-muted hover:text-text-primary'
+              }`}
+            >
+              Lista
+            </button>
+            <button
+              onClick={() => setViewMode('kanban')}
+              className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
+                viewMode === 'kanban' ? 'bg-brand-gold text-bg-base font-medium' : 'text-text-muted hover:text-text-primary'
+              }`}
+            >
+              Kanban
+            </button>
+          </div>
           <button
             onClick={() => { setBulkMode(!bulkMode); setSelectedIds(new Set()) }}
             className={`px-3 py-2 rounded-lg text-sm transition-colors ${bulkMode ? 'bg-brand-gold/20 text-brand-gold border border-brand-gold/30' : 'text-text-muted hover:text-text-primary border border-border'}`}
@@ -304,149 +340,160 @@ export default function TaskFlowClient({ workspaceId, tasks, members = [], isAdm
         />
       )}
 
-      {/* Task List */}
-      {filtered.length === 0 ? (
-        <div className="bg-bg-card border border-border rounded-xl p-12 text-center">
-          <p className="text-text-muted text-sm">Nenhuma tarefa encontrada.</p>
-        </div>
-      ) : (
-        <div className="bg-bg-card border border-border rounded-xl overflow-hidden">
-          <div className="divide-y divide-border">
-            {filtered.map((task) => {
-              const isOverdue = task.status !== 'concluida' && task.due_date && task.due_date < todayStr
-              const isCompleted = task.status === 'concluida'
-              const isSelected = selectedIds.has(task.id)
-
-              return (
-                <div
-                  key={task.id}
-                  className={`flex items-center gap-3 px-4 py-3 hover:bg-bg-surface/30 transition-colors cursor-pointer ${isCompleted ? 'opacity-60' : ''} ${isOverdue ? 'bg-red-400/5' : ''} ${isSelected ? 'bg-brand-gold/5' : ''}`}
-                  onClick={() => bulkMode ? toggleSelect(task.id) : setDrawerTask(task)}
-                >
-                  {/* Bulk checkbox or complete checkbox */}
-                  {bulkMode ? (
-                    <div
-                      className={`w-5 h-5 rounded border-2 shrink-0 flex items-center justify-center transition-colors ${isSelected ? 'bg-brand-gold/20 border-brand-gold text-brand-gold' : 'border-border'}`}
-                    >
-                      {isSelected && (
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      )}
-                    </div>
-                  ) : (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleComplete(task.id) }}
-                      disabled={isPending || isCompleted}
-                      className={`w-5 h-5 rounded border-2 shrink-0 flex items-center justify-center transition-colors ${
-                        isCompleted
-                          ? 'bg-green-400/20 border-green-400 text-green-400'
-                          : 'border-border hover:border-brand-gold/50'
-                      }`}
-                    >
-                      {isCompleted && (
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      )}
-                    </button>
-                  )}
-
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm text-text-primary ${isCompleted ? 'line-through' : ''}`}>{task.title}</p>
-                    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                      {task.responsible && <span className="text-[10px] text-text-muted">{task.responsible}</span>}
-                      {task.due_date && (
-                        <span className={`text-[10px] ${isOverdue ? 'text-red-400 font-medium' : 'text-text-muted'}`}>
-                          {new Date(task.due_date + 'T12:00:00').toLocaleDateString('pt-BR')}
-                        </span>
-                      )}
-                      {isAdmin && task.sessions && (
-                        <span className="text-[10px] text-purple-400">Sessão: {task.sessions.title}</span>
-                      )}
-                      {task.tags && task.tags.length > 0 && task.tags.map((tag) => (
-                        <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-brand-gold/15 text-brand-gold">{tag}</span>
-                      ))}
-                      {task.file_name && (
-                        <span className="text-[10px] text-blue-400 flex items-center gap-0.5">
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" /></svg>
-                          {task.file_name}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Badges */}
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 ${PRIORITY_COLORS[task.priority] ?? PRIORITY_COLORS.media}`}>
-                    {PRIORITY_LABELS[task.priority] ?? task.priority}
-                  </span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 ${STATUS_COLORS[task.status] ?? STATUS_COLORS.pendente}`}>
-                    {STATUS_LABELS[task.status] ?? task.status}
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Bulk action bar */}
-      {bulkMode && selectedIds.size > 0 && (
-        <div className="sticky bottom-4 mx-auto w-fit flex items-center gap-3 px-5 py-3 rounded-xl bg-bg-card border border-brand-gold/30 shadow-lg z-40">
-          <span className="text-sm text-text-secondary font-medium">{selectedIds.size} selecionada(s)</span>
-          <div className="h-4 w-px bg-border" />
-          <button onClick={() => handleBulkAction('concluir')} disabled={isPending} className="px-3 py-1.5 text-xs rounded-lg bg-green-400/15 text-green-400 hover:bg-green-400/25 transition-colors disabled:opacity-60">
-            Concluir
-          </button>
-          <select
-            onChange={(e) => { if (e.target.value) handleBulkAction(e.target.value as TaskPriority); e.target.value = '' }}
-            className="px-3 py-1.5 text-xs rounded-lg bg-bg-surface border border-border text-text-primary"
-            defaultValue=""
-          >
-            <option value="" disabled>Prioridade</option>
-            <option value="urgente">Urgente</option>
-            <option value="alta">Alta</option>
-            <option value="media">Média</option>
-            <option value="baixa">Baixa</option>
-          </select>
-          <button onClick={() => handleBulkAction('arquivar')} disabled={isPending} className="px-3 py-1.5 text-xs rounded-lg bg-red-400/15 text-red-400 hover:bg-red-400/25 transition-colors disabled:opacity-60">
-            Arquivar
-          </button>
-        </div>
-      )}
-
-      {/* Archived section */}
-      {archivedTasks.length > 0 && (
-        <div>
-          <button
-            onClick={() => setShowArchived(!showArchived)}
-            className="flex items-center gap-2 text-sm text-text-muted hover:text-text-primary transition-colors"
-          >
-            <svg
-              width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-              className={`transition-transform ${showArchived ? 'rotate-90' : ''}`}
-            >
-              <polyline points="9 18 15 12 9 6" />
-            </svg>
-            Arquivadas ({archivedTasks.length})
-          </button>
-          {showArchived && (
-            <div className="mt-2 bg-bg-card border border-border rounded-xl overflow-hidden opacity-60">
+      {/* Task List — Lista view */}
+      {viewMode === 'lista' && (
+        <>
+          {filtered.length === 0 ? (
+            <div className="bg-bg-card border border-border rounded-xl p-12 text-center">
+              <p className="text-text-muted text-sm">Nenhuma tarefa encontrada.</p>
+            </div>
+          ) : (
+            <div className="bg-bg-card border border-border rounded-xl overflow-hidden">
               <div className="divide-y divide-border">
-                {archivedTasks.map((task) => (
-                  <div key={task.id} className="flex items-center gap-3 px-4 py-3">
-                    <div className="w-5 h-5 rounded border-2 border-border shrink-0" />
-                    <p className="text-sm text-text-muted line-through flex-1">{task.title}</p>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${PRIORITY_COLORS[task.priority] ?? ''}`}>
-                      {PRIORITY_LABELS[task.priority] ?? task.priority}
-                    </span>
-                  </div>
-                ))}
+                {filtered.map((task) => {
+                  const isOverdue = task.status !== 'concluida' && task.due_date && task.due_date < todayStr
+                  const isCompleted = task.status === 'concluida'
+                  const isSelected = selectedIds.has(task.id)
+
+                  return (
+                    <div
+                      key={task.id}
+                      className={`flex items-center gap-3 px-4 py-3 hover:bg-bg-surface/30 transition-colors cursor-pointer ${isCompleted ? 'opacity-60' : ''} ${isOverdue ? 'bg-red-400/5' : ''} ${isSelected ? 'bg-brand-gold/5' : ''}`}
+                      onClick={() => bulkMode ? toggleSelect(task.id) : setDrawerTask(task)}
+                    >
+                      {bulkMode ? (
+                        <div
+                          className={`w-5 h-5 rounded border-2 shrink-0 flex items-center justify-center transition-colors ${isSelected ? 'bg-brand-gold/20 border-brand-gold text-brand-gold' : 'border-border'}`}
+                        >
+                          {isSelected && (
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          )}
+                        </div>
+                      ) : (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleComplete(task.id) }}
+                          disabled={isPending || isCompleted}
+                          className={`w-5 h-5 rounded border-2 shrink-0 flex items-center justify-center transition-colors ${
+                            isCompleted
+                              ? 'bg-green-400/20 border-green-400 text-green-400'
+                              : 'border-border hover:border-brand-gold/50'
+                          }`}
+                        >
+                          {isCompleted && (
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          )}
+                        </button>
+                      )}
+
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm text-text-primary ${isCompleted ? 'line-through' : ''}`}>{task.title}</p>
+                        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                          {task.responsible && <span className="text-[10px] text-text-muted">{task.responsible}</span>}
+                          {task.due_date && (
+                            <span className={`text-[10px] ${isOverdue ? 'text-red-400 font-medium' : 'text-text-muted'}`}>
+                              {new Date(task.due_date + 'T12:00:00').toLocaleDateString('pt-BR')}
+                            </span>
+                          )}
+                          {isAdmin && task.sessions && (
+                            <span className="text-[10px] text-purple-400">Sessão: {task.sessions.title}</span>
+                          )}
+                          {task.tags && task.tags.length > 0 && task.tags.map((tag) => (
+                            <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-brand-gold/15 text-brand-gold">{tag}</span>
+                          ))}
+                          {task.file_name && (
+                            <span className="text-[10px] text-blue-400 flex items-center gap-0.5">
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" /></svg>
+                              {task.file_name}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 ${PRIORITY_COLORS[task.priority] ?? PRIORITY_COLORS.media}`}>
+                        {PRIORITY_LABELS[task.priority] ?? task.priority}
+                      </span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium shrink-0 ${STATUS_COLORS[task.status] ?? STATUS_COLORS.pendente}`}>
+                        {STATUS_LABELS[task.status] ?? task.status}
+                      </span>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
-        </div>
+
+          {/* Bulk action bar */}
+          {bulkMode && selectedIds.size > 0 && (
+            <div className="sticky bottom-4 mx-auto w-fit flex items-center gap-3 px-5 py-3 rounded-xl bg-bg-card border border-brand-gold/30 shadow-lg z-40">
+              <span className="text-sm text-text-secondary font-medium">{selectedIds.size} selecionada(s)</span>
+              <div className="h-4 w-px bg-border" />
+              <button onClick={() => handleBulkAction('concluir')} disabled={isPending} className="px-3 py-1.5 text-xs rounded-lg bg-green-400/15 text-green-400 hover:bg-green-400/25 transition-colors disabled:opacity-60">
+                Concluir
+              </button>
+              <select
+                onChange={(e) => { if (e.target.value) handleBulkAction(e.target.value as TaskPriority); e.target.value = '' }}
+                className="px-3 py-1.5 text-xs rounded-lg bg-bg-surface border border-border text-text-primary"
+                defaultValue=""
+              >
+                <option value="" disabled>Prioridade</option>
+                <option value="urgente">Urgente</option>
+                <option value="alta">Alta</option>
+                <option value="media">Média</option>
+                <option value="baixa">Baixa</option>
+              </select>
+              <button onClick={() => handleBulkAction('arquivar')} disabled={isPending} className="px-3 py-1.5 text-xs rounded-lg bg-red-400/15 text-red-400 hover:bg-red-400/25 transition-colors disabled:opacity-60">
+                Arquivar
+              </button>
+            </div>
+          )}
+
+          {/* Archived section */}
+          {archivedTasks.length > 0 && (
+            <div>
+              <button
+                onClick={() => setShowArchived(!showArchived)}
+                className="flex items-center gap-2 text-sm text-text-muted hover:text-text-primary transition-colors"
+              >
+                <svg
+                  width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                  className={`transition-transform ${showArchived ? 'rotate-90' : ''}`}
+                >
+                  <polyline points="9 18 15 12 9 6" />
+                </svg>
+                Arquivadas ({archivedTasks.length})
+              </button>
+              {showArchived && (
+                <div className="mt-2 bg-bg-card border border-border rounded-xl overflow-hidden opacity-60">
+                  <div className="divide-y divide-border">
+                    {archivedTasks.map((task) => (
+                      <div key={task.id} className="flex items-center gap-3 px-4 py-3">
+                        <div className="w-5 h-5 rounded border-2 border-border shrink-0" />
+                        <p className="text-sm text-text-muted line-through flex-1">{task.title}</p>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${PRIORITY_COLORS[task.priority] ?? ''}`}>
+                          {PRIORITY_LABELS[task.priority] ?? task.priority}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Kanban view */}
+      {viewMode === 'kanban' && (
+        <TaskKanbanView
+          tasks={tasks}
+          workspaceId={workspaceId}
+          onTaskClick={(task) => setDrawerTask(task)}
+          onMessage={setMessage}
+        />
       )}
 
       {/* Drawer */}
@@ -943,5 +990,237 @@ function TaskDrawer({
         </div>
       </div>
     </>
+  )
+}
+
+// ── Kanban View ──────────────────────────────────────────────
+
+const KANBAN_COLUMNS = [
+  { id: 'pendente', title: 'Pendente', color: 'text-text-muted' },
+  { id: 'em_andamento', title: 'Em Andamento', color: 'text-blue-400' },
+  { id: 'concluida', title: 'Concluída', color: 'text-green-400' },
+  { id: 'archived', title: 'Arquivada', color: 'text-text-muted/60' },
+] as const
+
+function TaskKanbanView({
+  tasks,
+  workspaceId,
+  onTaskClick,
+  onMessage,
+}: {
+  tasks: TaskRow[]
+  workspaceId: string
+  onTaskClick: (task: TaskRow) => void
+  onMessage: (msg: { type: 'success' | 'error'; text: string } | null) => void
+}) {
+  const [isPending, startTransition] = useTransition()
+  const [localTasks, setLocalTasks] = useState(tasks)
+  const [activeId, setActiveId] = useState<string | null>(null)
+
+  useEffect(() => { setLocalTasks(tasks) }, [tasks])
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  )
+
+  const columns = useMemo(() => {
+    const groups: Record<string, TaskRow[]> = {
+      pendente: [],
+      em_andamento: [],
+      concluida: [],
+      archived: [],
+    }
+    for (const task of localTasks) {
+      if (task.is_archived) {
+        groups.archived.push(task)
+      } else if (groups[task.status]) {
+        groups[task.status].push(task)
+      } else {
+        groups.pendente.push(task)
+      }
+    }
+    return groups
+  }, [localTasks])
+
+  function handleDragStart(event: DragStartEvent) {
+    setActiveId(String(event.active.id))
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    setActiveId(null)
+    const { active, over } = event
+    if (!over) return
+
+    const taskId = String(active.id)
+    const overId = String(over.id)
+
+    let finalColumn = overId
+    if (!KANBAN_COLUMNS.find(c => c.id === overId)) {
+      const overTask = localTasks.find(t => t.id === overId)
+      if (overTask) {
+        finalColumn = overTask.is_archived ? 'archived' : overTask.status
+      } else return
+    }
+
+    const task = localTasks.find(t => t.id === taskId)
+    if (!task) return
+
+    const currentColumn = task.is_archived ? 'archived' : task.status
+    if (currentColumn === finalColumn) return
+
+    setLocalTasks(prev => prev.map(t => {
+      if (t.id !== taskId) return t
+      if (finalColumn === 'archived') return { ...t, is_archived: true }
+      return { ...t, status: finalColumn, is_archived: false }
+    }))
+
+    startTransition(async () => {
+      let result
+      if (finalColumn === 'archived') {
+        result = await archiveTask(taskId, workspaceId)
+      } else {
+        result = await updateTask(taskId, workspaceId, {
+          status: finalColumn as TaskStatus,
+        })
+      }
+      if ('error' in result && result.error) {
+        onMessage({ type: 'error', text: result.error })
+        setLocalTasks(tasks)
+      }
+    })
+  }
+
+  const activeTask = activeId ? localTasks.find(t => t.id === activeId) : null
+
+  return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCorners}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+    >
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {KANBAN_COLUMNS.map(col => (
+          <KanbanColumn
+            key={col.id}
+            id={col.id}
+            title={col.title}
+            color={col.color}
+            tasks={columns[col.id] ?? []}
+            onTaskClick={onTaskClick}
+          />
+        ))}
+      </div>
+      <DragOverlay>
+        {activeTask && <KanbanCardOverlay task={activeTask} />}
+      </DragOverlay>
+    </DndContext>
+  )
+}
+
+function KanbanColumn({
+  id, title, color, tasks, onTaskClick,
+}: {
+  id: string; title: string; color: string
+  tasks: TaskRow[]; onTaskClick: (task: TaskRow) => void
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id })
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`bg-bg-card border rounded-xl p-3 min-h-[200px] transition-colors ${
+        isOver ? 'border-brand-gold/50 bg-brand-gold/5' : 'border-border'
+      }`}
+    >
+      <div className="flex items-center justify-between mb-3 px-1">
+        <h3 className={`text-xs font-semibold uppercase tracking-wider ${color}`}>
+          {title}
+        </h3>
+        <span className="text-[10px] text-text-muted bg-bg-surface px-1.5 py-0.5 rounded">
+          {tasks.length}
+        </span>
+      </div>
+      <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
+        <div className="space-y-2">
+          {tasks.map(task => (
+            <KanbanCard key={task.id} task={task} onClick={() => onTaskClick(task)} />
+          ))}
+        </div>
+      </SortableContext>
+    </div>
+  )
+}
+
+function KanbanCard({
+  task, onClick,
+}: {
+  task: TaskRow; onClick: () => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: task.id,
+    data: { type: 'task', status: task.status },
+  })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  }
+  const todayStr = new Date().toISOString().split('T')[0]
+  const isOverdue = task.status !== 'concluida' && task.due_date && task.due_date < todayStr
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      onClick={onClick}
+      className={`bg-bg-base border border-border rounded-lg p-3 cursor-grab active:cursor-grabbing transition-all ${
+        isDragging ? 'opacity-30' : ''
+      } hover:border-brand-gold/20 ${isOverdue ? 'border-l-2 border-l-red-400' : ''}`}
+    >
+      <p className="text-xs text-text-primary font-medium mb-1.5 line-clamp-2">{task.title}</p>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
+          PRIORITY_COLORS[task.priority] ?? PRIORITY_COLORS.media
+        }`}>
+          {PRIORITY_LABELS[task.priority] ?? task.priority}
+        </span>
+        {task.responsible && (
+          <span className="text-[9px] text-text-muted truncate max-w-[80px]">{task.responsible}</span>
+        )}
+        {task.due_date && (
+          <span className={`text-[9px] ${isOverdue ? 'text-red-400 font-medium' : 'text-text-muted'}`}>
+            {new Date(task.due_date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function KanbanCardOverlay({ task }: { task: TaskRow }) {
+  const todayStr = new Date().toISOString().split('T')[0]
+  const isOverdue = task.status !== 'concluida' && task.due_date && task.due_date < todayStr
+
+  return (
+    <div className={`bg-bg-base border shadow-xl border-brand-gold/30 rounded-lg p-3 w-[250px] ${isOverdue ? 'border-l-2 border-l-red-400' : ''}`}>
+      <p className="text-xs text-text-primary font-medium mb-1.5 line-clamp-2">{task.title}</p>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${
+          PRIORITY_COLORS[task.priority] ?? PRIORITY_COLORS.media
+        }`}>
+          {PRIORITY_LABELS[task.priority] ?? task.priority}
+        </span>
+        {task.responsible && (
+          <span className="text-[9px] text-text-muted truncate max-w-[80px]">{task.responsible}</span>
+        )}
+        {task.due_date && (
+          <span className={`text-[9px] ${isOverdue ? 'text-red-400 font-medium' : 'text-text-muted'}`}>
+            {new Date(task.due_date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+          </span>
+        )}
+      </div>
+    </div>
   )
 }

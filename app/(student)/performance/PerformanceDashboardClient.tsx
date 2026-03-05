@@ -1,10 +1,8 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
+import { getMediaPlanGoals } from '@/app/actions/media-plan'
 
-/* ══════════════════════════════════════════════════════════════
-   Types
-   ══════════════════════════════════════════════════════════════ */
 type YampiOrder = {
   order_id: string; date: string; status: string; payment_method: string | null
   coupon_code: string | null; state: string | null; revenue: number; items: any[]
@@ -20,22 +18,28 @@ type Props = {
   currentDay: number
   daysInMonth: number
   currentMonthLabel: string
-  prevMonthLabel: string
-  currentYampiOrders: YampiOrder[]
-  prevYampiOrders: YampiOrder[]
-  currentMetaAds: AdsRow[]
-  prevMetaAds: AdsRow[]
-  currentGoogleAds: AdsRow[]
-  prevGoogleAds: AdsRow[]
-  currentShopify: ShopifyRow[]
-  prevShopify: ShopifyRow[]
+  yampiOrders: YampiOrder[]
+  metaAds: AdsRow[]
+  googleAds: AdsRow[]
+  shopifyMetrics: ShopifyRow[]
 }
 
-/* ══════════════════════════════════════════════════════════════
-   Aggregate helper
-   ══════════════════════════════════════════════════════════════ */
+type Period = 'today' | 'yesterday' | '7d' | '14d' | '21d' | '30d' | 'mes_atual' | 'custom'
+const PERIODS: { key: Period; label: string; days: number }[] = [
+  { key: 'today', label: 'Hoje', days: 0 },
+  { key: 'yesterday', label: 'Ontem', days: 1 },
+  { key: '7d', label: '7 dias', days: 7 },
+  { key: '14d', label: '14 dias', days: 14 },
+  { key: '21d', label: '21 dias', days: 21 },
+  { key: '30d', label: '30 dias', days: 30 },
+  { key: 'mes_atual', label: 'Mês Atual', days: 0 },
+  { key: 'custom', label: 'Personalizado', days: 0 },
+]
+
 const PAID = ['paid', 'invoiced', 'shipped', 'delivered']
 const CANCELLED = ['cancelled', 'refused']
+
+function normalize(d: string) { return d?.slice(0, 10) ?? '' }
 
 function calcMetrics(orders: YampiOrder[], meta: AdsRow[], google: AdsRow[], shopify: ShopifyRow[]) {
   const paid = orders.filter(o => PAID.includes(o.status))
@@ -77,33 +81,25 @@ function calcMetrics(orders: YampiOrder[], meta: AdsRow[], google: AdsRow[], sho
 
 type Metrics = ReturnType<typeof calcMetrics>
 
-/* ══════════════════════════════════════════════════════════════
-   Component
-   ══════════════════════════════════════════════════════════════ */
 export default function PerformanceDashboardClient(props: Props) {
   const {
-    currentDay, daysInMonth, currentMonthLabel, prevMonthLabel,
-    currentYampiOrders, prevYampiOrders,
-    currentMetaAds, prevMetaAds,
-    currentGoogleAds, prevGoogleAds,
-    currentShopify, prevShopify,
+    workspaceId, currentDay, daysInMonth, currentMonthLabel,
+    yampiOrders, metaAds, googleAds, shopifyMetrics,
   } = props
 
-  // ── Computed metrics ──
-  const current = useMemo(() =>
-    calcMetrics(currentYampiOrders, currentMetaAds, currentGoogleAds, currentShopify),
-    [currentYampiOrders, currentMetaAds, currentGoogleAds, currentShopify])
+  const [period, setPeriod] = useState<Period>('mes_atual')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
+  const [appliedFrom, setAppliedFrom] = useState('')
+  const [appliedTo, setAppliedTo] = useState('')
 
-  const previous = useMemo(() =>
-    calcMetrics(prevYampiOrders, prevMetaAds, prevGoogleAds, prevShopify),
-    [prevYampiOrders, prevMetaAds, prevGoogleAds, prevShopify])
-
-  // ── Goals from localStorage ──
   const [revenueGoal, setRevenueGoal] = useState(0)
   const [investmentGoal, setInvestmentGoal] = useState(0)
   const [showGoalsModal, setShowGoalsModal] = useState(false)
   const [tempRevenue, setTempRevenue] = useState('')
   const [tempInvestment, setTempInvestment] = useState('')
+  const [loadingPlan, setLoadingPlan] = useState(false)
+  const [planError, setPlanError] = useState('')
 
   useEffect(() => {
     const saved = localStorage.getItem('bl_performance_goals')
@@ -119,6 +115,7 @@ export default function PerformanceDashboardClient(props: Props) {
   const openGoalsModal = () => {
     setTempRevenue(revenueGoal > 0 ? String(revenueGoal) : '')
     setTempInvestment(investmentGoal > 0 ? String(investmentGoal) : '')
+    setPlanError('')
     setShowGoalsModal(true)
   }
 
@@ -131,19 +128,81 @@ export default function PerformanceDashboardClient(props: Props) {
     setShowGoalsModal(false)
   }
 
-  // Daily targets
+  async function fetchFromMediaPlan() {
+    setLoadingPlan(true)
+    setPlanError('')
+    const now = new Date()
+    const result = await getMediaPlanGoals(workspaceId, now.getFullYear(), now.getMonth() + 1)
+    setLoadingPlan(false)
+    if ('error' in result && result.error) {
+      setPlanError(result.error)
+      return
+    }
+    if ('revenueGoal' in result && result.revenueGoal) setTempRevenue(String(result.revenueGoal))
+    if ('investmentGoal' in result && result.investmentGoal) setTempInvestment(String(result.investmentGoal))
+  }
+
+  function filterByPeriod<T extends { date: string }>(data: T[]): T[] {
+    const today = new Date().toLocaleDateString('sv-SE')
+    if (period === 'today') return data.filter(m => normalize(m.date) === today)
+    if (period === 'yesterday') {
+      const y = new Date(); y.setDate(y.getDate() - 1)
+      return data.filter(m => normalize(m.date) === y.toLocaleDateString('sv-SE'))
+    }
+    if (period === 'mes_atual') {
+      const firstDay = today.slice(0, 7) + '-01'
+      return data.filter(m => normalize(m.date) >= firstDay && normalize(m.date) <= today)
+    }
+    if (period === 'custom' && appliedFrom && appliedTo) {
+      return data.filter(m => normalize(m.date) >= appliedFrom && normalize(m.date) <= appliedTo)
+    }
+    const days = PERIODS.find(p => p.key === period)?.days ?? 30
+    const since = new Date(); since.setDate(since.getDate() - days)
+    const sinceStr = since.toLocaleDateString('sv-SE')
+    return data.filter(m => normalize(m.date) >= sinceStr && normalize(m.date) <= today)
+  }
+
+  const filteredYampi = useMemo(() => filterByPeriod(yampiOrders), [yampiOrders, period, appliedFrom, appliedTo])
+  const filteredMeta = useMemo(() => filterByPeriod(metaAds), [metaAds, period, appliedFrom, appliedTo])
+  const filteredGoogle = useMemo(() => filterByPeriod(googleAds), [googleAds, period, appliedFrom, appliedTo])
+  const filteredShopify = useMemo(() => filterByPeriod(shopifyMetrics), [shopifyMetrics, period, appliedFrom, appliedTo])
+
+  const current = useMemo(() =>
+    calcMetrics(filteredYampi, filteredMeta, filteredGoogle, filteredShopify),
+    [filteredYampi, filteredMeta, filteredGoogle, filteredShopify])
+
+  // MTD — always compute for the MTD section
+  const todayStr = new Date().toLocaleDateString('sv-SE')
+  const mtdStart = todayStr.slice(0, 7) + '-01'
+  const mtdYampi = useMemo(() => yampiOrders.filter(o => normalize(o.date) >= mtdStart && normalize(o.date) <= todayStr), [yampiOrders, mtdStart, todayStr])
+  const mtdMeta = useMemo(() => metaAds.filter(m => normalize(m.date) >= mtdStart && normalize(m.date) <= todayStr), [metaAds, mtdStart, todayStr])
+  const mtdGoogle = useMemo(() => googleAds.filter(m => normalize(m.date) >= mtdStart && normalize(m.date) <= todayStr), [googleAds, mtdStart, todayStr])
+  const mtdShopify = useMemo(() => shopifyMetrics.filter(m => normalize(m.date) >= mtdStart && normalize(m.date) <= todayStr), [shopifyMetrics, mtdStart, todayStr])
+  const mtdMetrics = useMemo(() => calcMetrics(mtdYampi, mtdMeta, mtdGoogle, mtdShopify), [mtdYampi, mtdMeta, mtdGoogle, mtdShopify])
+
+  // Prev month same-period comparison
+  const today2 = new Date()
+  const prevMonthDate = new Date(today2.getFullYear(), today2.getMonth() - 1, 1)
+  const prevMonthStart = prevMonthDate.toLocaleDateString('sv-SE')
+  const daysInPrevMonth = new Date(today2.getFullYear(), today2.getMonth(), 0).getDate()
+  const prevMonthSameDay = new Date(today2.getFullYear(), today2.getMonth() - 1, Math.min(currentDay, daysInPrevMonth)).toLocaleDateString('sv-SE')
+  const prevMonthLabel = prevMonthDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+
+  const prevYampi = useMemo(() => yampiOrders.filter(o => normalize(o.date) >= prevMonthStart && normalize(o.date) <= prevMonthSameDay), [yampiOrders, prevMonthStart, prevMonthSameDay])
+  const prevMeta = useMemo(() => metaAds.filter(m => normalize(m.date) >= prevMonthStart && normalize(m.date) <= prevMonthSameDay), [metaAds, prevMonthStart, prevMonthSameDay])
+  const prevGoogle = useMemo(() => googleAds.filter(m => normalize(m.date) >= prevMonthStart && normalize(m.date) <= prevMonthSameDay), [googleAds, prevMonthStart, prevMonthSameDay])
+  const prevShopify = useMemo(() => shopifyMetrics.filter(m => normalize(m.date) >= prevMonthStart && normalize(m.date) <= prevMonthSameDay), [shopifyMetrics, prevMonthStart, prevMonthSameDay])
+  const previous = useMemo(() => calcMetrics(prevYampi, prevMeta, prevGoogle, prevShopify), [prevYampi, prevMeta, prevGoogle, prevShopify])
+
+  // Daily targets for gauges (always based on MTD)
   const dailyRevenueTarget = revenueGoal > 0 ? revenueGoal / daysInMonth : 0
   const dailyInvestmentTarget = investmentGoal > 0 ? investmentGoal / daysInMonth : 0
-  const dailyRevenueAvg = currentDay > 0 ? current.revenueFaturada / currentDay : 0
-  const dailyInvestmentAvg = currentDay > 0 ? current.totalSpend / currentDay : 0
-
-  // Projected month-end
+  const dailyRevenueAvg = currentDay > 0 ? mtdMetrics.revenueFaturada / currentDay : 0
+  const dailyInvestmentAvg = currentDay > 0 ? mtdMetrics.totalSpend / currentDay : 0
   const projectedRevenue = dailyRevenueAvg * daysInMonth
   const projectedInvestment = dailyInvestmentAvg * daysInMonth
 
-  // ── KPI definitions ──
   const kpiRows: { label: string; value: string; prev: number; curr: number; invertColor?: boolean }[][] = [
-    // Row 1 — Revenue & Profitability
     [
       { label: 'Receita Captada', value: fmtCurrency(current.revenueCaptada, 0), curr: current.revenueCaptada, prev: previous.revenueCaptada },
       { label: 'Receita Faturada', value: fmtCurrency(current.revenueFaturada, 0), curr: current.revenueFaturada, prev: previous.revenueFaturada },
@@ -152,7 +211,6 @@ export default function PerformanceDashboardClient(props: Props) {
       { label: 'ROAS', value: `${current.roas.toFixed(2)}x`, curr: current.roas, prev: previous.roas },
       { label: 'Ticket Médio', value: fmtCurrency(current.avgTicket), curr: current.avgTicket, prev: previous.avgTicket },
     ],
-    // Row 2 — Acquisition & Traffic
     [
       { label: 'Conversões Ads', value: fmtNumber(current.totalConversions), curr: current.totalConversions, prev: previous.totalConversions },
       { label: 'CAC', value: fmtCurrency(current.cac), curr: current.cac, prev: previous.cac, invertColor: true },
@@ -161,7 +219,6 @@ export default function PerformanceDashboardClient(props: Props) {
       { label: 'CPS', value: fmtCurrency(current.cps), curr: current.cps, prev: previous.cps, invertColor: true },
       { label: 'Taxa Conversão', value: `${current.conversionRate.toFixed(2)}%`, curr: current.conversionRate, prev: previous.conversionRate },
     ],
-    // Row 3 — Operations
     [
       { label: 'Pedidos Captados', value: fmtNumber(current.ordersCaptados), curr: current.ordersCaptados, prev: previous.ordersCaptados },
       { label: 'Pedidos Faturados', value: fmtNumber(current.ordersFaturados), curr: current.ordersFaturados, prev: previous.ordersFaturados },
@@ -174,7 +231,7 @@ export default function PerformanceDashboardClient(props: Props) {
 
   return (
     <div className="space-y-6">
-      {/* ═══ MTD info bar ═══ */}
+      {/* Period filters + MTD info bar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <span className="px-3 py-1.5 bg-brand-gold/10 text-brand-gold text-xs font-semibold rounded-lg border border-brand-gold/20">
@@ -200,7 +257,30 @@ export default function PerformanceDashboardClient(props: Props) {
         </div>
       </div>
 
-      {/* ═══ Gauge charts ═══ */}
+      {/* Period filter pills */}
+      <div className="flex flex-wrap gap-1.5 md:gap-2">
+        {PERIODS.map(p => (
+          <button key={p.key} onClick={() => setPeriod(p.key)}
+            className={`px-2 py-1 md:px-3 md:py-1.5 text-xs md:text-sm rounded-lg font-medium transition-all cursor-pointer ${
+              period === p.key
+                ? 'bg-brand-gold text-bg-base shadow-sm'
+                : 'bg-bg-card border border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary'
+            }`}>{p.label}</button>
+        ))}
+      </div>
+
+      {period === 'custom' && (
+        <div className="flex flex-wrap gap-2 items-center">
+          <span className="text-text-muted text-xs md:text-sm">De:</span>
+          <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="bg-bg-card border border-border rounded-lg px-2 py-1 md:px-3 md:py-1.5 text-xs md:text-sm text-text-primary flex-1 min-w-[130px]" />
+          <span className="text-text-muted text-xs md:text-sm">Até:</span>
+          <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="bg-bg-card border border-border rounded-lg px-2 py-1 md:px-3 md:py-1.5 text-xs md:text-sm text-text-primary flex-1 min-w-[130px]" />
+          <button onClick={() => { setAppliedFrom(customFrom); setAppliedTo(customTo) }} disabled={!customFrom || !customTo}
+            className="w-full sm:w-auto px-4 py-1.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 transition-opacity disabled:opacity-40 cursor-pointer">Buscar</button>
+        </div>
+      )}
+
+      {/* Gauge charts */}
       {(revenueGoal > 0 || investmentGoal > 0) && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {revenueGoal > 0 && (
@@ -208,7 +288,7 @@ export default function PerformanceDashboardClient(props: Props) {
               label="Meta de Receita Diária"
               current={dailyRevenueAvg}
               target={dailyRevenueTarget}
-              totalCurrent={current.revenueFaturada}
+              totalCurrent={mtdMetrics.revenueFaturada}
               totalTarget={revenueGoal}
               projected={projectedRevenue}
               unit="R$"
@@ -219,7 +299,7 @@ export default function PerformanceDashboardClient(props: Props) {
               label="Meta de Investimento Diário"
               current={dailyInvestmentAvg}
               target={dailyInvestmentTarget}
-              totalCurrent={current.totalSpend}
+              totalCurrent={mtdMetrics.totalSpend}
               totalTarget={investmentGoal}
               projected={projectedInvestment}
               unit="R$"
@@ -228,7 +308,7 @@ export default function PerformanceDashboardClient(props: Props) {
         </div>
       )}
 
-      {/* ═══ KPI Grid — 3 rows × 6 cols ═══ */}
+      {/* KPI Grid */}
       {kpiRows.map((row, rowIdx) => (
         <div key={rowIdx} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {row.map((kpi, i) => (
@@ -244,8 +324,8 @@ export default function PerformanceDashboardClient(props: Props) {
         </div>
       ))}
 
-      {/* ═══ Projected summary ═══ */}
-      {(revenueGoal > 0 || current.revenueFaturada > 0) && (
+      {/* Projected summary */}
+      {(revenueGoal > 0 || mtdMetrics.revenueFaturada > 0) && (
         <div className="bg-bg-card border border-border-gold rounded-xl p-5 card-premium">
           <h3 className="font-sans text-text-primary font-semibold text-sm mb-4 flex items-center gap-2">
             <ProjectionIcon />
@@ -255,18 +335,27 @@ export default function PerformanceDashboardClient(props: Props) {
             <MiniStat label="Receita Projetada" value={fmtCurrency(projectedRevenue, 0)} />
             <MiniStat label="Investimento Projetado" value={fmtCurrency(projectedInvestment, 0)} />
             <MiniStat label="ROAS Projetado" value={projectedInvestment > 0 ? `${(projectedRevenue / projectedInvestment).toFixed(2)}x` : '—'} />
-            <MiniStat label="Pedidos Projetados" value={fmtNumber(Math.round((current.ordersFaturados / currentDay) * daysInMonth))} />
+            <MiniStat label="Pedidos Projetados" value={fmtNumber(Math.round((mtdMetrics.ordersFaturados / Math.max(currentDay, 1)) * daysInMonth))} />
           </div>
         </div>
       )}
 
-      {/* ═══ Goals Modal ═══ */}
+      {/* Goals Modal */}
       {showGoalsModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60" onClick={() => setShowGoalsModal(false)} />
           <div className="relative bg-bg-card border border-border-gold rounded-xl p-6 w-full max-w-md shadow-2xl">
             <h3 className="font-sans text-text-primary font-semibold text-lg mb-1">Definir Metas Mensais</h3>
-            <p className="text-text-muted text-xs mb-5">As metas são salvas localmente no seu navegador.</p>
+            <p className="text-text-muted text-xs mb-4">As metas são salvas localmente no seu navegador.</p>
+
+            <button
+              onClick={fetchFromMediaPlan}
+              disabled={loadingPlan}
+              className="w-full px-3 py-2 text-xs rounded-lg border border-brand-gold/30 text-brand-gold hover:bg-brand-gold/10 transition-colors disabled:opacity-50 mb-4 cursor-pointer"
+            >
+              {loadingPlan ? 'Buscando...' : 'Buscar do Planejamento de Mídia'}
+            </button>
+            {planError && <p className="text-red-400 text-xs mb-3">{planError}</p>}
 
             <div className="space-y-4">
               <div>
@@ -312,9 +401,6 @@ export default function PerformanceDashboardClient(props: Props) {
   )
 }
 
-/* ══════════════════════════════════════════════════════════════
-   KPI Card with MTD variation
-   ══════════════════════════════════════════════════════════════ */
 function KpiCardMtd({
   label, value, current, previous, invertColor,
 }: {
@@ -334,7 +420,6 @@ function KpiCardMtd({
     }
   }
 
-  // For inverted metrics (lower = better), swap colors
   const isPositive = invertColor ? direction === 'down' : direction === 'up'
   const isNegative = invertColor ? direction === 'up' : direction === 'down'
 
@@ -353,9 +438,6 @@ function KpiCardMtd({
   )
 }
 
-/* ══════════════════════════════════════════════════════════════
-   Gauge Card
-   ══════════════════════════════════════════════════════════════ */
 function GaugeCard({
   label, current, target, totalCurrent, totalTarget, projected, unit,
 }: {
@@ -365,7 +447,6 @@ function GaugeCard({
   const pct = target > 0 ? Math.min(current / target, 1.5) : 0
   const totalPct = totalTarget > 0 ? Math.min(totalCurrent / totalTarget, 1) : 0
 
-  // SVG semicircle gauge
   const r = 55
   const circumference = Math.PI * r
   const offset = circumference * (1 - Math.min(pct, 1))
@@ -377,20 +458,9 @@ function GaugeCard({
 
       <div className="flex justify-center mb-3">
         <svg viewBox="0 0 130 75" className="w-full max-w-[180px]">
-          {/* Background arc */}
-          <path
-            d="M 10 65 A 55 55 0 0 1 120 65"
-            fill="none" stroke="rgba(42,82,51,0.3)" strokeWidth="10" strokeLinecap="round"
-          />
-          {/* Filled arc */}
-          <path
-            d="M 10 65 A 55 55 0 0 1 120 65"
-            fill="none" stroke={gaugeColor} strokeWidth="10" strokeLinecap="round"
-            strokeDasharray={circumference}
-            strokeDashoffset={offset}
-            className="transition-all duration-700 ease-out"
-          />
-          {/* Percentage text */}
+          <path d="M 10 65 A 55 55 0 0 1 120 65" fill="none" stroke="rgba(42,82,51,0.3)" strokeWidth="10" strokeLinecap="round" />
+          <path d="M 10 65 A 55 55 0 0 1 120 65" fill="none" stroke={gaugeColor} strokeWidth="10" strokeLinecap="round"
+            strokeDasharray={circumference} strokeDashoffset={offset} className="transition-all duration-700 ease-out" />
           <text x="65" y="50" textAnchor="middle" fill="white" fontSize="18" fontWeight="600" className="font-data">
             {(Math.min(pct, 1.5) * 100).toFixed(0)}%
           </text>
@@ -400,17 +470,14 @@ function GaugeCard({
         </svg>
       </div>
 
-      {/* Progress bar for total */}
       <div className="space-y-2">
         <div className="flex justify-between text-[11px]">
           <span className="text-text-muted">Acumulado</span>
           <span className="font-data text-text-secondary">{fmtCurrency(totalCurrent, 0)} / {fmtCurrency(totalTarget, 0)}</span>
         </div>
         <div className="h-1.5 bg-bg-base rounded-full overflow-hidden">
-          <div
-            className="h-full rounded-full transition-all duration-700 ease-out"
-            style={{ width: `${Math.min(totalPct * 100, 100)}%`, backgroundColor: gaugeColor }}
-          />
+          <div className="h-full rounded-full transition-all duration-700 ease-out"
+            style={{ width: `${Math.min(totalPct * 100, 100)}%`, backgroundColor: gaugeColor }} />
         </div>
         <div className="flex justify-between text-[11px]">
           <span className="text-text-muted">Projeção</span>
@@ -423,9 +490,6 @@ function GaugeCard({
   )
 }
 
-/* ══════════════════════════════════════════════════════════════
-   Mini stat (projection row)
-   ══════════════════════════════════════════════════════════════ */
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
     <div>
@@ -435,9 +499,6 @@ function MiniStat({ label, value }: { label: string; value: string }) {
   )
 }
 
-/* ══════════════════════════════════════════════════════════════
-   Icons
-   ══════════════════════════════════════════════════════════════ */
 function TargetIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -454,9 +515,6 @@ function ProjectionIcon() {
   )
 }
 
-/* ══════════════════════════════════════════════════════════════
-   Formatting helpers
-   ══════════════════════════════════════════════════════════════ */
 function fmtCurrency(v: number, decimals = 2) {
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency', currency: 'BRL',

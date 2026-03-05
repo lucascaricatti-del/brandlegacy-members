@@ -284,3 +284,43 @@ export async function syncMediaToFinancial(workspaceId: string, year: number) {
 
   return { success: true, synced: rows.length }
 }
+
+// ============================================================
+// GET MEDIA PLAN GOALS (for Performance page)
+// ============================================================
+
+export async function getMediaPlanGoals(workspaceId: string, year: number, month: number) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Não autenticado' }
+
+  const adminSupabase = createAdminClient()
+
+  const { data: plan } = await adminSupabase
+    .from('media_plans')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('year', year)
+    .eq('plan_type', 'media')
+    .single()
+
+  if (!plan) return { error: 'Plano de mídia não encontrado para este ano' }
+
+  const { data: metrics } = await adminSupabase
+    .from('media_plan_metrics')
+    .select('metric_key, value_numeric')
+    .eq('media_plan_id', plan.id)
+    .eq('month', month)
+    .in('metric_key', ['RECEITA_META', 'SPEND_META', 'SPEND_GOOGLE', 'SPEND_INFLUENCER'])
+
+  if (!metrics || metrics.length === 0) return { error: 'Nenhuma meta encontrada para este mês' }
+
+  const metricMap = new Map(metrics.map(m => [m.metric_key, Number(m.value_numeric) || 0]))
+
+  const revenueGoal = metricMap.get('RECEITA_META') ?? 0
+  const investmentGoal = (metricMap.get('SPEND_META') ?? 0)
+    + (metricMap.get('SPEND_GOOGLE') ?? 0)
+    + (metricMap.get('SPEND_INFLUENCER') ?? 0)
+
+  return { revenueGoal, investmentGoal }
+}
