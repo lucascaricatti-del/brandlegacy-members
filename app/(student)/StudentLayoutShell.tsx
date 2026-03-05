@@ -17,7 +17,6 @@ export default function StudentLayoutShell({
   const [open, setOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
   const [midiaOpen, setMidiaOpen] = useState(true)
-  const [metricasOpen, setMetricasOpen] = useState(true)
   const router = useRouter()
 
   async function handleLogout() {
@@ -77,24 +76,17 @@ export default function StudentLayoutShell({
             <NavItem href="/entregas" icon={<IconEntregas />} label="Controle de Entregas" onNavigate={() => setOpen(false)} />
             <NavItem href="/workspace/tasks" icon={<IconTasks />} label="Tarefas" onNavigate={() => setOpen(false)} />
 
-            {/* Collapsible: Mídia */}
-            <CollapsibleSection title="Mídia" isOpen={midiaOpen} onToggle={() => setMidiaOpen(!midiaOpen)}>
+            {/* Collapsible: Métricas de Mídia */}
+            <CollapsibleSection title="Métricas de Mídia" icon={<IconMetricasMidia />} isOpen={midiaOpen} onToggle={() => setMidiaOpen(!midiaOpen)}>
               <SubNavItem href="/metricas?tab=meta" label="Meta" onNavigate={() => setOpen(false)} />
               <SubNavItem href="/metricas?tab=google" label="Google" onNavigate={() => setOpen(false)} />
-              <div className="flex items-center gap-2 px-3 py-2 pl-6 text-xs text-text-muted/60">
+              <div className="flex items-center gap-2 px-3 py-2 pl-9 text-xs text-text-muted/60">
                 <span>Influenciadores</span>
                 <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/5 text-text-muted/50">em breve</span>
               </div>
             </CollapsibleSection>
 
-            {/* Collapsible: Métricas */}
-            <CollapsibleSection title="Métricas" isOpen={metricasOpen} onToggle={() => setMetricasOpen(!metricasOpen)}>
-              <SubNavItem href="/metricas?tab=meta" label="Meta Ads" onNavigate={() => setOpen(false)} />
-              <SubNavItem href="/metricas?tab=google" label="Google Ads" onNavigate={() => setOpen(false)} />
-              <SubNavItem href="/metricas?tab=yampi" label="Yampi" onNavigate={() => setOpen(false)} />
-              <SubNavItem href="/marketplaces" label="Marketplaces" onNavigate={() => setOpen(false)} />
-            </CollapsibleSection>
-
+            <NavItem href="/marketplaces" icon={<IconMarketplaces />} label="Marketplaces" onNavigate={() => setOpen(false)} />
             <NavItem href="/performance" icon={<IconPerformance />} label="Performance" onNavigate={() => setOpen(false)} />
             <NavItem href="/ferramentas/calculadora-cenarios" icon={<IconCalc />} label="Calculadora Estratégica" onNavigate={() => setOpen(false)} />
             <NavItem href="/ferramentas/planejamento-midia" icon={<IconPlanMidia />} label="Planejamento de Mídia" onNavigate={() => setOpen(false)} />
@@ -199,7 +191,7 @@ function SubNavItem({ href, label, onNavigate }: { href: string; label: string; 
     <Link
       href={href}
       onClick={onNavigate}
-      className="flex items-center gap-2 px-3 py-2 pl-6 rounded-lg text-xs text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
+      className="flex items-center gap-2 px-3 py-2 pl-9 rounded-lg text-xs text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
     >
       {label}
     </Link>
@@ -208,11 +200,13 @@ function SubNavItem({ href, label, onNavigate }: { href: string; label: string; 
 
 function CollapsibleSection({
   title,
+  icon,
   isOpen,
   onToggle,
   children,
 }: {
   title: string
+  icon: React.ReactNode
   isOpen: boolean
   onToggle: () => void
   children: React.ReactNode
@@ -221,14 +215,15 @@ function CollapsibleSection({
     <div>
       <button
         onClick={onToggle}
-        className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-bg-hover transition-colors group cursor-pointer"
+        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-bg-hover transition-colors group cursor-pointer"
       >
-        <span className="text-text-muted text-[10px] font-semibold uppercase tracking-wider group-hover:text-text-secondary transition-colors">
+        <span className="text-text-muted group-hover:text-brand-gold transition-colors">{icon}</span>
+        <span className="flex-1 text-sm text-text-secondary group-hover:text-text-primary transition-colors text-left">
           {title}
         </span>
         <svg
-          width="12"
-          height="12"
+          width="14"
+          height="14"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
@@ -324,7 +319,7 @@ function IconIntegracoes() {
     </svg>
   )
 }
-function IconMetricas() {
+function IconMetricasMidia() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" />
