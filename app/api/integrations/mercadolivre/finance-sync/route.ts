@@ -106,7 +106,9 @@ export async function POST(req: NextRequest) {
       }
 
       const results = json.results || []
-      allCollections.push(...results)
+      for (const r of results) {
+        allCollections.push(r.collection || r)
+      }
 
       const total = json.paging?.total ?? 0
       if (offset + limit >= total || offset + limit >= 10000 || results.length === 0) break
@@ -131,25 +133,22 @@ export async function POST(req: NextRequest) {
         return date >= chunkFrom && date <= chunkTo
       })
 
-      const opRows = monthOps.map((p: any) => {
-        const createdAt = p.date_created || p.date_approved || ''
+      const opRows = monthOps.map((col: any) => {
+        const createdAt = col.date_created || col.date_approved || ''
         const date = createdAt ? createdAt.split('T')[0] : chunk.from.split('T')[0]
-        const fees = Array.isArray(p.fee_details)
-          ? p.fee_details.reduce((s: number, f: any) => s + Number(f.amount || 0), 0)
-          : 0
 
         return {
           workspace_id,
-          operation_id: String(p.id),
+          operation_id: String(col.id),
           date,
-          type: p.payment_type_id || p.payment_method_id || 'payment',
-          status: p.status || 'approved',
-          amount: Number(p.transaction_amount || 0),
-          net_amount: Number(p.transaction_details?.net_received_amount || p.transaction_amount || 0),
-          fee_amount: fees,
-          description: p.description || '',
-          reference_id: p.external_reference ? String(p.external_reference) : (p.order?.id ? String(p.order.id) : null),
-          currency: p.currency_id || 'BRL',
+          type: col.payment_type || col.operation_type || 'payment',
+          status: col.status || 'approved',
+          amount: Number(col.transaction_amount || col.total_paid_amount || 0),
+          net_amount: Number(col.net_received_amount || col.transaction_amount || 0),
+          fee_amount: Number(col.marketplace_fee || 0) + Number(col.mercadopago_fee || 0) + Number(col.finance_fee || 0),
+          description: col.reason || '',
+          reference_id: col.external_reference ? String(col.external_reference) : null,
+          currency: col.currency_id || 'BRL',
         }
       }).filter((r: any) => r.operation_id)
 

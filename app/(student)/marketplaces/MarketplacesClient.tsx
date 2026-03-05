@@ -209,7 +209,7 @@ export default function MarketplacesClient({
 
                 {/* Claims Card */}
                 <div className="bg-bg-card border border-border rounded-xl p-4">
-                  <h3 className="text-sm font-semibold text-text-primary mb-3">Reclamações / Chargebacks</h3>
+                  <h3 className="text-sm font-semibold text-text-primary mb-3">Reclamações</h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <p className="text-xs text-text-muted">Total</p>
@@ -241,66 +241,6 @@ export default function MarketplacesClient({
                   )}
                 </div>
               </div>
-
-              {/* Orders Table */}
-              <div className="bg-bg-card border border-border rounded-xl overflow-hidden">
-                <div className="px-4 py-3 border-b border-border">
-                  <h3 className="text-sm font-semibold text-text-primary">
-                    Pedidos ({filtered.length.toLocaleString('pt-BR')})
-                  </h3>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-text-muted text-xs border-b border-border">
-                        <th className="text-left px-4 py-2.5 font-medium">Data</th>
-                        <th className="text-left px-4 py-2.5 font-medium">Pedido</th>
-                        <th className="text-left px-4 py-2.5 font-medium">Comprador</th>
-                        <th className="text-left px-4 py-2.5 font-medium">Itens</th>
-                        <th className="text-left px-4 py-2.5 font-medium">Status</th>
-                        <th className="text-right px-4 py-2.5 font-medium">Receita</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filtered.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="px-4 py-8 text-center text-text-muted">
-                            Nenhum pedido no período selecionado.
-                          </td>
-                        </tr>
-                      ) : (
-                        filtered.slice(0, 100).map((order) => (
-                          <tr key={order.order_id} className="border-b border-border/50 hover:bg-bg-hover/50 transition-colors">
-                            <td className="px-4 py-2.5 text-text-secondary whitespace-nowrap">
-                              {new Date(order.date + 'T12:00:00').toLocaleDateString('pt-BR')}
-                            </td>
-                            <td className="px-4 py-2.5 text-text-muted font-mono text-xs">
-                              #{order.order_id}
-                            </td>
-                            <td className="px-4 py-2.5 text-text-secondary">
-                              {order.buyer_nickname || '—'}
-                            </td>
-                            <td className="px-4 py-2.5 text-text-secondary">
-                              {Array.isArray(order.items) ? order.items.length : 0} item(s)
-                            </td>
-                            <td className="px-4 py-2.5">
-                              <OrderStatus status={order.status} />
-                            </td>
-                            <td className="px-4 py-2.5 text-right text-text-primary font-medium">
-                              {formatBRL(order.revenue)}
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-                {filtered.length > 100 && (
-                  <div className="px-4 py-2 border-t border-border text-center text-xs text-text-muted">
-                    Mostrando 100 de {filtered.length.toLocaleString('pt-BR')} pedidos
-                  </div>
-                )}
-              </div>
             </>
           )}
         </>
@@ -325,25 +265,5 @@ function KPICard({ label, value, highlight }: { label: string; value: string; hi
       <p className="text-xs text-text-muted mb-1">{label}</p>
       <p className={`text-lg font-bold ${highlight ? 'text-brand-gold' : 'text-text-primary'}`}>{value}</p>
     </div>
-  )
-}
-
-function OrderStatus({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    paid: 'bg-success/15 text-success',
-    confirmed: 'bg-success/15 text-success',
-    cancelled: 'bg-red-500/15 text-red-400',
-    pending: 'bg-yellow-500/15 text-yellow-400',
-  }
-  const labels: Record<string, string> = {
-    paid: 'Pago',
-    confirmed: 'Confirmado',
-    cancelled: 'Cancelado',
-    pending: 'Pendente',
-  }
-  return (
-    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${styles[status] || 'bg-bg-surface text-text-muted'}`}>
-      {labels[status] || status}
-    </span>
   )
 }
