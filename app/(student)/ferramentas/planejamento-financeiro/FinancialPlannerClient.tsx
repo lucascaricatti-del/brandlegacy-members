@@ -9,6 +9,21 @@ import {
 import { upsertMetrics, upsertMetricsAdmin } from '@/app/actions/media-plan'
 
 // ============================================================
+// View mode types
+// ============================================================
+
+type ViewMode = 'completo' | 'quarters' | 'mes'
+
+type ViewColumn = { key: string; label: string; months: number[]; color?: string }
+
+const QUARTERS: { label: string; months: number[]; color: string }[] = [
+  { label: 'Q1', months: [1, 2, 3], color: '#3b82f6' },
+  { label: 'Q2', months: [4, 5, 6], color: '#22c55e' },
+  { label: 'Q3', months: [7, 8, 9], color: '#eab308' },
+  { label: 'Q4', months: [10, 11, 12], color: '#ef4444' },
+]
+
+// ============================================================
 // Types
 // ============================================================
 
@@ -51,6 +66,8 @@ export default function FinancialPlannerClient({ planId, workspaceId, year, init
   })
 
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
+  const [viewMode, setViewMode] = useState<ViewMode>('completo')
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1)
   const [saving, setSaving] = useState(false)
   const [lastSaved, setLastSaved] = useState<Date | null>(null)
   const pendingRef = useRef<Array<{ metric_key: string; month: number; value_numeric: number | null; delta_pct: number | null; input_mode: 'value' | 'delta_pct' }>>([])
@@ -77,6 +94,27 @@ export default function FinancialPlannerClient({ planId, workspaceId, year, init
     }
     return resultsByMonth[month]?.[metricKey as ResultMetric] ?? 0
   }, [cells, resultsByMonth])
+
+  // View columns
+  const columns = useMemo<ViewColumn[]>(() => {
+    if (viewMode === 'quarters') {
+      return QUARTERS.map(q => ({ key: q.label, label: q.label, months: q.months, color: q.color }))
+    }
+    if (viewMode === 'mes') {
+      return [{ key: `m${selectedMonth}`, label: MONTH_LABELS[selectedMonth - 1], months: [selectedMonth] }]
+    }
+    return MONTHS.map((m, i) => ({ key: `m${m}`, label: MONTH_LABELS[i], months: [m] }))
+  }, [viewMode, selectedMonth])
+
+  const getColumnValue = useCallback((metricKey: string, months: number[], format: MetricDef['format']): number => {
+    if (months.length === 1) return getCellValue(metricKey, months[0])
+    const values = months.map(m => getCellValue(metricKey, m))
+    if (format === 'percent' || format === 'decimal') {
+      const nonZero = values.filter(v => v !== 0)
+      return nonZero.length > 0 ? nonZero.reduce((s, v) => s + v, 0) / nonZero.length : 0
+    }
+    return values.reduce((s, v) => s + v, 0)
+  }, [getCellValue])
 
   // Auto-save with debounce
   const flushSave = useCallback(async () => {
@@ -215,6 +253,33 @@ export default function FinancialPlannerClient({ planId, workspaceId, year, init
             ) : null}
           </span>
 
+          {/* View mode toggle */}
+          <div className="flex gap-0.5 bg-bg-card border border-border rounded-lg p-0.5">
+            {(['completo', 'quarters', 'mes'] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                  viewMode === mode
+                    ? 'bg-brand-gold text-bg-base font-medium'
+                    : 'text-text-muted hover:text-text-secondary'
+                }`}
+              >
+                {mode === 'completo' ? 'Completo' : mode === 'quarters' ? 'Quarters' : 'Mês'}
+              </button>
+            ))}
+          </div>
+
+          {viewMode === 'mes' && (
+            <select
+              value={selectedMonth}
+              onChange={e => setSelectedMonth(Number(e.target.value))}
+              className="bg-bg-card border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary"
+            >
+              {MONTH_LABELS.map((l, i) => <option key={i} value={i + 1}>{l}</option>)}
+            </select>
+          )}
+
           <div className="flex items-center gap-1 bg-bg-card border border-border rounded-lg">
             <a
               href={isAdmin ? `?year=${year - 1}` : `/ferramentas/planejamento-financeiro/${year - 1}`}
@@ -252,9 +317,9 @@ export default function FinancialPlannerClient({ planId, workspaceId, year, init
                 <th className="sticky left-0 z-10 text-left px-4 py-3 font-semibold text-text-secondary min-w-[220px] border-r border-border" style={{ fontSize: 13, background: '#0a1a0f' }}>
                   Linha DRE
                 </th>
-                {MONTH_LABELS.map((label, i) => (
-                  <th key={i} className="px-3 py-3 text-center font-medium text-text-muted min-w-[115px]" style={{ fontSize: 12 }}>
-                    {label}
+                {columns.map((col) => (
+                  <th key={col.key} className="px-3 py-3 text-center font-medium min-w-[115px]" style={{ fontSize: 12, color: col.color || undefined }}>
+                    {col.label}
                   </th>
                 ))}
                 <th className="px-3 py-3 text-center font-bold min-w-[130px] border-l border-border" style={{ fontSize: 13, color: '#c9a84c' }}>
@@ -276,6 +341,8 @@ export default function FinancialPlannerClient({ planId, workspaceId, year, init
                     isCollapsed={isCollapsed}
                     onToggle={() => toggleSection(section.key)}
                     getCellValue={getCellValue}
+                    getColumnValue={getColumnValue}
+                    columns={columns}
                     cells={cells}
                     annualSummary={annualSummary}
                     onUpdateCell={updateCell}
@@ -314,6 +381,8 @@ function SectionGroup({
   isCollapsed,
   onToggle,
   getCellValue,
+  getColumnValue,
+  columns,
   cells,
   annualSummary,
   onUpdateCell,
@@ -324,6 +393,8 @@ function SectionGroup({
   isCollapsed: boolean
   onToggle: () => void
   getCellValue: (key: string, month: number) => number
+  getColumnValue: (key: string, months: number[], format: MetricDef['format']) => number
+  columns: ViewColumn[]
   cells: Record<string, Record<number, CellData>>
   annualSummary: Record<MetricKey, number>
   onUpdateCell: (key: string, month: number, value: number | null, mode?: 'value' | 'delta_pct') => void
@@ -338,7 +409,7 @@ function SectionGroup({
       >
         <td
           className="sticky left-0 z-10 px-4 py-3.5 border-r border-border"
-          colSpan={14}
+          colSpan={columns.length + 2}
           style={{ background: '#0a1a0f' }}
         >
           <div className="flex items-center gap-2.5">
@@ -364,6 +435,8 @@ function SectionGroup({
           key={def.key}
           def={def}
           getCellValue={getCellValue}
+          getColumnValue={getColumnValue}
+          columns={columns}
           cells={cells}
           annual={annualSummary[def.key] ?? 0}
           onUpdateCell={onUpdateCell}
@@ -381,6 +454,8 @@ function SectionGroup({
 function MetricRow({
   def,
   getCellValue,
+  getColumnValue,
+  columns,
   cells,
   annual,
   onUpdateCell,
@@ -388,6 +463,8 @@ function MetricRow({
 }: {
   def: MetricDef
   getCellValue: (key: string, month: number) => number
+  getColumnValue: (key: string, months: number[], format: MetricDef['format']) => number
+  columns: ViewColumn[]
   cells: Record<string, Record<number, CellData>>
   annual: number
   onUpdateCell: (key: string, month: number, value: number | null, mode?: 'value' | 'delta_pct') => void
@@ -438,29 +515,50 @@ function MetricRow({
         </div>
       </td>
 
-      {/* Month cells */}
-      {MONTHS.map((month) => {
-        const value = getCellValue(def.key, month)
-        const cell = cells[def.key]?.[month]
-        const isDeltaMode = cell?.mode === 'delta_pct' && month > 1
+      {/* Column cells */}
+      {columns.map((col) => {
+        const isSingleMonth = col.months.length === 1
+        const month = col.months[0]
+
+        if (isSingleMonth) {
+          const value = getCellValue(def.key, month)
+          const cell = cells[def.key]?.[month]
+          const isDeltaMode = cell?.mode === 'delta_pct' && month > 1
+
+          return (
+            <td key={col.key} className="px-1 py-0 text-center">
+              {def.isKey ? (
+                <EditableCell
+                  value={value}
+                  rawCell={cell}
+                  month={month}
+                  metricKey={def.key}
+                  format={def.format}
+                  decimals={def.decimals}
+                  isDeltaMode={isDeltaMode}
+                  onUpdate={(v, mode) => onUpdateCell(def.key, month, v, mode)}
+                  onToggleMode={() => onToggleMode(def.key, month)}
+                />
+              ) : (
+                <ResultCell value={value} def={def} />
+              )}
+            </td>
+          )
+        }
+
+        // Multi-month (quarter) — read-only aggregated value
+        const aggValue = getColumnValue(def.key, col.months, def.format)
+        const isNeg = aggValue < 0
+        const color = aggValue === 0 ? '#6b7c6f' : isNeg ? '#ef4444' : col.color || '#c9a84c'
 
         return (
-          <td key={month} className="px-1 py-0 text-center">
-            {def.isKey ? (
-              <EditableCell
-                value={value}
-                rawCell={cell}
-                month={month}
-                metricKey={def.key}
-                format={def.format}
-                decimals={def.decimals}
-                isDeltaMode={isDeltaMode}
-                onUpdate={(v, mode) => onUpdateCell(def.key, month, v, mode)}
-                onToggleMode={() => onToggleMode(def.key, month)}
-              />
-            ) : (
-              <ResultCell value={value} def={def} />
-            )}
+          <td key={col.key} className="px-1 py-0 text-center">
+            <span
+              className="tabular-nums px-2 py-2 block font-semibold"
+              style={{ fontSize: 13, color }}
+            >
+              {aggValue === 0 ? '-' : formatMetricValue(aggValue, def.format, def.decimals)}
+            </span>
           </td>
         )
       })}

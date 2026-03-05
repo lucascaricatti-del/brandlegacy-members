@@ -109,6 +109,7 @@ export default function MetricsClient({
   yampiOrders: YampiOrderRow[]
   initialTab?: Tab
 }) {
+  const forcedTab = initialTab // when coming from sidebar submenu (e.g. ?tab=meta)
   const [activeTab, setActiveTab] = useState<Tab>(initialTab ?? 'meta')
   const [period, setPeriod] = useState<Period>('30d')
   const [customFrom, setCustomFrom] = useState('')
@@ -416,20 +417,37 @@ export default function MetricsClient({
   return (
     <div className="space-y-6">
       {/* ═══ Tab selector ═══ */}
-      <div className="flex gap-1 bg-bg-card border border-border rounded-xl p-1 overflow-x-auto whitespace-nowrap">
-        {TABS.map(({ key, label, icon, connected }) => (
-          <button key={key} onClick={() => setActiveTab(key)}
-            className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 px-3 py-2 md:px-4 md:py-2.5 text-xs md:text-sm font-medium rounded-lg transition-all cursor-pointer ${
-              activeTab === key
-                ? 'bg-brand-gold text-bg-base shadow-md'
-                : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'
-            }`}>
-            {icon}
-            <span className="truncate">{label}</span>
-            <span className={`status-dot flex-shrink-0 ${connected ? 'status-dot-connected' : 'status-dot-disconnected'}`} />
-          </button>
-        ))}
-      </div>
+      {forcedTab ? (
+        <div className="flex items-center gap-3">
+          <div className="flex gap-1 bg-bg-card border border-border rounded-xl p-1">
+            {TABS.filter(t => t.key === forcedTab).map(({ key, label, icon, connected }) => (
+              <div key={key} className="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium rounded-lg bg-brand-gold text-bg-base shadow-md">
+                {icon}
+                <span>{label}</span>
+                <span className={`status-dot flex-shrink-0 ${connected ? 'status-dot-connected' : 'status-dot-disconnected'}`} />
+              </div>
+            ))}
+          </div>
+          <Link href="/metricas" className="text-xs text-text-muted hover:text-brand-gold transition-colors">
+            Ver todas as métricas
+          </Link>
+        </div>
+      ) : (
+        <div className="flex gap-1 bg-bg-card border border-border rounded-xl p-1 overflow-x-auto whitespace-nowrap">
+          {TABS.map(({ key, label, icon, connected }) => (
+            <button key={key} onClick={() => setActiveTab(key)}
+              className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 px-3 py-2 md:px-4 md:py-2.5 text-xs md:text-sm font-medium rounded-lg transition-all cursor-pointer ${
+                activeTab === key
+                  ? 'bg-brand-gold text-bg-base shadow-md'
+                  : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'
+              }`}>
+              {icon}
+              <span className="truncate">{label}</span>
+              <span className={`status-dot flex-shrink-0 ${connected ? 'status-dot-connected' : 'status-dot-disconnected'}`} />
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ═══ Not connected ═══ */}
       {!isConnected && (

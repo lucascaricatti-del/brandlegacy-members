@@ -39,8 +39,8 @@ interface DescontoInputs {
 // Constants
 // ============================================================
 
-const GOLD = '#c9a84c'
-const BG_CARD = '#1a2332'
+const GOLD = '#ECA206'
+const BG_CARD = '#122014'
 
 const SEGMENTS_CONFIG = [
   { key: 'cmv', label: 'CMV', color: '#ef4444' },
@@ -231,8 +231,8 @@ export default function StrategicCalculator() {
     <div className="space-y-6 tabular-nums">
       {/* 1. Header */}
       <div>
-        <h1 className="text-2xl font-bold text-white">Calculadora Estratégica</h1>
-        <p className="text-sm text-gray-400 mt-1">
+        <h1 className="text-2xl font-bold text-text-primary">Calculadora Estratégica</h1>
+        <p className="text-sm text-text-muted mt-1">
           Descubra seu ROAS Mínimo, CPA Máximo e quanto do ticket está disponível para
           investir em marketing.
         </p>
@@ -269,11 +269,11 @@ export default function StrategicCalculator() {
               className="relative group transition-all duration-300"
             >
               {s.pct >= 7 && (
-                <span className="absolute inset-0 flex items-center justify-center text-[10px] font-semibold text-white/90 drop-shadow">
+                <span className="absolute inset-0 flex items-center justify-center text-[10px] font-semibold text-text-primary drop-shadow">
                   {s.pct.toFixed(0)}%
                 </span>
               )}
-              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 hidden group-hover:block bg-gray-900 text-white text-xs px-2 py-1 rounded whitespace-nowrap z-10 border border-white/10">
+              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 hidden group-hover:block bg-bg-base text-text-primary text-xs px-2 py-1 rounded whitespace-nowrap z-10 border border-border">
                 {s.label}: {s.pct.toFixed(1)}%
               </div>
             </div>
@@ -281,7 +281,7 @@ export default function StrategicCalculator() {
         </div>
         <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3">
           {segments.map(s => (
-            <div key={s.key} className="flex items-center gap-1.5 text-xs text-gray-400">
+            <div key={s.key} className="flex items-center gap-1.5 text-xs text-text-muted">
               <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: s.color }} />
               {s.label} ({s.pct.toFixed(1)}%)
             </div>
@@ -294,22 +294,22 @@ export default function StrategicCalculator() {
         <Card>
           <SectionTitle>Ticket Médio</SectionTitle>
           {useCurvaA ? (
-            <p className="text-2xl font-bold text-white">R$ {fmt(ticketMedio)}</p>
+            <p className="text-2xl font-bold text-text-primary">R$ {fmt(ticketMedio)}</p>
           ) : (
             <InputField label="Ticket Médio (R$)" value={manualTicket} onChange={setManualTicket} />
           )}
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-text-muted mt-1">
             {useCurvaA ? 'Calculado pela Curva A' : 'Valor manual'}
           </p>
         </Card>
         <Card>
           <SectionTitle>CMV %</SectionTitle>
           {useCurvaA ? (
-            <p className="text-2xl font-bold text-white">{cmvPct.toFixed(1)}%</p>
+            <p className="text-2xl font-bold text-text-primary">{cmvPct.toFixed(1)}%</p>
           ) : (
             <InputField label="CMV (%)" value={manualCmv} onChange={setManualCmv} />
           )}
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-text-muted mt-1">
             {useCurvaA ? 'Calculado pela Curva A' : 'Valor manual'}
           </p>
         </Card>
@@ -341,8 +341,8 @@ export default function StrategicCalculator() {
         onToggle={() => toggleSection('curvaA')}
       >
         {/* Toggle */}
-        <div className="flex items-center justify-between mb-4 pb-3 border-b border-white/5">
-          <span className="text-sm text-gray-400">
+        <div className="flex items-center justify-between mb-4 pb-3 border-b border-border">
+          <span className="text-sm text-text-muted">
             {useCurvaA ? 'Curva A ativada — cálculo ponderado' : 'Usar valores manuais'}
           </span>
           <Toggle checked={useCurvaA} onChange={setUseCurvaA} />
@@ -353,7 +353,7 @@ export default function StrategicCalculator() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-left text-[11px] text-gray-500 uppercase tracking-wide">
+                  <tr className="text-left text-[11px] text-text-muted uppercase tracking-wide">
                     <th className="pb-2 pr-2">Produto</th>
                     <th className="pb-2 pr-2 w-28">Preço (R$)</th>
                     <th className="pb-2 pr-2 w-28">Custo (R$)</th>
@@ -366,13 +366,13 @@ export default function StrategicCalculator() {
                   {products.map(p => {
                     const pCmv = p.price > 0 ? (p.cost / p.price) * 100 : 0
                     return (
-                      <tr key={p.id} className="border-t border-white/5">
+                      <tr key={p.id} className="border-t border-border">
                         <td className="py-2 pr-2">
                           <input
                             type="text"
                             value={p.name}
                             onChange={e => updateProduct(p.id, 'name', e.target.value)}
-                            className="w-full bg-white/5 hover:bg-white/[0.07] border border-white/10 rounded px-2 py-1.5 text-white text-sm focus:outline-none focus:border-[#c9a84c]/50"
+                            className="w-full bg-bg-surface/50 hover:bg-bg-hover border border-border rounded px-2 py-1.5 text-text-primary text-sm focus:outline-none focus:border-brand-gold/50"
                           />
                         </td>
                         <td className="py-2 pr-2">
@@ -381,7 +381,7 @@ export default function StrategicCalculator() {
                             step="0.01"
                             value={p.price}
                             onChange={e => updateProduct(p.id, 'price', e.target.value)}
-                            className="w-full bg-white/5 hover:bg-white/[0.07] border border-white/10 rounded px-2 py-1.5 text-white text-sm text-right focus:outline-none focus:border-[#c9a84c]/50"
+                            className="w-full bg-bg-surface/50 hover:bg-bg-hover border border-border rounded px-2 py-1.5 text-text-primary text-sm text-right focus:outline-none focus:border-brand-gold/50"
                           />
                         </td>
                         <td className="py-2 pr-2">
@@ -390,7 +390,7 @@ export default function StrategicCalculator() {
                             step="0.01"
                             value={p.cost}
                             onChange={e => updateProduct(p.id, 'cost', e.target.value)}
-                            className="w-full bg-white/5 hover:bg-white/[0.07] border border-white/10 rounded px-2 py-1.5 text-white text-sm text-right focus:outline-none focus:border-[#c9a84c]/50"
+                            className="w-full bg-bg-surface/50 hover:bg-bg-hover border border-border rounded px-2 py-1.5 text-text-primary text-sm text-right focus:outline-none focus:border-brand-gold/50"
                           />
                         </td>
                         <td className="py-2 pr-2">
@@ -399,16 +399,16 @@ export default function StrategicCalculator() {
                             step="1"
                             value={p.salesPct}
                             onChange={e => updateProduct(p.id, 'salesPct', e.target.value)}
-                            className="w-full bg-white/5 hover:bg-white/[0.07] border border-white/10 rounded px-2 py-1.5 text-white text-sm text-right focus:outline-none focus:border-[#c9a84c]/50"
+                            className="w-full bg-bg-surface/50 hover:bg-bg-hover border border-border rounded px-2 py-1.5 text-text-primary text-sm text-right focus:outline-none focus:border-brand-gold/50"
                           />
                         </td>
-                        <td className="py-2 pr-2 text-right text-sm text-gray-400">
+                        <td className="py-2 pr-2 text-right text-sm text-text-muted">
                           {pCmv.toFixed(1)}%
                         </td>
                         <td className="py-2 text-center">
                           <button
                             onClick={() => removeProduct(p.id)}
-                            className="text-gray-600 hover:text-red-400 transition-colors p-1 disabled:opacity-30"
+                            className="text-text-muted/60 hover:text-red-400 transition-colors p-1 disabled:opacity-30"
                             title="Remover"
                             disabled={products.length <= 1}
                           >
@@ -424,20 +424,20 @@ export default function StrategicCalculator() {
 
             <button
               onClick={addProduct}
-              className="text-xs text-[#c9a84c] hover:text-[#d4b65e] transition-colors flex items-center gap-1"
+              className="text-xs text-brand-gold hover:text-brand-gold-light transition-colors flex items-center gap-1"
             >
               <IconPlus size={14} />
               Adicionar produto
             </button>
 
-            <div className="mt-3 pt-3 border-t border-white/5 flex flex-wrap gap-x-6 gap-y-1 text-sm">
-              <span className="text-gray-400">
+            <div className="mt-3 pt-3 border-t border-border flex flex-wrap gap-x-6 gap-y-1 text-sm">
+              <span className="text-text-muted">
                 Ticket ponderado:{' '}
-                <span className="text-white font-medium">R$ {fmt(ticketMedio)}</span>
+                <span className="text-text-primary font-medium">R$ {fmt(ticketMedio)}</span>
               </span>
-              <span className="text-gray-400">
+              <span className="text-text-muted">
                 CMV ponderado:{' '}
-                <span className="text-white font-medium">{cmvPct.toFixed(1)}%</span>
+                <span className="text-text-primary font-medium">{cmvPct.toFixed(1)}%</span>
               </span>
             </div>
           </div>
@@ -583,7 +583,7 @@ export default function StrategicCalculator() {
         <SectionTitle>Resumo por Pedido</SectionTitle>
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left text-[11px] text-gray-500 uppercase tracking-wide border-b border-white/5">
+            <tr className="text-left text-[11px] text-text-muted uppercase tracking-wide border-b border-border">
               <th className="pb-2">Item</th>
               <th className="pb-2 text-right">%</th>
               <th className="pb-2 text-right">R$</th>
@@ -597,7 +597,7 @@ export default function StrategicCalculator() {
             <SummaryRow label="(−) Taxas" pct={taxasPct} value={(ticketMedio * taxasPct) / 100} negative />
             <SummaryRow label="(−) Desconto" pct={descontoPct} value={(ticketMedio * descontoPct) / 100} negative />
             <SummaryRow label="(−) Lucro Desejado" pct={lucroDesejadoPct} value={(ticketMedio * lucroDesejadoPct) / 100} negative />
-            <tr className="border-t-2 border-white/10">
+            <tr className="border-t-2 border-border">
               <td className="py-2.5 font-semibold" style={{ color: GOLD }}>
                 = Disponível p/ Marketing
               </td>
@@ -621,7 +621,7 @@ export default function StrategicCalculator() {
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ background: BG_CARD }} className="rounded-xl p-5 border border-white/5">
+    <div style={{ background: BG_CARD }} className="rounded-xl p-5 border border-border">
       {children}
     </div>
   )
@@ -629,7 +629,7 @@ function Card({ children }: { children: React.ReactNode }) {
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <p className="text-xs text-gray-400 mb-3 font-medium uppercase tracking-wide">{children}</p>
+    <p className="text-xs text-text-muted mb-3 font-medium uppercase tracking-wide">{children}</p>
   )
 }
 
@@ -647,21 +647,21 @@ function CollapsibleCard({
   children: React.ReactNode
 }) {
   return (
-    <div style={{ background: BG_CARD }} className="rounded-xl border border-white/5 overflow-hidden">
+    <div style={{ background: BG_CARD }} className="rounded-xl border border-border overflow-hidden">
       <button
         type="button"
         onClick={onToggle}
-        className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-white/[0.02] transition-colors"
+        className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-bg-hover/50 transition-colors"
       >
         <div className="min-w-0">
-          <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">{title}</p>
+          <p className="text-xs text-text-muted font-medium uppercase tracking-wide">{title}</p>
           {subtitle && (
-            <p className="text-xs text-gray-500 mt-0.5 truncate">{subtitle}</p>
+            <p className="text-xs text-text-muted mt-0.5 truncate">{subtitle}</p>
           )}
         </div>
         <span
           className={[
-            'text-gray-500 transition-transform duration-200 shrink-0 ml-3',
+            'text-text-muted transition-transform duration-200 shrink-0 ml-3',
             isOpen ? 'rotate-180' : '',
           ].join(' ')}
         >
@@ -697,11 +697,11 @@ function ResultCard({
     <div
       style={{
         background: BG_CARD,
-        borderColor: accent ? '#ef4444' : 'rgba(255,255,255,0.05)',
+        borderColor: accent ? '#ef4444' : '#1F3D25',
       }}
       className="rounded-xl p-5 border"
     >
-      <p className="text-xs text-gray-400 mb-1 font-medium uppercase tracking-wide">{label}</p>
+      <p className="text-xs text-text-muted mb-1 font-medium uppercase tracking-wide">{label}</p>
       <p className="text-2xl font-bold" style={{ color: accent ? '#ef4444' : GOLD }}>
         {prefix && <span className="text-base font-normal mr-1">{prefix}</span>}
         {value}
@@ -726,7 +726,7 @@ function InputField({
 }) {
   return (
     <label className="block">
-      <span className="text-xs text-gray-400 mb-1 block">{label}</span>
+      <span className="text-xs text-text-muted mb-1 block">{label}</span>
       <input
         type="number"
         step={step ?? 'any'}
@@ -734,10 +734,10 @@ function InputField({
         onChange={e => onChange(Number(e.target.value) || 0)}
         disabled={disabled}
         className={[
-          'w-full rounded px-3 py-2 text-sm text-white border border-white/10 focus:outline-none focus:border-[#c9a84c]/50 tabular-nums',
+          'w-full rounded px-3 py-2 text-sm text-text-primary border border-border focus:outline-none focus:border-brand-gold/50 tabular-nums',
           disabled
-            ? 'bg-white/[0.02] text-gray-500 cursor-not-allowed'
-            : 'bg-white/5 hover:bg-white/[0.07]',
+            ? 'bg-bg-hover/30 text-text-muted cursor-not-allowed'
+            : 'bg-bg-surface/50 hover:bg-bg-hover',
         ].join(' ')}
       />
     </label>
@@ -751,7 +751,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
       onClick={() => onChange(!checked)}
       className={[
         'relative w-11 h-6 rounded-full transition-colors duration-200 shrink-0',
-        checked ? 'bg-[#c9a84c]' : 'bg-white/10',
+        checked ? 'bg-brand-gold' : 'bg-bg-surface',
       ].join(' ')}
     >
       <span
@@ -766,11 +766,11 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 
 function MiniResult({ rows }: { rows: { label: string; value: string }[] }) {
   return (
-    <div className="pt-3 mt-1 border-t border-white/5 space-y-1">
+    <div className="pt-3 mt-1 border-t border-border space-y-1">
       {rows.map(r => (
         <div key={r.label} className="flex justify-between text-sm">
-          <span className="text-gray-400">{r.label}</span>
-          <span className="text-white font-medium">{r.value}</span>
+          <span className="text-text-muted">{r.label}</span>
+          <span className="text-text-primary font-medium">{r.value}</span>
         </div>
       ))}
     </div>
@@ -789,15 +789,15 @@ function SummaryRow({
   negative?: boolean
 }) {
   return (
-    <tr className="border-t border-white/5">
-      <td className={`py-2 ${negative ? 'text-gray-400' : 'text-white font-medium'}`}>
+    <tr className="border-t border-border">
+      <td className={`py-2 ${negative ? 'text-text-muted' : 'text-text-primary font-medium'}`}>
         {label}
       </td>
-      <td className={`py-2 text-right ${negative ? 'text-gray-400' : 'text-white'}`}>
+      <td className={`py-2 text-right ${negative ? 'text-text-muted' : 'text-text-primary'}`}>
         {pct.toFixed(1)}%
       </td>
       <td
-        className={`py-2 text-right ${negative ? 'text-red-400/80' : 'text-white font-medium'}`}
+        className={`py-2 text-right ${negative ? 'text-red-400/80' : 'text-text-primary font-medium'}`}
       >
         R$ {fmt(value)}
       </td>

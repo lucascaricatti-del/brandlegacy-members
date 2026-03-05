@@ -77,7 +77,7 @@ export default function StudentLayoutShell({
             <NavItem href="/workspace/tasks" icon={<IconTasks />} label="Tarefas" onNavigate={() => setOpen(false)} />
 
             {/* Collapsible: Métricas de Mídia */}
-            <CollapsibleSection title="Métricas de Mídia" icon={<IconMetricasMidia />} isOpen={midiaOpen} onToggle={() => setMidiaOpen(!midiaOpen)}>
+            <CollapsibleSection title="Métricas de Mídia" icon={<IconMetricasMidia />} isOpen={midiaOpen} onToggle={() => setMidiaOpen(!midiaOpen)} href="/metricas" onNavigate={() => setOpen(false)}>
               <SubNavItem href="/metricas?tab=meta" label="Meta" onNavigate={() => setOpen(false)} />
               <SubNavItem href="/metricas?tab=google" label="Google" onNavigate={() => setOpen(false)} />
               <div className="flex items-center gap-2 px-3 py-2 pl-9 text-xs text-text-muted/60">
@@ -89,7 +89,7 @@ export default function StudentLayoutShell({
             <NavItem href="/marketplaces" icon={<IconMarketplaces />} label="Marketplaces" onNavigate={() => setOpen(false)} />
             <NavItem href="/performance" icon={<IconPerformance />} label="Performance" onNavigate={() => setOpen(false)} />
             <NavItem href="/ferramentas/calculadora-cenarios" icon={<IconCalc />} label="Calculadora Estratégica" onNavigate={() => setOpen(false)} />
-            <NavItem href="/ferramentas/planejamento-midia" icon={<IconPlanMidia />} label="Planejamento de Mídia" onNavigate={() => setOpen(false)} />
+            <NavItem href="/ferramentas/planejamento-midia" icon={<IconPlanMidia />} label="Mídia Plan" onNavigate={() => setOpen(false)} />
             <NavItem href="/ferramentas/planejamento-financeiro" icon={<IconForecasting />} label="Forecasting" onNavigate={() => setOpen(false)} />
           </div>
 
@@ -203,38 +203,62 @@ function CollapsibleSection({
   icon,
   isOpen,
   onToggle,
+  href,
+  onNavigate,
   children,
 }: {
   title: string
   icon: React.ReactNode
   isOpen: boolean
   onToggle: () => void
+  href?: string
+  onNavigate?: () => void
   children: React.ReactNode
 }) {
   return (
     <div>
-      <button
-        onClick={onToggle}
-        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-bg-hover transition-colors group cursor-pointer"
-      >
-        <span className="text-text-muted group-hover:text-brand-gold transition-colors">{icon}</span>
-        <span className="flex-1 text-sm text-text-secondary group-hover:text-text-primary transition-colors text-left">
-          {title}
-        </span>
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={`text-text-muted transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`}
+      <div className="flex items-center rounded-lg hover:bg-bg-hover transition-colors group">
+        {href ? (
+          <Link
+            href={href}
+            onClick={onNavigate}
+            className="flex-1 flex items-center gap-3 px-3 py-2.5"
+          >
+            <span className="text-text-muted group-hover:text-brand-gold transition-colors">{icon}</span>
+            <span className="text-sm text-text-secondary group-hover:text-text-primary transition-colors">
+              {title}
+            </span>
+          </Link>
+        ) : (
+          <button
+            onClick={onToggle}
+            className="flex-1 flex items-center gap-3 px-3 py-2.5 cursor-pointer"
+          >
+            <span className="text-text-muted group-hover:text-brand-gold transition-colors">{icon}</span>
+            <span className="text-sm text-text-secondary group-hover:text-text-primary transition-colors text-left">
+              {title}
+            </span>
+          </button>
+        )}
+        <button
+          onClick={onToggle}
+          className="px-2 py-2.5 cursor-pointer"
         >
-          <polyline points="9 18 15 12 9 6" />
-        </svg>
-      </button>
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className={`text-text-muted transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`}
+          >
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        </button>
+      </div>
       <div
         className={`overflow-hidden transition-all duration-200 ease-in-out ${
           isOpen ? 'max-h-60 opacity-100' : 'max-h-0 opacity-0'
