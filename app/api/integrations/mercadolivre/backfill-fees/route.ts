@@ -92,32 +92,42 @@ export async function POST(req: NextRequest) {
           const payment = paymentResult.status === 'fulfilled' ? paymentResult.value : null
           const shipment = shipmentResult.status === 'fulfilled' ? shipmentResult.value : null
 
-          // Step c: Extract commission
+          // Step c: Extract commission from fee_details
           let mlCommission = 0
           let mlFixedFee = 0
           const feeDetails: any[] = payment?.fee_details || []
-          if (feeDetails.length > 0) {
-            for (const fee of feeDetails) {
-              const t = fee.type || ''
-              const amount = Math.abs(Number(fee.amount || 0))
-              if (t === 'mercadopago_fee' || t === 'ml_fee') mlCommission += amount
-              else if (t === 'fixed_fee' || t === 'listing_fee') mlFixedFee += amount
-            }
-          } else if (payment?.transaction_details) {
+          for (const fee of feeDetails) {
+            const t = fee.type || ''
+            const amount = Math.abs(Number(fee.amount || 0))
+            if (t === 'mercadopago_fee' || t === 'ml_fee') mlCommission += amount
+            else if (t === 'fixed_fee' || t === 'listing_fee') mlFixedFee += amount
+          }
+
+          // Fallback: if commission still 0, derive from transaction_details (handles coupon_fee-only cases)
+          if (mlCommission === 0 && payment?.transaction_details) {
             const td = payment.transaction_details
             if (td.net_received_amount != null && td.total_paid_amount != null) {
               mlCommission = Math.abs(Number(td.total_paid_amount) - Number(td.net_received_amount))
             }
           }
 
-          // Fixed fee: R$6.00 per unit for Premium (gold_pro) listings
+          // Fixed fee: R$6.00 per unit for Premium (gold_pro) listings — fetch from /items/{id}
           if (mlFixedFee === 0) {
             const orderItems = orderData.order_items || []
             for (const item of orderItems) {
-              const listingType = item.item?.listing_type_id || ''
-              if (listingType === 'gold_pro') {
-                mlFixedFee += 6.0 * (Number(item.quantity) || 1)
+              const itemId = String(item.item?.id || '')
+              if (!itemId) continue
+              const itemRes = await fetch(`https://api.mercadolibre.com/items/${itemId}?attributes=listing_type_id`, {
+                headers: { Authorization: `Bearer ${accessToken}` },
+                signal: AbortSignal.timeout(10000),
+              })
+              if (itemRes.ok) {
+                const itemData = await itemRes.json()
+                if (itemData.listing_type_id === 'gold_pro') {
+                  mlFixedFee += 6.0 * (Number(item.quantity) || 1)
+                }
               }
+              await new Promise(r => setTimeout(r, 200))
             }
           }
 

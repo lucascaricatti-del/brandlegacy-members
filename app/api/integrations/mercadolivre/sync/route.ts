@@ -182,7 +182,41 @@ export async function POST(req: NextRequest) {
         if (b + 20 < shippingIds.length) await delay(300)
       }
 
-      // (debug logging removed — enrichment verified working)
+      // Fetch item listing_type_id in batches of 20 (needed for fixed fee calculation)
+      const itemCache = new Map<string, string>()
+      const itemIds: string[] = []
+      for (const order of monthOrders) {
+        for (const oi of (order.order_items || [])) {
+          const iid = String(oi.item?.id || '')
+          if (iid && !itemCache.has(iid)) {
+            itemIds.push(iid)
+            itemCache.set(iid, '') // mark as pending
+          }
+        }
+      }
+
+      console.log(`[ml/sync] ${chunk.label}: fetching ${itemIds.length} item listing types`)
+
+      for (let b = 0; b < itemIds.length; b += 20) {
+        const batch = itemIds.slice(b, b + 20)
+        const results = await Promise.allSettled(
+          batch.map(async (iid) => {
+            const res = await fetch(`https://api.mercadolibre.com/items/${iid}?attributes=listing_type_id`, {
+              headers: { Authorization: `Bearer ${accessToken}` },
+              signal: AbortSignal.timeout(10000),
+            })
+            if (!res.ok) return null
+            return res.json()
+          })
+        )
+        for (let i = 0; i < batch.length; i++) {
+          const r = results[i]
+          if (r.status === 'fulfilled' && r.value?.listing_type_id) {
+            itemCache.set(batch[i], r.value.listing_type_id)
+          }
+        }
+        if (b + 20 < itemIds.length) await delay(300)
+      }
 
       // Parse orders with fee breakdown from enriched data
       const orderRows = monthOrders.map((order: any) => {
@@ -208,16 +242,17 @@ export async function POST(req: NextRequest) {
         let mlFixedFee = 0
         let mlFinancingFee = 0
 
-        if (feeDetails.length > 0) {
-          for (const fee of feeDetails) {
-            const t = fee.type || ''
-            const amount = Math.abs(Number(fee.amount || 0))
-            if (t === 'mercadopago_fee' || t === 'ml_fee') mlCommission += amount
-            else if (t === 'fixed_fee' || t === 'listing_fee') mlFixedFee += amount
-            else if (t === 'financing_fee' || t === 'financing') mlFinancingFee += amount
-          }
-        } else {
-          // Fallback: derive total fee from transaction_details
+        // Extract known fee types from fee_details
+        for (const fee of feeDetails) {
+          const t = fee.type || ''
+          const amount = Math.abs(Number(fee.amount || 0))
+          if (t === 'mercadopago_fee' || t === 'ml_fee') mlCommission += amount
+          else if (t === 'fixed_fee' || t === 'listing_fee') mlFixedFee += amount
+          else if (t === 'financing_fee' || t === 'financing') mlFinancingFee += amount
+        }
+
+        // Fallback: if commission still 0, derive from transaction_details (handles coupon_fee-only cases)
+        if (mlCommission === 0) {
           const txDetails = paymentDetail.transaction_details
           if (txDetails?.net_received_amount != null && txDetails?.total_paid_amount != null) {
             mlCommission = Math.abs(Number(txDetails.total_paid_amount) - Number(txDetails.net_received_amount))
@@ -226,10 +261,11 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // Fixed fee: R$6.00 per unit for Premium (gold_pro) listings
+        // Fixed fee: R$6.00 per unit for Premium (gold_pro) listings — use itemCache from /items/{id}
         if (mlFixedFee === 0) {
           for (const item of orderItems) {
-            const listingType = item.item?.listing_type_id || ''
+            const itemId = String(item.item?.id || '')
+            const listingType = itemCache.get(itemId) || ''
             if (listingType === 'gold_pro') {
               mlFixedFee += 6.0 * (Number(item.quantity) || 1)
             }
