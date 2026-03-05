@@ -56,12 +56,27 @@ export async function POST(req: NextRequest) {
     }
 
     const sellerId = integration.metadata.seller_id
-    // Smart sync: if last_sync exists, only sync last 1 month; otherwise use requested months
+    // Smart sync: if last_sync exists, always re-fetch last 3 days; otherwise full 180 days in monthly chunks
     const lastSync = integration.metadata.last_sync
-    const effectiveMonths = lastSync && !months && !days ? 1 : syncMonths
-    const monthChunks = getMonthChunks(effectiveMonths)
+    const useSmartSync = lastSync && !months && !days
+    const effectiveMonths = useSmartSync ? 1 : syncMonths
 
-    console.log(`[ml/sync] smart sync: last_sync=${lastSync || 'none'}, months=${effectiveMonths}`)
+    // For smart sync, override chunks to only cover last 3 days
+    let monthChunks: { from: string; to: string; label: string }[]
+    if (useSmartSync) {
+      const now = new Date()
+      const threeDaysAgo = new Date(now)
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3)
+      monthChunks = [{
+        from: threeDaysAgo.toISOString().split('T')[0] + 'T00:00:00.000-00:00',
+        to: now.toISOString().split('T')[0] + 'T23:59:59.999-00:00',
+        label: 'last-3-days',
+      }]
+    } else {
+      monthChunks = getMonthChunks(effectiveMonths)
+    }
+
+    console.log(`[ml/sync] smart sync: last_sync=${lastSync || 'none'}, chunks=${monthChunks.length}, smart=${!!useSmartSync}`)
     let totalSynced = 0
     const monthResults: { month: string; orders: number }[] = []
     const upsertErrors: string[] = []

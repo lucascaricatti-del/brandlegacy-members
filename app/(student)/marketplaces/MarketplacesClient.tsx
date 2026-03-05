@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 
 type Order = {
   order_id: string
@@ -56,7 +56,7 @@ function formatBRL(v: number) {
 
 export default function MarketplacesClient({
   workspaceId,
-  orders,
+  orders: initialOrders,
   claims,
   inventory,
   isConnected,
@@ -71,28 +71,63 @@ export default function MarketplacesClient({
   const [period, setPeriod] = useState(30)
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [ordersData, setOrdersData] = useState<Order[]>(initialOrders)
+  const [loadingOrders, setLoadingOrders] = useState(false)
 
-  const cutoff = useMemo(() => {
-    const d = new Date()
-    d.setDate(d.getDate() - period)
-    return d.toISOString().split('T')[0]
-  }, [period])
+  const fetchOrders = useCallback(async (days: number) => {
+    setLoadingOrders(true)
+    try {
+      const d = new Date()
+      d.setDate(d.getDate() - days)
+      const dateFrom = d.toISOString().split('T')[0]
+      const res = await fetch('/api/marketplace/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: workspaceId, date_from: dateFrom }),
+      })
+      const data = await res.json()
+      if (Array.isArray(data)) setOrdersData(data)
+    } catch (err) {
+      console.error('[marketplaces] fetch orders error:', err)
+    }
+    setLoadingOrders(false)
+  }, [workspaceId])
 
-  const filtered = useMemo(() => {
-    return orders.filter((o) => o.date >= cutoff)
-  }, [orders, cutoff])
+  useEffect(() => {
+    if (isConnected) fetchOrders(period)
+  }, [period, isConnected, fetchOrders])
 
   const kpis = useMemo(() => {
-    const totalRevenue = filtered.reduce((s, o) => s + o.revenue, 0)
-    const totalOrders = filtered.length
+    const totalRevenue = ordersData.reduce((s, o) => s + (o.revenue || 0), 0)
+    const totalOrders = ordersData.length
     const avgTicket = totalOrders > 0 ? totalRevenue / totalOrders : 0
-    const totalCommission = filtered.reduce((s, o) => s + (o.ml_commission || 0), 0)
-    const totalFixedFee = filtered.reduce((s, o) => s + (o.ml_fixed_fee || 0), 0)
-    const totalFinancingFee = filtered.reduce((s, o) => s + (o.ml_financing_fee || 0), 0)
-    const totalFrete = filtered.reduce((s, o) => s + (o.frete_custo || 0), 0)
-    const netRevenueFull = filtered.reduce((s, o) => s + (o.net_revenue_full || o.net_revenue || o.revenue), 0)
-    return { totalRevenue, totalOrders, avgTicket, totalCommission, totalFixedFee, totalFinancingFee, totalFrete, netRevenueFull }
-  }, [filtered])
+    const totalCommission = ordersData.reduce((s, o) => s + (o.ml_commission || 0), 0)
+    const totalFixedFee = ordersData.reduce((s, o) => s + (o.ml_fixed_fee || 0), 0)
+    const totalFinancingFee = ordersData.reduce((s, o) => s + (o.ml_financing_fee || 0), 0)
+    const totalFrete = ordersData.reduce((s, o) => s + (o.frete_custo || 0), 0)
+    // Always recalculate net revenue on frontend
+    const netRevenueFull = totalRevenue - totalCommission - totalFixedFee - totalFinancingFee - totalFrete
+    const margin = totalRevenue > 0 ? (netRevenueFull / totalRevenue) * 100 : 0
+    return { totalRevenue, totalOrders, avgTicket, totalCommission, totalFixedFee, totalFinancingFee, totalFrete, netRevenueFull, margin }
+  }, [ordersData])
+
+  // Top 5 products by order count
+  const topProducts = useMemo(() => {
+    const productMap = new Map<string, { title: string; orders: number; revenue: number }>()
+    for (const o of ordersData) {
+      const items = o.items || []
+      for (const item of items) {
+        const title = item.title || item.name || 'Sem título'
+        const existing = productMap.get(title) ?? { title, orders: 0, revenue: 0 }
+        existing.orders += Number(item.quantity || 1)
+        existing.revenue += Number(item.unit_price || item.price || 0) * Number(item.quantity || 1)
+        productMap.set(title, existing)
+      }
+    }
+    return Array.from(productMap.values())
+      .sort((a, b) => b.orders - a.orders)
+      .slice(0, 5)
+  }, [ordersData])
 
   async function handleSync() {
     setSyncing(true); setSyncMsg(null)
@@ -106,7 +141,8 @@ export default function MarketplacesClient({
       if (data.error) setSyncMsg({ type: 'error', text: data.error })
       else {
         setSyncMsg({ type: 'success', text: `${data.synced} pedidos sincronizados!` })
-        setTimeout(() => window.location.reload(), 1500)
+        // Refetch orders after sync
+        fetchOrders(period)
       }
     } catch {
       setSyncMsg({ type: 'error', text: 'Erro ao sincronizar.' })
@@ -177,6 +213,7 @@ export default function MarketplacesClient({
                   ))}
                 </div>
                 <div className="flex items-center gap-2">
+                  {loadingOrders && <span className="text-xs text-text-muted">Carregando...</span>}
                   {syncMsg && (
                     <span className={`text-xs ${syncMsg.type === 'success' ? 'text-success' : 'text-error'}`}>
                       {syncMsg.text}
@@ -200,8 +237,39 @@ export default function MarketplacesClient({
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <KPICard label="Receita Líquida" value={formatBRL(kpis.netRevenueFull)} highlight />
-                <KPICard label="Margem" value={kpis.totalRevenue > 0 ? `${((kpis.netRevenueFull / kpis.totalRevenue) * 100).toFixed(1)}%` : '—'} highlight />
+                <KPICard label="Margem" value={kpis.totalRevenue > 0 ? `${kpis.margin.toFixed(1)}%` : '—'} highlight />
               </div>
+
+              {/* Top 5 Products */}
+              {topProducts.length > 0 && (
+                <div className="bg-bg-card border border-border rounded-xl p-4">
+                  <h3 className="text-sm font-semibold text-text-primary mb-3">Top 5 Produtos Mais Vendidos</h3>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border text-text-muted text-left">
+                          <th className="pb-2 pr-4 w-10">#</th>
+                          <th className="pb-2 pr-4">Produto</th>
+                          <th className="pb-2 pr-4 text-right">Pedidos</th>
+                          <th className="pb-2 pr-4 text-right">Receita</th>
+                          <th className="pb-2 text-right">Ticket Médio</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {topProducts.map((p, i) => (
+                          <tr key={i} className="border-b border-border/50 last:border-0">
+                            <td className="py-2 pr-4 text-text-muted">{i + 1}</td>
+                            <td className="py-2 pr-4 text-text-primary truncate max-w-[300px]">{p.title}</td>
+                            <td className="py-2 pr-4 text-right text-text-secondary">{p.orders}</td>
+                            <td className="py-2 pr-4 text-right text-text-secondary">{formatBRL(p.revenue)}</td>
+                            <td className="py-2 text-right text-text-secondary">{formatBRL(p.orders > 0 ? p.revenue / p.orders : 0)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               {/* Inventory + Claims Summary */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
