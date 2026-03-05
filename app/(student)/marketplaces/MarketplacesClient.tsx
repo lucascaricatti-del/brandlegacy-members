@@ -56,13 +56,11 @@ function formatBRL(v: number) {
 
 export default function MarketplacesClient({
   workspaceId,
-  orders: initialOrders,
   claims,
   inventory,
   isConnected,
 }: {
   workspaceId: string
-  orders: Order[]
   claims: Claim[]
   inventory: InventorySummary
   isConnected: boolean
@@ -71,8 +69,8 @@ export default function MarketplacesClient({
   const [period, setPeriod] = useState(30)
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [ordersData, setOrdersData] = useState<Order[]>(initialOrders)
-  const [loadingOrders, setLoadingOrders] = useState(false)
+  const [ordersData, setOrdersData] = useState<Order[]>([])
+  const [loadingOrders, setLoadingOrders] = useState(true)
 
   const fetchOrders = useCallback(async (days: number) => {
     setLoadingOrders(true)

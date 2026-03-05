@@ -116,7 +116,23 @@ export async function POST(req: NextRequest) {
         await delay(200)
       }
 
-      // Parse orders with fee breakdown from payments[0].fee_details
+      // Log first order's payment and shipping structure to debug fee extraction
+      if (monthOrders.length > 0) {
+        const sample = monthOrders[0]
+        const p0 = sample.payments?.[0] || {}
+        console.log(`[ml/sync] SAMPLE ORDER ${sample.id}:`)
+        console.log(`[ml/sync]   payments[0] keys:`, Object.keys(p0))
+        console.log(`[ml/sync]   fee_details:`, JSON.stringify(p0.fee_details || 'NOT PRESENT'))
+        console.log(`[ml/sync]   marketplace_fee:`, p0.marketplace_fee)
+        console.log(`[ml/sync]   total_paid_amount:`, p0.total_paid_amount)
+        console.log(`[ml/sync]   transaction_amount:`, p0.transaction_amount)
+        console.log(`[ml/sync]   shipping keys:`, Object.keys(sample.shipping || {}))
+        console.log(`[ml/sync]   shipping.base_cost:`, sample.shipping?.base_cost)
+        console.log(`[ml/sync]   shipping.cost:`, sample.shipping?.cost)
+        console.log(`[ml/sync]   shipping.shipping_option:`, JSON.stringify(sample.shipping?.shipping_option || 'NOT PRESENT'))
+      }
+
+      // Parse orders with fee breakdown
       const orderRows = monthOrders.map((order: any) => {
         const revenue = Number(order.total_amount || 0)
         const createdAt = order.date_created || ''
@@ -133,21 +149,31 @@ export async function POST(req: NextRequest) {
         const payment = order.payments?.[0] || {}
         const feeDetails: any[] = payment.fee_details || []
 
-        // Extract fee components
+        // Extract fee components from fee_details (if available)
         let mlCommission = 0
         let mlFixedFee = 0
         let mlFinancingFee = 0
 
-        for (const fee of feeDetails) {
-          const t = fee.type || ''
-          const amount = Math.abs(Number(fee.amount || 0))
-          if (t === 'mercadopago_fee' || t === 'ml_fee') mlCommission += amount
-          else if (t === 'fixed_fee' || t === 'listing_fee') mlFixedFee += amount
-          else if (t === 'financing_fee' || t === 'financing') mlFinancingFee += amount
+        if (feeDetails.length > 0) {
+          for (const fee of feeDetails) {
+            const t = fee.type || ''
+            const amount = Math.abs(Number(fee.amount || 0))
+            if (t === 'mercadopago_fee' || t === 'ml_fee') mlCommission += amount
+            else if (t === 'fixed_fee' || t === 'listing_fee') mlFixedFee += amount
+            else if (t === 'financing_fee' || t === 'financing') mlFinancingFee += amount
+          }
+        } else if (payment.marketplace_fee) {
+          // Fallback: use marketplace_fee from payment object directly
+          mlCommission = Math.abs(Number(payment.marketplace_fee || 0))
         }
 
-        // Shipping cost from order.shipping
-        const freteCusto = Number(order.shipping?.shipping_option?.cost || order.shipping?.base_cost || 0)
+        // Shipping cost: try multiple paths
+        const freteCusto = Number(
+          order.shipping?.shipping_option?.cost
+          || order.shipping?.base_cost
+          || order.shipping?.cost
+          || 0
+        )
 
         // Total marketplace fee (sum of all fees)
         const totalFee = mlCommission + mlFixedFee + mlFinancingFee

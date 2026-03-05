@@ -159,11 +159,17 @@ export async function POST(req: NextRequest) {
 
       for (let i = 0; i < allRows.length; i += 500) {
         const batch = allRows.slice(i, i + 500)
-        const { error: insertError } = await supabase.from('ads_metrics').insert(batch)
+        const { error: insertError, count } = await supabase.from('ads_metrics').insert(batch)
         if (insertError) {
-          console.error(`[meta/sync] insert batch ${i}-${i + batch.length} failed:`, insertError.message)
+          console.error(`[meta/sync] insert batch ${i}-${i + batch.length} failed:`, insertError.message, insertError.code, insertError.details)
+        } else {
+          console.log(`[meta/sync] inserted batch ${i}-${i + batch.length}: ${batch.length} rows`)
         }
       }
+      // Log per-date breakdown
+      const byDate: Record<string, number> = {}
+      for (const r of allRows) { byDate[r.date] = (byDate[r.date] || 0) + 1 }
+      console.log('[meta/sync] rows by date:', JSON.stringify(byDate))
     }
 
     // Update last_sync in metadata

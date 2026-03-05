@@ -342,30 +342,30 @@ async function syncYampi(workspaceId: string, since: string, until: string): Pro
     }
   }
 
-  // In Yampi, all non-cancelled orders are valid sales (pending = payment confirmed)
+  // Revenue/orders = ONLY paid statuses; pending does NOT count as revenue
   const CANCEL = ['cancelled', 'refused']
   const APPROVED = ['paid', 'invoiced', 'shipped', 'delivered']
   const dailyMap = new Map<string, {
-    revenue: number; order_count: number; cancelled_count: number;
-    total_count: number; pix_total: number; pix_approved: number;
+    paid_revenue: number; paid_count: number; cancelled_count: number;
+    total_count: number; pix_total: number; pix_paid: number;
   }>()
 
   for (const o of orderRows) {
     if (!o.date) continue
-    const d = dailyMap.get(o.date) ?? { revenue: 0, order_count: 0, cancelled_count: 0, total_count: 0, pix_total: 0, pix_approved: 0 }
+    const d = dailyMap.get(o.date) ?? { paid_revenue: 0, paid_count: 0, cancelled_count: 0, total_count: 0, pix_total: 0, pix_paid: 0 }
     d.total_count++
-    if (CANCEL.includes(o.status)) { d.cancelled_count++ }
-    else { d.revenue += o.revenue; d.order_count++ }
-    if (o.payment_method === 'pix') { d.pix_total++; if (APPROVED.includes(o.status)) d.pix_approved++ }
+    if (APPROVED.includes(o.status)) { d.paid_revenue += o.revenue; d.paid_count++ }
+    else if (CANCEL.includes(o.status)) { d.cancelled_count++ }
+    if (o.payment_method === 'pix') { d.pix_total++; if (APPROVED.includes(o.status)) d.pix_paid++ }
     dailyMap.set(o.date, d)
   }
 
   const metricRows = Array.from(dailyMap.entries()).map(([date, d]) => ({
     workspace_id: workspaceId, date,
-    revenue: d.revenue, orders: d.order_count,
-    avg_ticket: d.order_count > 0 ? d.revenue / d.order_count : 0,
-    checkout_conversion: d.total_count > 0 ? Math.round((d.order_count / d.total_count) * 100 * 100) / 100 : 0,
-    pix_approval_rate: d.pix_total > 0 ? Math.round((d.pix_approved / d.pix_total) * 100 * 100) / 100 : 0,
+    revenue: d.paid_revenue, orders: d.paid_count,
+    avg_ticket: d.paid_count > 0 ? d.paid_revenue / d.paid_count : 0,
+    checkout_conversion: d.total_count > 0 ? Math.round((d.paid_count / d.total_count) * 100 * 100) / 100 : 0,
+    pix_approval_rate: d.pix_total > 0 ? Math.round((d.pix_paid / d.pix_total) * 100 * 100) / 100 : 0,
     cancellation_rate: d.total_count > 0 ? Math.round((d.cancelled_count / d.total_count) * 100 * 100) / 100 : 0,
     synced_at: new Date().toISOString(),
   }))
