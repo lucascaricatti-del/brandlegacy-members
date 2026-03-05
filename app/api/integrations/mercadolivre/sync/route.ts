@@ -116,23 +116,75 @@ export async function POST(req: NextRequest) {
         await delay(200)
       }
 
-      // Log first order's payment and shipping structure to debug fee extraction
-      if (monthOrders.length > 0) {
-        const sample = monthOrders[0]
-        const p0 = sample.payments?.[0] || {}
-        console.log(`[ml/sync] SAMPLE ORDER ${sample.id}:`)
-        console.log(`[ml/sync]   payments[0] keys:`, Object.keys(p0))
-        console.log(`[ml/sync]   fee_details:`, JSON.stringify(p0.fee_details || 'NOT PRESENT'))
-        console.log(`[ml/sync]   marketplace_fee:`, p0.marketplace_fee)
-        console.log(`[ml/sync]   total_paid_amount:`, p0.total_paid_amount)
-        console.log(`[ml/sync]   transaction_amount:`, p0.transaction_amount)
-        console.log(`[ml/sync]   shipping keys:`, Object.keys(sample.shipping || {}))
-        console.log(`[ml/sync]   shipping.base_cost:`, sample.shipping?.base_cost)
-        console.log(`[ml/sync]   shipping.cost:`, sample.shipping?.cost)
-        console.log(`[ml/sync]   shipping.shipping_option:`, JSON.stringify(sample.shipping?.shipping_option || 'NOT PRESENT'))
+      // Fetch payment details in parallel batches (ML API has fee_details only on /v1/payments/{id})
+      const paymentCache = new Map<string, any>()
+      const shippingCache = new Map<string, any>()
+
+      // Collect unique payment and shipping IDs
+      const paymentIds: string[] = []
+      const shippingIds: string[] = []
+      for (const order of monthOrders) {
+        const pid = order.payments?.[0]?.id
+        if (pid && !paymentCache.has(String(pid))) {
+          paymentIds.push(String(pid))
+          paymentCache.set(String(pid), null) // mark as pending
+        }
+        const sid = order.shipping?.id
+        if (sid && !shippingCache.has(String(sid))) {
+          shippingIds.push(String(sid))
+          shippingCache.set(String(sid), null)
+        }
       }
 
-      // Parse orders with fee breakdown
+      console.log(`[ml/sync] ${chunk.label}: fetching ${paymentIds.length} payment details + ${shippingIds.length} shipments`)
+
+      // Fetch payment details in batches of 20 concurrently
+      for (let b = 0; b < paymentIds.length; b += 20) {
+        const batch = paymentIds.slice(b, b + 20)
+        const results = await Promise.allSettled(
+          batch.map(async (pid) => {
+            const res = await fetch(`https://api.mercadopago.com/v1/payments/${pid}`, {
+              headers: { Authorization: `Bearer ${accessToken}` },
+              signal: AbortSignal.timeout(10000),
+            })
+            if (!res.ok) return null
+            return res.json()
+          })
+        )
+        for (let i = 0; i < batch.length; i++) {
+          const r = results[i]
+          if (r.status === 'fulfilled' && r.value) {
+            paymentCache.set(batch[i], r.value)
+          }
+        }
+        if (b + 20 < paymentIds.length) await delay(300)
+      }
+
+      // Fetch shipment details in batches of 20 concurrently
+      for (let b = 0; b < shippingIds.length; b += 20) {
+        const batch = shippingIds.slice(b, b + 20)
+        const results = await Promise.allSettled(
+          batch.map(async (sid) => {
+            const res = await fetch(`https://api.mercadolibre.com/shipments/${sid}`, {
+              headers: { Authorization: `Bearer ${accessToken}` },
+              signal: AbortSignal.timeout(10000),
+            })
+            if (!res.ok) return null
+            return res.json()
+          })
+        )
+        for (let i = 0; i < batch.length; i++) {
+          const r = results[i]
+          if (r.status === 'fulfilled' && r.value) {
+            shippingCache.set(batch[i], r.value)
+          }
+        }
+        if (b + 20 < shippingIds.length) await delay(300)
+      }
+
+      // (debug logging removed — enrichment verified working)
+
+      // Parse orders with fee breakdown from enriched data
       const orderRows = monthOrders.map((order: any) => {
         const revenue = Number(order.total_amount || 0)
         const createdAt = order.date_created || ''
@@ -146,10 +198,11 @@ export async function POST(req: NextRequest) {
           sku: item.item?.seller_sku || null,
         }))
 
-        const payment = order.payments?.[0] || {}
-        const feeDetails: any[] = payment.fee_details || []
+        // Use enriched payment data from /v1/payments/{id}
+        const paymentId = String(order.payments?.[0]?.id || '')
+        const paymentDetail = paymentCache.get(paymentId) || {}
+        const feeDetails: any[] = paymentDetail.fee_details || []
 
-        // Extract fee components from fee_details (if available)
         let mlCommission = 0
         let mlFixedFee = 0
         let mlFinancingFee = 0
@@ -162,23 +215,27 @@ export async function POST(req: NextRequest) {
             else if (t === 'fixed_fee' || t === 'listing_fee') mlFixedFee += amount
             else if (t === 'financing_fee' || t === 'financing') mlFinancingFee += amount
           }
-        } else if (payment.marketplace_fee) {
-          // Fallback: use marketplace_fee from payment object directly
-          mlCommission = Math.abs(Number(payment.marketplace_fee || 0))
+        } else {
+          // Fallback: derive total fee from transaction_details (transaction_amount - net_received_amount)
+          const txDetails = paymentDetail.transaction_details
+          if (txDetails?.net_received_amount != null && txDetails?.total_paid_amount != null) {
+            mlCommission = Math.abs(Number(txDetails.total_paid_amount) - Number(txDetails.net_received_amount))
+          } else if (paymentDetail.marketplace_fee) {
+            mlCommission = Math.abs(Number(paymentDetail.marketplace_fee || 0))
+          }
         }
 
-        // Shipping cost: try multiple paths
+        // Use enriched shipment data from /shipments/{id}
+        const shippingId = String(order.shipping?.id || '')
+        const shipmentDetail = shippingCache.get(shippingId) || {}
         const freteCusto = Number(
-          order.shipping?.shipping_option?.cost
-          || order.shipping?.base_cost
-          || order.shipping?.cost
+          shipmentDetail.shipping_option?.cost
+          || shipmentDetail.base_cost
+          || shipmentDetail.cost
           || 0
         )
 
-        // Total marketplace fee (sum of all fees)
         const totalFee = mlCommission + mlFixedFee + mlFinancingFee
-
-        // Net revenue after ALL fees and shipping
         const netRevenueFull = revenue - mlCommission - mlFixedFee - mlFinancingFee - freteCusto
 
         return {
@@ -195,12 +252,12 @@ export async function POST(req: NextRequest) {
           ml_financing_fee: mlFinancingFee,
           frete_custo: freteCusto,
           net_revenue_full: netRevenueFull,
-          payment_method: payment.payment_method_id || null,
-          payment_status: payment.status || null,
+          payment_method: order.payments?.[0]?.payment_method_id || null,
+          payment_status: order.payments?.[0]?.status || null,
           buyer_id: String(order.buyer?.id || ''),
           buyer_nickname: order.buyer?.nickname || '',
           items,
-          shipping_id: order.shipping?.id ? String(order.shipping.id) : null,
+          shipping_id: shippingId || null,
           currency: order.currency_id || 'BRL',
         }
       })
@@ -209,36 +266,20 @@ export async function POST(req: NextRequest) {
       let monthSynced = 0
       console.log(`[ml/sync] ${chunk.label}: ${orderRows.length} orders to upsert`)
       if (orderRows.length > 0) {
-        console.log(`[ml/sync] sample row:`, JSON.stringify(orderRows[0], null, 2))
         for (let i = 0; i < orderRows.length; i += 200) {
           const batch = orderRows.slice(i, i + 200)
           try {
-            const { data: upsertData, error: upsertErr } = await (adminSupabase as any)
+            const { error: upsertErr } = await (adminSupabase as any)
               .from('ml_orders')
               .upsert(batch, { onConflict: 'workspace_id,order_id' })
-              .select('order_id')
             if (upsertErr) {
-              console.error(`[ml/sync] UPSERT ERROR full object:`, JSON.stringify(upsertErr, null, 2))
-              console.error(`[ml/sync] UPSERT ERROR details:`, {
-                month: chunk.label,
-                batchStart: i,
-                batchSize: batch.length,
-                message: upsertErr.message,
-                code: upsertErr.code,
-                details: upsertErr.details,
-                hint: upsertErr.hint,
-                status: upsertErr.status,
-              })
-              console.error(`[ml/sync] sample row keys:`, Object.keys(batch[0]))
-              console.error(`[ml/sync] sample row values:`, JSON.stringify(batch[0], null, 2))
-              upsertErrors.push(`${chunk.label} batch ${i}: ${upsertErr.message} | code: ${upsertErr.code} | details: ${upsertErr.details} | hint: ${upsertErr.hint}`)
+              console.error(`[ml/sync] upsert error ${chunk.label} batch ${i}:`, upsertErr.message)
+              upsertErrors.push(`${chunk.label} batch ${i}: ${upsertErr.message}`)
             } else {
-              console.log(`[ml/sync] ${chunk.label} batch ${i}: upserted ${upsertData?.length ?? batch.length} rows`)
               monthSynced += batch.length
             }
           } catch (upsertCatchErr: any) {
-            console.error(`[ml/sync] UPSERT EXCEPTION:`, upsertCatchErr)
-            console.error(`[ml/sync] UPSERT EXCEPTION stack:`, upsertCatchErr?.stack)
+            console.error(`[ml/sync] upsert exception:`, upsertCatchErr?.message)
             upsertErrors.push(`${chunk.label} batch ${i}: EXCEPTION: ${upsertCatchErr?.message}`)
           }
         }
