@@ -81,8 +81,8 @@ export async function POST(req: NextRequest) {
 
     while (true) {
       const url =
-        `https://api.mercadolibre.com/collections/search` +
-        `?seller_id=${sellerId}` +
+        `https://api.mercadopago.com/v1/payments/search` +
+        `?sort=date_created&criteria=desc` +
         `&offset=${offset}&limit=${limit}`
 
       const res: Response = await fetch(url, {
@@ -102,15 +102,11 @@ export async function POST(req: NextRequest) {
         debugInfo = {
           paging: json.paging,
           first_result_keys: json.results?.[0] ? Object.keys(json.results[0]) : [],
-          first_collection_keys: json.results?.[0]?.collection ? Object.keys(json.results[0].collection) : [],
         }
       }
 
       const results = json.results || []
-      for (const r of results) {
-        const col = r.collection || r
-        allCollections.push(col)
-      }
+      allCollections.push(...results)
 
       const total = json.paging?.total ?? 0
       if (offset + limit >= total || offset + limit >= 10000 || results.length === 0) break
@@ -129,28 +125,31 @@ export async function POST(req: NextRequest) {
       const chunkFrom = chunk.from.split('T')[0]
       const chunkTo = chunk.to.split('T')[0]
 
-      const monthOps = allCollections.filter((col: any) => {
-        const createdAt = col.date_created || col.date_approved || ''
+      const monthOps = allCollections.filter((p: any) => {
+        const createdAt = p.date_created || p.date_approved || ''
         const date = createdAt.split('T')[0]
         return date >= chunkFrom && date <= chunkTo
       })
 
-      const opRows = monthOps.map((col: any) => {
-        const createdAt = col.date_created || col.date_approved || ''
+      const opRows = monthOps.map((p: any) => {
+        const createdAt = p.date_created || p.date_approved || ''
         const date = createdAt ? createdAt.split('T')[0] : chunk.from.split('T')[0]
+        const fees = Array.isArray(p.fee_details)
+          ? p.fee_details.reduce((s: number, f: any) => s + Number(f.amount || 0), 0)
+          : 0
 
         return {
           workspace_id,
-          operation_id: String(col.id),
+          operation_id: String(p.id),
           date,
-          type: col.payment_type || col.operation_type || 'payment',
-          status: col.status || 'approved',
-          amount: Number(col.transaction_amount || col.total_paid_amount || 0),
-          net_amount: Number(col.net_received_amount || col.transaction_amount || 0),
-          fee_amount: Number(col.marketplace_fee || 0),
-          description: col.reason || col.description || '',
-          reference_id: col.external_reference ? String(col.external_reference) : null,
-          currency: col.currency_id || 'BRL',
+          type: p.payment_type_id || p.payment_method_id || 'payment',
+          status: p.status || 'approved',
+          amount: Number(p.transaction_amount || 0),
+          net_amount: Number(p.transaction_details?.net_received_amount || p.transaction_amount || 0),
+          fee_amount: fees,
+          description: p.description || '',
+          reference_id: p.external_reference ? String(p.external_reference) : (p.order?.id ? String(p.order.id) : null),
+          currency: p.currency_id || 'BRL',
         }
       }).filter((r: any) => r.operation_id)
 
