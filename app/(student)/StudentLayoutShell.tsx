@@ -16,6 +16,8 @@ export default function StudentLayoutShell({
 }) {
   const [open, setOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
+  const [midiaOpen, setMidiaOpen] = useState(true)
+  const [metricasOpen, setMetricasOpen] = useState(true)
   const router = useRouter()
 
   async function handleLogout() {
@@ -74,15 +76,25 @@ export default function StudentLayoutShell({
             <NavItem href="/dashboard" icon={<IconDashboard />} label="Dashboard" onNavigate={() => setOpen(false)} />
             <NavItem href="/entregas" icon={<IconEntregas />} label="Controle de Entregas" onNavigate={() => setOpen(false)} />
             <NavItem href="/workspace/tasks" icon={<IconTasks />} label="Tarefas" onNavigate={() => setOpen(false)} />
-            <div className="space-y-0.5">
-              <p className="text-text-muted text-[10px] font-medium px-3 pt-2 pb-1 uppercase tracking-wider">Mídia</p>
+
+            {/* Collapsible: Mídia */}
+            <CollapsibleSection title="Mídia" isOpen={midiaOpen} onToggle={() => setMidiaOpen(!midiaOpen)}>
               <SubNavItem href="/metricas?tab=meta" label="Meta" onNavigate={() => setOpen(false)} />
               <SubNavItem href="/metricas?tab=google" label="Google" onNavigate={() => setOpen(false)} />
-              <div className="flex items-center gap-2 px-3 py-2 text-xs text-text-muted/60">
+              <div className="flex items-center gap-2 px-3 py-2 pl-6 text-xs text-text-muted/60">
                 <span>Influenciadores</span>
                 <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/5 text-text-muted/50">em breve</span>
               </div>
-            </div>
+            </CollapsibleSection>
+
+            {/* Collapsible: Métricas */}
+            <CollapsibleSection title="Métricas" isOpen={metricasOpen} onToggle={() => setMetricasOpen(!metricasOpen)}>
+              <SubNavItem href="/metricas?tab=meta" label="Meta Ads" onNavigate={() => setOpen(false)} />
+              <SubNavItem href="/metricas?tab=google" label="Google Ads" onNavigate={() => setOpen(false)} />
+              <SubNavItem href="/metricas?tab=yampi" label="Yampi" onNavigate={() => setOpen(false)} />
+              <SubNavItem href="/marketplaces" label="Marketplaces" onNavigate={() => setOpen(false)} />
+            </CollapsibleSection>
+
             <NavItem href="/performance" icon={<IconPerformance />} label="Performance" onNavigate={() => setOpen(false)} />
             <NavItem href="/ferramentas/calculadora-cenarios" icon={<IconCalc />} label="Calculadora Estratégica" onNavigate={() => setOpen(false)} />
             <NavItem href="/ferramentas/planejamento-midia" icon={<IconPlanMidia />} label="Planejamento de Mídia" onNavigate={() => setOpen(false)} />
@@ -99,7 +111,6 @@ export default function StudentLayoutShell({
           <div className="pt-2 mt-2 border-t border-border space-y-1">
             <NavItem href="/team" icon={<IconTeam />} label="Equipe" onNavigate={() => setOpen(false)} />
             <NavItem href="/integracoes" icon={<IconIntegracoes />} label="Integrações" onNavigate={() => setOpen(false)} />
-            <NavItem href="/marketplaces" icon={<IconMarketplaces />} label="Marketplaces" onNavigate={() => setOpen(false)} />
           </div>
 
           {profile?.role === 'admin' && (
@@ -188,10 +199,57 @@ function SubNavItem({ href, label, onNavigate }: { href: string; label: string; 
     <Link
       href={href}
       onClick={onNavigate}
-      className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
+      className="flex items-center gap-2 px-3 py-2 pl-6 rounded-lg text-xs text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
     >
       {label}
     </Link>
+  )
+}
+
+function CollapsibleSection({
+  title,
+  isOpen,
+  onToggle,
+  children,
+}: {
+  title: string
+  isOpen: boolean
+  onToggle: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <div>
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center justify-between px-3 py-2 rounded-lg hover:bg-bg-hover transition-colors group cursor-pointer"
+      >
+        <span className="text-text-muted text-[10px] font-semibold uppercase tracking-wider group-hover:text-text-secondary transition-colors">
+          {title}
+        </span>
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className={`text-text-muted transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`}
+        >
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+      </button>
+      <div
+        className={`overflow-hidden transition-all duration-200 ease-in-out ${
+          isOpen ? 'max-h-60 opacity-100' : 'max-h-0 opacity-0'
+        }`}
+      >
+        <div className="space-y-0.5 py-0.5">
+          {children}
+        </div>
+      </div>
+    </div>
   )
 }
 
