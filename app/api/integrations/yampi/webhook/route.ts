@@ -87,20 +87,19 @@ export async function POST(request: Request) {
       .eq('date', date)
 
     if (dayOrders) {
-      const paid = dayOrders.filter(o => PAID_STATUSES.includes(o.status))
+      const nonCancelled = dayOrders.filter(o => !CANCELLED_STATUSES.includes(o.status))
       const cancelled = dayOrders.filter(o => CANCELLED_STATUSES.includes(o.status))
       const pix = dayOrders.filter(o => (o.payment_method ?? '').toLowerCase() === 'pix')
-      const pix_paid = pix.filter(o => PAID_STATUSES.includes(o.status))
-      const revenue_total = paid.reduce((s: number, o: any) => s + Number(o.revenue), 0)
-      const orders_count = paid.length
+      const pix_approved = pix.filter(o => PAID_STATUSES.includes(o.status))
+      const revenue_total = nonCancelled.reduce((s: number, o: any) => s + Number(o.revenue), 0)
+      const orders_count = nonCancelled.length
       const avg_ticket = orders_count > 0 ? revenue_total / orders_count : 0
-      const checkout_conversion = dayOrders.length > 0 ? Math.round((paid.length / dayOrders.length) * 100 * 100) / 100 : 0
-      const pix_approval_rate = pix.length > 0 ? Math.round((pix_paid.length / pix.length) * 100 * 100) / 100 : 0
+      const pix_approval_rate = pix.length > 0 ? Math.round((pix_approved.length / pix.length) * 100 * 100) / 100 : 0
       const cancellation_rate = dayOrders.length > 0 ? Math.round((cancelled.length / dayOrders.length) * 100 * 100) / 100 : 0
 
       await supabase.from('yampi_metrics').upsert({
         workspace_id, date, revenue: revenue_total, orders: orders_count,
-        avg_ticket, checkout_conversion, pix_approval_rate, cancellation_rate,
+        avg_ticket, checkout_conversion: 0, pix_approval_rate, cancellation_rate,
         synced_at: new Date().toISOString(),
       }, { onConflict: 'workspace_id,date' })
     }

@@ -9,6 +9,11 @@ type Order = {
   revenue: number
   net_revenue: number
   marketplace_fee: number
+  ml_commission: number
+  ml_fixed_fee: number
+  ml_financing_fee: number
+  frete_custo: number
+  net_revenue_full: number
   buyer_nickname: string
   items: any[]
   currency: string
@@ -81,9 +86,12 @@ export default function MarketplacesClient({
     const totalRevenue = filtered.reduce((s, o) => s + o.revenue, 0)
     const totalOrders = filtered.length
     const avgTicket = totalOrders > 0 ? totalRevenue / totalOrders : 0
-    const totalFee = filtered.reduce((s, o) => s + (o.marketplace_fee || 0), 0)
-    const netRevenue = filtered.reduce((s, o) => s + (o.net_revenue || o.revenue), 0)
-    return { totalRevenue, totalOrders, avgTicket, totalFee, netRevenue }
+    const totalCommission = filtered.reduce((s, o) => s + (o.ml_commission || 0), 0)
+    const totalFixedFee = filtered.reduce((s, o) => s + (o.ml_fixed_fee || 0), 0)
+    const totalFinancingFee = filtered.reduce((s, o) => s + (o.ml_financing_fee || 0), 0)
+    const totalFrete = filtered.reduce((s, o) => s + (o.frete_custo || 0), 0)
+    const netRevenueFull = filtered.reduce((s, o) => s + (o.net_revenue_full || o.net_revenue || o.revenue), 0)
+    return { totalRevenue, totalOrders, avgTicket, totalCommission, totalFixedFee, totalFinancingFee, totalFrete, netRevenueFull }
   }, [filtered])
 
   async function handleSync() {
@@ -182,12 +190,17 @@ export default function MarketplacesClient({
               </div>
 
               {/* KPI Cards */}
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                 <KPICard label="Receita Bruta" value={formatBRL(kpis.totalRevenue)} />
                 <KPICard label="Pedidos" value={kpis.totalOrders.toLocaleString('pt-BR')} />
                 <KPICard label="Ticket Médio" value={formatBRL(kpis.avgTicket)} />
-                <KPICard label="Taxas ML" value={formatBRL(kpis.totalFee)} />
-                <KPICard label="Receita Líquida" value={formatBRL(kpis.netRevenue)} highlight />
+                <KPICard label="Comissão ML" value={`-${formatBRL(kpis.totalCommission)}`} negative />
+                <KPICard label="Tarifa Fixa" value={`-${formatBRL(kpis.totalFixedFee)}`} negative />
+                <KPICard label="Frete" value={`-${formatBRL(kpis.totalFrete)}`} negative />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <KPICard label="Receita Líquida" value={formatBRL(kpis.netRevenueFull)} highlight />
+                <KPICard label="Margem" value={kpis.totalRevenue > 0 ? `${((kpis.netRevenueFull / kpis.totalRevenue) * 100).toFixed(1)}%` : '—'} highlight />
               </div>
 
               {/* Inventory + Claims Summary */}
@@ -259,11 +272,11 @@ export default function MarketplacesClient({
   )
 }
 
-function KPICard({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function KPICard({ label, value, highlight, negative }: { label: string; value: string; highlight?: boolean; negative?: boolean }) {
   return (
     <div className={`rounded-xl p-4 border ${highlight ? 'bg-brand-gold/10 border-brand-gold/30' : 'bg-bg-card border-border'}`}>
       <p className="text-xs text-text-muted mb-1">{label}</p>
-      <p className={`text-lg font-bold ${highlight ? 'text-brand-gold' : 'text-text-primary'}`}>{value}</p>
+      <p className={`text-lg font-bold ${highlight ? 'text-brand-gold' : negative ? 'text-red-400' : 'text-text-primary'}`}>{value}</p>
     </div>
   )
 }

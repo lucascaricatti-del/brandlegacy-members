@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { logout } from '@/app/actions/auth'
+import { useRouter } from 'next/navigation'
+import { createBrowserClient } from '@supabase/ssr'
 
 type Profile = { name: string | null; role: string | null } | null
 
@@ -14,6 +15,22 @@ export default function StudentLayoutShell({
   children: React.ReactNode
 }) {
   const [open, setOpen] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
+  const router = useRouter()
+
+  async function handleLogout() {
+    try {
+      setLoggingOut(true)
+      const supabase = createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      )
+      await supabase.auth.signOut()
+      router.push('/login')
+    } catch {
+      router.push('/login')
+    }
+  }
 
   return (
     <div className="flex min-h-screen bg-bg-base">
@@ -106,15 +123,14 @@ export default function StudentLayoutShell({
               <p className="text-text-muted text-xs capitalize">{profile?.role === 'admin' ? 'Admin' : 'Aluno'}</p>
             </div>
           </div>
-          <form action={logout}>
-            <button
-              type="submit"
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-text-muted hover:text-error hover:bg-error/10 transition-colors text-left"
-            >
-              <IconLogout />
-              Sair
-            </button>
-          </form>
+          <button
+            onClick={handleLogout}
+            disabled={loggingOut}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-text-muted hover:text-error hover:bg-error/10 transition-colors text-left disabled:opacity-50"
+          >
+            <IconLogout />
+            {loggingOut ? 'Saindo...' : 'Sair'}
+          </button>
         </div>
       </aside>
 

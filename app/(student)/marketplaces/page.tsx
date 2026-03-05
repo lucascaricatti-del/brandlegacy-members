@@ -65,7 +65,7 @@ export default async function MarketplacesPage() {
     const [ordersRes, claimsRes, inventoryRes] = await Promise.all([
       (adminSupabase as any)
         .from('ml_orders')
-        .select('order_id, date, status, revenue, net_revenue, marketplace_fee, buyer_nickname, items, currency')
+        .select('order_id, date, status, revenue, net_revenue, marketplace_fee, ml_commission, ml_fixed_fee, ml_financing_fee, frete_custo, net_revenue_full, buyer_nickname, items, currency')
         .eq('workspace_id', ws.id)
         .gte('date', since)
         .order('date', { ascending: false }),

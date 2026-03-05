@@ -101,7 +101,7 @@ export async function POST(req: NextRequest) {
         await delay(200)
       }
 
-      // Parse orders (no billing_info — fees come from finance-sync)
+      // Parse orders with fee breakdown from payments[0].fee_details
       const orderRows = monthOrders.map((order: any) => {
         const revenue = Number(order.total_amount || 0)
         const createdAt = order.date_created || ''
@@ -116,6 +116,29 @@ export async function POST(req: NextRequest) {
         }))
 
         const payment = order.payments?.[0] || {}
+        const feeDetails: any[] = payment.fee_details || []
+
+        // Extract fee components
+        let mlCommission = 0
+        let mlFixedFee = 0
+        let mlFinancingFee = 0
+
+        for (const fee of feeDetails) {
+          const t = fee.type || ''
+          const amount = Math.abs(Number(fee.amount || 0))
+          if (t === 'mercadopago_fee' || t === 'ml_fee') mlCommission += amount
+          else if (t === 'fixed_fee' || t === 'listing_fee') mlFixedFee += amount
+          else if (t === 'financing_fee' || t === 'financing') mlFinancingFee += amount
+        }
+
+        // Shipping cost from order.shipping
+        const freteCusto = Number(order.shipping?.shipping_option?.cost || order.shipping?.base_cost || 0)
+
+        // Total marketplace fee (sum of all fees)
+        const totalFee = mlCommission + mlFixedFee + mlFinancingFee
+
+        // Net revenue after ALL fees and shipping
+        const netRevenueFull = revenue - mlCommission - mlFixedFee - mlFinancingFee - freteCusto
 
         return {
           workspace_id,
@@ -123,9 +146,14 @@ export async function POST(req: NextRequest) {
           date,
           status: order.status || 'unknown',
           revenue,
-          shipping_cost: 0,
-          marketplace_fee: 0,
-          net_revenue: revenue,
+          shipping_cost: freteCusto,
+          marketplace_fee: totalFee,
+          net_revenue: revenue - totalFee,
+          ml_commission: mlCommission,
+          ml_fixed_fee: mlFixedFee,
+          ml_financing_fee: mlFinancingFee,
+          frete_custo: freteCusto,
+          net_revenue_full: netRevenueFull,
           payment_method: payment.payment_method_id || null,
           payment_status: payment.status || null,
           buyer_id: String(order.buyer?.id || ''),
