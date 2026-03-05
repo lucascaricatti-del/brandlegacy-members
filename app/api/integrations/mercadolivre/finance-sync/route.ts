@@ -78,11 +78,13 @@ export async function POST(req: NextRequest) {
     let offset = 0
     const limit = 50
     let debugInfo: any = null
+    let apiError: string | null = null
 
     while (true) {
       const url =
-        `https://api.mercadopago.com/v1/payments/search` +
-        `?sort=date_created&criteria=desc` +
+        `https://api.mercadolibre.com/collections/search` +
+        `?seller_id=${sellerId}` +
+        `&sort=date_created&criteria=desc` +
         `&offset=${offset}&limit=${limit}`
 
       const res: Response = await fetch(url, {
@@ -93,6 +95,7 @@ export async function POST(req: NextRequest) {
       if (!res.ok) {
         const errText = await res.text()
         console.error(`[ml/finance-sync] offset=${offset} error:`, res.status, errText)
+        apiError = `${res.status}: ${errText.slice(0, 200)}`
         break
       }
 
@@ -188,6 +191,7 @@ export async function POST(req: NextRequest) {
       smart: !!lastFinanceSync,
       total_collections_fetched: allCollections.length,
       ...(debugInfo && { _debug: debugInfo }),
+      ...(apiError && { _api_error: apiError }),
     })
   } catch (err: any) {
     console.error('[ml/finance-sync] error:', err.message)
