@@ -241,8 +241,9 @@ export async function syncMediaToFinancial(workspaceId: string, year: number) {
 
   if (!mediaPlan) return { error: 'Plano de mídia não encontrado' }
 
-  // Get financial plan
-  const { data: finPlan } = await adminSupabase
+  // Get or create financial plan
+  let finPlan: { id: string } | null = null
+  const { data: existingFin } = await adminSupabase
     .from('media_plans')
     .select('id')
     .eq('workspace_id', workspaceId)
@@ -250,31 +251,77 @@ export async function syncMediaToFinancial(workspaceId: string, year: number) {
     .eq('plan_type', 'financial')
     .single()
 
-  if (!finPlan) return { error: 'Plano financeiro não encontrado. Acesse o Planejamento Financeiro primeiro.' }
+  if (existingFin) {
+    finPlan = existingFin
+  } else {
+    const { data: { user } } = await (await createClient()).auth.getUser()
+    const { data: created, error: createErr } = await adminSupabase
+      .from('media_plans')
+      .insert({ workspace_id: workspaceId, year, plan_type: 'financial', created_by: user?.id })
+      .select('id')
+      .single()
+    if (createErr || !created) return { error: 'Erro ao criar plano financeiro: ' + (createErr?.message ?? '') }
+    finPlan = created
+  }
 
-  // Get REV_BILLED from media plan
-  const { data: revMetrics } = await adminSupabase
+  // Get media plan metrics: REV_BILLED + spend keys
+  const { data: mediaMetrics } = await adminSupabase
     .from('media_plan_metrics')
-    .select('month, value_numeric')
+    .select('metric_key, month, value_numeric')
     .eq('media_plan_id', mediaPlan.id)
-    .eq('metric_key', 'REV_BILLED')
+    .in('metric_key', ['REV_BILLED', 'SPEND_META', 'SPEND_GOOGLE', 'SPEND_INFLUENCER'])
 
-  if (!revMetrics || revMetrics.length === 0) return { error: 'Nenhuma receita faturada encontrada no plano de mídia' }
+  if (!mediaMetrics || mediaMetrics.length === 0) return { error: 'Nenhuma métrica encontrada no plano de mídia' }
 
-  // Write FATURAMENTO to financial plan
-  const rows = revMetrics
-    .filter((r) => r.value_numeric && r.value_numeric > 0)
-    .map((r) => ({
-      media_plan_id: finPlan.id,
-      metric_key: 'FATURAMENTO',
-      month: r.month,
-      value_numeric: r.value_numeric,
-      delta_pct: null,
-      input_mode: 'value',
-      updated_at: new Date().toISOString(),
-    }))
+  // Build per-month maps
+  const revByMonth: Record<number, number> = {}
+  const spendByMonth: Record<number, number> = {}
+  for (const m of mediaMetrics) {
+    const val = Number(m.value_numeric || 0)
+    if (m.metric_key === 'REV_BILLED') {
+      revByMonth[m.month] = val
+    } else {
+      spendByMonth[m.month] = (spendByMonth[m.month] || 0) + val
+    }
+  }
 
-  if (rows.length === 0) return { error: 'Nenhum valor de receita faturada para enviar' }
+  const now = new Date().toISOString()
+  const rows: Array<{ media_plan_id: string; metric_key: string; month: number; value_numeric: number; delta_pct: null; input_mode: string; updated_at: string }> = []
+
+  // Sync REV_BILLED → FATURAMENTO
+  for (const [month, val] of Object.entries(revByMonth)) {
+    if (val > 0) {
+      rows.push({
+        media_plan_id: finPlan.id,
+        metric_key: 'FATURAMENTO',
+        month: Number(month),
+        value_numeric: val,
+        delta_pct: null,
+        input_mode: 'value',
+        updated_at: now,
+      })
+    }
+  }
+
+  // Sync SPEND_TOTAL → MIDIA_PCT (derive % from spend/rev)
+  for (const [month, spend] of Object.entries(spendByMonth)) {
+    const m = Number(month)
+    const rev = revByMonth[m] || 0
+    if (spend > 0 && rev > 0) {
+      const midiaPct = Math.round((spend / rev) * 10000) / 100 // 2 decimal places
+      rows.push({
+        media_plan_id: finPlan.id,
+        metric_key: 'MIDIA_PCT',
+        month: m,
+        value_numeric: midiaPct,
+        delta_pct: null,
+        input_mode: 'value',
+        updated_at: now,
+      })
+    }
+  }
+
+  if (rows.length === 0) return { error: 'Nenhum valor para enviar' }
 
   const { error: upsertError } = await adminSupabase
     .from('media_plan_metrics')

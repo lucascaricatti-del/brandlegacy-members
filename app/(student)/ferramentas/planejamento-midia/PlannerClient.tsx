@@ -234,7 +234,7 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
     try {
       const res = await syncMediaToFinancial(workspaceId, year)
       if (res.error) setSyncMsg({ type: 'err', text: res.error })
-      else setSyncMsg({ type: 'ok', text: `Faturamento enviado p/ Financeiro (${res.synced} meses)` })
+      else setSyncMsg({ type: 'ok', text: 'Dados enviados para o Forecasting!' })
     } catch { setSyncMsg({ type: 'err', text: 'Erro ao sincronizar' }) }
     setTimeout(() => setSyncMsg(null), 4000)
   }, [workspaceId, year])
@@ -244,7 +244,7 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
       {/* Header */}
       <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-text-primary">Mídia Plan {year}</h1>
+          <h1 className="text-2xl font-bold text-text-primary">Midia Plan {year}</h1>
           <p className="text-sm text-text-muted mt-1">
             Planeje seu investimento, sessões e receita mês a mês
           </p>
@@ -325,6 +325,12 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
             Enviar p/ Financeiro
           </button>
       </div>
+
+      {syncMsg && (
+        <div className={`mb-4 px-4 py-2.5 rounded-lg text-sm ${syncMsg.type === 'ok' ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>
+          {syncMsg.text}
+        </div>
+      )}
 
       {/* Spreadsheet */}
       <div className="bg-bg-card border border-border rounded-xl overflow-hidden">

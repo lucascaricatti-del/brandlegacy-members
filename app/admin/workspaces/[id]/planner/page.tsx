@@ -53,7 +53,7 @@ export default async function AdminPlannerPage({ params, searchParams }: Props) 
         <span>/</span>
         <Link href={`/admin/workspaces/${workspaceId}`} className="hover:text-text-primary transition-colors">{ws.name}</Link>
         <span>/</span>
-        <span className="text-text-secondary">Planejador de Mídia</span>
+        <span className="text-text-secondary">Midia Plan</span>
       </nav>
 
       <PlannerClient

@@ -90,7 +90,7 @@ export default function StudentLayoutShell({
             <NavItem href="/marketplaces" icon={<IconMarketplaces />} label="Marketplaces" onNavigate={() => setOpen(false)} />
             <NavItem href="/performance" icon={<IconPerformance />} label="Performance" onNavigate={() => setOpen(false)} />
             <NavItem href="/ferramentas/calculadora-cenarios" icon={<IconCalc />} label="Calculadora Estratégica" onNavigate={() => setOpen(false)} />
-            <NavItem href="/ferramentas/planejamento-midia" icon={<IconPlanMidia />} label="Mídia Plan" onNavigate={() => setOpen(false)} />
+            <NavItem href="/ferramentas/planejamento-midia" icon={<IconPlanMidia />} label="Midia Plan" onNavigate={() => setOpen(false)} />
             <NavItem href="/ferramentas/planejamento-financeiro" icon={<IconForecasting />} label="Forecasting" onNavigate={() => setOpen(false)} />
           </div>
 
