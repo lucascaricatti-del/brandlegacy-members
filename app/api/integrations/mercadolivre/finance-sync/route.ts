@@ -83,12 +83,12 @@ export async function POST(req: NextRequest) {
       let offset = 0
       const limit = 50
 
-      // Paginate collections/search and filter by date range
+      // Paginate payments/search by date range
       while (true) {
         const url =
-          `https://api.mercadolibre.com/collections/search` +
-          `?seller_id=${sellerId}` +
-          `&range=date_created` +
+          `https://api.mercadolibre.com/v1/payments/search` +
+          `?sort=date_created` +
+          `&criteria=desc` +
           `&begin_date=${encodeURIComponent(chunk.from)}` +
           `&end_date=${encodeURIComponent(chunk.to)}` +
           `&offset=${offset}&limit=${limit}`
@@ -126,15 +126,7 @@ export async function POST(req: NextRequest) {
         }
 
         const results = json.results || []
-        // collections/search wraps data in { collection: {...} }
-        for (const r of results) {
-          const col = r.collection || r
-          // Filter by date range
-          const createdAt = col.date_created || col.date_approved || ''
-          if (createdAt >= chunk.from && createdAt <= chunk.to) {
-            monthOps.push(col)
-          }
-        }
+        monthOps.push(...results)
 
         const total = json.paging?.total ?? 0
         // ML API limits offset to 10000
@@ -144,23 +136,23 @@ export async function POST(req: NextRequest) {
         await delay(200)
       }
 
-      // Parse collections into finance operations
-      const opRows = monthOps.map((col: any) => {
-        const createdAt = col.date_created || col.date_approved || ''
+      // Parse payments into finance operations
+      const opRows = monthOps.map((p: any) => {
+        const createdAt = p.date_created || p.date_approved || ''
         const date = createdAt ? createdAt.split('T')[0] : null
 
         return {
           workspace_id,
-          operation_id: String(col.id || col.collection_id),
+          operation_id: String(p.id),
           date: date || chunk.from.split('T')[0],
-          type: col.payment_type || col.operation_type || 'payment',
-          status: col.status || 'approved',
-          amount: Number(col.transaction_amount || col.total_paid_amount || 0),
-          net_amount: Number(col.net_received_amount || col.transaction_amount || 0),
-          fee_amount: Number(col.marketplace_fee || col.mercadolibre_fee || 0),
-          description: col.reason || col.description || '',
-          reference_id: col.external_reference ? String(col.external_reference) : (col.merchant_order_id ? String(col.merchant_order_id) : null),
-          currency: col.currency_id || 'BRL',
+          type: p.payment_type || p.payment_method_id || p.operation_type || 'payment',
+          status: p.status || 'approved',
+          amount: Number(p.transaction_amount || p.total_paid_amount || 0),
+          net_amount: Number(p.net_received_amount || p.transaction_amount || 0),
+          fee_amount: Number(p.fee_details?.reduce((s: number, f: any) => s + (f.amount || 0), 0) || p.marketplace_fee || 0),
+          description: p.description || p.reason || '',
+          reference_id: p.external_reference ? String(p.external_reference) : (p.order?.id ? String(p.order.id) : null),
+          currency: p.currency_id || 'BRL',
         }
       }).filter((r: any) => r.date && r.operation_id)
 
