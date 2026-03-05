@@ -7,10 +7,12 @@ const adminSupabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 )
 
+export const maxDuration = 300 // 5 min (Vercel Pro)
+
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 export async function POST(req: NextRequest) {
-  const { workspace_id, month, dry_run = false } = await req.json()
+  const { workspace_id, month, dry_run = false, limit = 200 } = await req.json()
 
   if (!workspace_id) return NextResponse.json({ error: 'workspace_id required' }, { status: 400 })
   if (!month || !/^\d{4}-\d{2}$/.test(month)) {
@@ -27,13 +29,15 @@ export async function POST(req: NextRequest) {
   try {
     const accessToken = await getMlToken(workspace_id)
 
-    // ═══ PAGINATED FETCH: get ALL orders missing fees ═══
+    // ═══ PAGINATED FETCH: get orders missing fees (capped by limit) ═══
     const PAGE_SIZE = 100
+    const maxOrders = Math.min(Number(limit) || 200, 500)
     let allOrders: any[] = []
     let offset = 0
     let totalPages = 0
 
-    while (true) {
+    while (allOrders.length < maxOrders) {
+      const fetchSize = Math.min(PAGE_SIZE, maxOrders - allOrders.length)
       const { data, error: queryErr } = await (adminSupabase as any)
         .from('ml_orders')
         .select('order_id, revenue, shipping_id')
@@ -43,7 +47,7 @@ export async function POST(req: NextRequest) {
         .neq('status', 'cancelled')
         .or('ml_commission.eq.0,ml_commission.is.null')
         .order('date', { ascending: true })
-        .range(offset, offset + PAGE_SIZE - 1)
+        .range(offset, offset + fetchSize - 1)
 
       if (queryErr) {
         return NextResponse.json({ error: `Query failed: ${queryErr.message}` }, { status: 500 })
@@ -53,14 +57,24 @@ export async function POST(req: NextRequest) {
       allOrders.push(...page)
       totalPages++
 
-      if (page.length < PAGE_SIZE) break
-      offset += PAGE_SIZE
+      if (page.length < fetchSize) break
+      offset += fetchSize
     }
 
-    console.log(`[ml/backfill] month=${month}, total_pages=${totalPages}, orders_missing_fees=${allOrders.length}, dry_run=${dry_run}`)
+    // Count total remaining (for progress tracking)
+    const { count: totalRemaining } = await (adminSupabase as any)
+      .from('ml_orders')
+      .select('order_id', { count: 'exact', head: true })
+      .eq('workspace_id', workspace_id)
+      .gte('date', dateFrom)
+      .lte('date', dateTo)
+      .neq('status', 'cancelled')
+      .or('ml_commission.eq.0,ml_commission.is.null')
+
+    console.log(`[ml/backfill] month=${month}, batch=${allOrders.length}/${totalRemaining ?? '?'}, dry_run=${dry_run}`)
 
     if (allOrders.length === 0) {
-      return NextResponse.json({ month, total_pages: totalPages, processed: 0, updated: 0, skipped: 0, errors: [], message: 'No orders need backfill' })
+      return NextResponse.json({ month, total_pages: totalPages, processed: 0, updated: 0, skipped: 0, remaining: 0, errors: [], message: 'No orders need backfill' })
     }
 
     let updated = 0
@@ -186,12 +200,15 @@ export async function POST(req: NextRequest) {
 
     console.log(`[ml/backfill] done: month=${month}, processed=${allOrders.length}, updated=${updated}, skipped=${skipped}, errors=${errors.length}`)
 
+    const remaining = Math.max(0, (totalRemaining ?? 0) - allOrders.length)
+
     return NextResponse.json({
       month,
       total_pages: totalPages,
       processed: allOrders.length,
       updated,
       skipped,
+      remaining,
       errors: errors.slice(0, 50),
       ...(dry_run && { dry_run: true, preview: preview.slice(0, 20) }),
     })
