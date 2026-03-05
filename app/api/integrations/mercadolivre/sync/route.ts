@@ -182,42 +182,6 @@ export async function POST(req: NextRequest) {
         if (b + 20 < shippingIds.length) await delay(300)
       }
 
-      // Fetch item listing_type_id in batches of 20 (needed for fixed fee calculation)
-      const itemCache = new Map<string, string>()
-      const itemIds: string[] = []
-      for (const order of monthOrders) {
-        for (const oi of (order.order_items || [])) {
-          const iid = String(oi.item?.id || '')
-          if (iid && !itemCache.has(iid)) {
-            itemIds.push(iid)
-            itemCache.set(iid, '') // mark as pending
-          }
-        }
-      }
-
-      console.log(`[ml/sync] ${chunk.label}: fetching ${itemIds.length} item listing types`)
-
-      for (let b = 0; b < itemIds.length; b += 20) {
-        const batch = itemIds.slice(b, b + 20)
-        const results = await Promise.allSettled(
-          batch.map(async (iid) => {
-            const res = await fetch(`https://api.mercadolibre.com/items/${iid}?attributes=listing_type_id`, {
-              headers: { Authorization: `Bearer ${accessToken}` },
-              signal: AbortSignal.timeout(10000),
-            })
-            if (!res.ok) return null
-            return res.json()
-          })
-        )
-        for (let i = 0; i < batch.length; i++) {
-          const r = results[i]
-          if (r.status === 'fulfilled' && r.value?.listing_type_id) {
-            itemCache.set(batch[i], r.value.listing_type_id)
-          }
-        }
-        if (b + 20 < itemIds.length) await delay(300)
-      }
-
       // Parse orders with fee breakdown from enriched data
       const orderRows = monthOrders.map((order: any) => {
         const revenue = Number(order.total_amount || 0)
@@ -233,57 +197,32 @@ export async function POST(req: NextRequest) {
           sku: item.item?.seller_sku || null,
         }))
 
-        // Use enriched payment data from /v1/payments/{id}
-        const paymentId = String(order.payments?.[0]?.id || '')
-        const paymentDetail = paymentCache.get(paymentId) || {}
-        const feeDetails: any[] = paymentDetail.fee_details || []
-
+        // Extract commission from sale_fee (already includes fixed fee component)
         let mlCommission = 0
-        let mlFixedFee = 0
-        let mlFinancingFee = 0
-
-        // Extract known fee types from fee_details
-        for (const fee of feeDetails) {
-          const t = fee.type || ''
-          const amount = Math.abs(Number(fee.amount || 0))
-          if (t === 'mercadopago_fee' || t === 'ml_fee') mlCommission += amount
-          else if (t === 'fixed_fee' || t === 'listing_fee') mlFixedFee += amount
-          else if (t === 'financing_fee' || t === 'financing') mlFinancingFee += amount
+        for (const item of orderItems) {
+          mlCommission += Number(item.sale_fee || 0)
         }
 
-        // Fallback: if commission still 0, derive from transaction_details (handles coupon_fee-only cases)
+        // Fallback: if sale_fee not available, try payment transaction_details
         if (mlCommission === 0) {
+          const paymentId = String(order.payments?.[0]?.id || '')
+          const paymentDetail = paymentCache.get(paymentId) || {}
           const txDetails = paymentDetail.transaction_details
           if (txDetails?.net_received_amount != null && txDetails?.total_paid_amount != null) {
             mlCommission = Math.abs(Number(txDetails.total_paid_amount) - Number(txDetails.net_received_amount))
-          } else if (paymentDetail.marketplace_fee) {
-            mlCommission = Math.abs(Number(paymentDetail.marketplace_fee || 0))
           }
         }
 
-        // Fixed fee: R$6.00 per unit for Premium (gold_pro) listings — use itemCache from /items/{id}
-        if (mlFixedFee === 0) {
-          for (const item of orderItems) {
-            const itemId = String(item.item?.id || '')
-            const listingType = itemCache.get(itemId) || ''
-            if (listingType === 'gold_pro') {
-              mlFixedFee += 6.0 * (Number(item.quantity) || 1)
-            }
-          }
-        }
-
-        // Use enriched shipment data from /shipments/{id}
+        // Frete: base_cost minus reputation/special discounts from cost_components
         const shippingId = String(order.shipping?.id || '')
         const shipmentDetail = shippingCache.get(shippingId) || {}
-        const freteCusto = Number(
-          shipmentDetail.shipping_option?.cost
-          || shipmentDetail.base_cost
-          || shipmentDetail.cost
-          || 0
-        )
+        const baseCost = Number(shipmentDetail.base_cost || 0)
+        const loyalDiscount = Math.abs(Number(shipmentDetail.cost_components?.loyal_discount || 0))
+        const specialDiscount = Math.abs(Number(shipmentDetail.cost_components?.special_discount || 0))
+        const freteCusto = Math.max(0, baseCost - loyalDiscount - specialDiscount)
 
-        const totalFee = mlCommission + mlFixedFee + mlFinancingFee
-        const netRevenueFull = revenue - mlCommission - mlFixedFee - mlFinancingFee - freteCusto
+        const totalFee = mlCommission
+        const netRevenueFull = revenue - mlCommission - freteCusto
 
         return {
           workspace_id,
@@ -295,8 +234,8 @@ export async function POST(req: NextRequest) {
           marketplace_fee: totalFee,
           net_revenue: revenue - totalFee,
           ml_commission: mlCommission,
-          ml_fixed_fee: mlFixedFee,
-          ml_financing_fee: mlFinancingFee,
+          ml_fixed_fee: 0,
+          ml_financing_fee: 0,
           frete_custo: freteCusto,
           net_revenue_full: netRevenueFull,
           payment_method: order.payments?.[0]?.payment_method_id || null,

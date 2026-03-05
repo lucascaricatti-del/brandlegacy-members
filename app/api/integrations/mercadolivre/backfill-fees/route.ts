@@ -98,20 +98,14 @@ export async function POST(req: NextRequest) {
           if (!orderRes.ok) throw new Error(`Order fetch ${orderRes.status}`)
           const orderData = await orderRes.json()
 
-          // Extract commission from sale_fee
+          // Extract commission from sale_fee (already includes fixed fee)
           let mlCommission = 0
-          let mlFixedFee = 0
           const orderItems = orderData.order_items || []
-
           for (const item of orderItems) {
-            const qty = Number(item.quantity) || 1
             mlCommission += Number(item.sale_fee || 0)
-            if (item.listing_type_id === 'gold_pro') {
-              mlFixedFee += 6.0 * qty
-            }
           }
 
-          // Step 2: Fetch shipment for frete_custo
+          // Step 2: Fetch shipment for frete_custo (net of discounts)
           const shippingId = orderData.shipping?.id
           let freteCusto = 0
 
@@ -122,24 +116,21 @@ export async function POST(req: NextRequest) {
             })
             if (shipRes.ok) {
               const shipment = await shipRes.json()
-              freteCusto = Number(
-                shipment?.shipping_option?.cost
-                || shipment?.base_cost
-                || shipment?.cost
-                || 0
-              )
+              const baseCost = Number(shipment?.base_cost || 0)
+              const loyalDiscount = Math.abs(Number(shipment?.cost_components?.loyal_discount || 0))
+              const specialDiscount = Math.abs(Number(shipment?.cost_components?.special_discount || 0))
+              freteCusto = Math.max(0, baseCost - loyalDiscount - specialDiscount)
             }
           }
 
-          // Step 3: Calculate net revenue
+          // Step 3: Calculate net revenue (no fixed fee — included in sale_fee)
           const revenue = Number(order.revenue || 0)
-          const netRevenueFull = revenue - mlCommission - mlFixedFee - freteCusto
+          const netRevenueFull = revenue - mlCommission - freteCusto
 
           return {
             order_id: orderId,
             revenue,
             ml_commission: Math.round(mlCommission * 100) / 100,
-            ml_fixed_fee: Math.round(mlFixedFee * 100) / 100,
             frete_custo: Math.round(freteCusto * 100) / 100,
             net_revenue_full: Math.round(netRevenueFull * 100) / 100,
           }
@@ -157,7 +148,7 @@ export async function POST(req: NextRequest) {
         }
 
         const data = result.value
-        if (data.ml_commission === 0 && data.ml_fixed_fee === 0 && data.frete_custo === 0) {
+        if (data.ml_commission === 0 && data.frete_custo === 0) {
           skipped++
           continue
         }
@@ -170,12 +161,12 @@ export async function POST(req: NextRequest) {
             .from('ml_orders')
             .update({
               ml_commission: data.ml_commission,
-              ml_fixed_fee: data.ml_fixed_fee,
+              ml_fixed_fee: 0,
               ml_financing_fee: 0,
               frete_custo: data.frete_custo,
               net_revenue_full: data.net_revenue_full,
-              marketplace_fee: data.ml_commission + data.ml_fixed_fee,
-              net_revenue: data.revenue - data.ml_commission - data.ml_fixed_fee,
+              marketplace_fee: data.ml_commission,
+              net_revenue: data.revenue - data.ml_commission,
               shipping_cost: data.frete_custo,
             })
             .eq('workspace_id', workspace_id)

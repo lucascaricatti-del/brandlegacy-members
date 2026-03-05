@@ -338,17 +338,12 @@ export default function MarketplacesClient({
                 <AutoCostCard
                   label="Tarifas de Venda Totais"
                   value={metrics.total_commission}
-                  tooltip="Comissão cobrada pelo Mercado Livre por cada venda realizada. Varia entre 10% e 16% dependendo da categoria e tipo de anúncio."
+                  tooltip="Comissão cobrada pelo Mercado Livre por cada venda realizada. Inclui tarifa fixa de R$6 por unidade em anúncios Premium. Varia entre 10% e 16% dependendo da categoria."
                 />
                 <AutoCostCard
                   label="Tarifas de Envio"
                   value={metrics.total_frete}
-                  tooltip="Custo do frete pago pelo vendedor. Inclui envios por sua conta e desconto por reputação já aplicado pelo ML."
-                />
-                <AutoCostCard
-                  label="Tarifa Fixa"
-                  value={metrics.total_fixed_fee}
-                  tooltip="Tarifa fixa de R$6,00 cobrada por unidade vendida em anúncios Premium (Gold Pro)."
+                  tooltip="Custo do frete pago pelo vendedor após desconto de reputação aplicado pelo ML."
                 />
 
                 {/* Manual costs */}
