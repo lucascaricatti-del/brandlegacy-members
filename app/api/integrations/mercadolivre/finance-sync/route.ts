@@ -83,11 +83,12 @@ export async function POST(req: NextRequest) {
       let offset = 0
       const limit = 50
 
-      // Paginate money_movements for this period
+      // Paginate collections/search and filter by date range
       while (true) {
         const url =
-          `https://api.mercadolibre.com/mercadopago_account/movements/search` +
-          `?range=date_created` +
+          `https://api.mercadolibre.com/collections/search` +
+          `?seller_id=${sellerId}` +
+          `&range=date_created` +
           `&begin_date=${encodeURIComponent(chunk.from)}` +
           `&end_date=${encodeURIComponent(chunk.to)}` +
           `&offset=${offset}&limit=${limit}`
@@ -116,19 +117,26 @@ export async function POST(req: NextRequest) {
             debugFirstResponse = {
               keys: Object.keys(json),
               results_count: (json.results || []).length,
-              data_count: (json.data || []).length,
               paging: json.paging || null,
-              total: json.total ?? null,
-              sample: JSON.stringify(json).slice(0, 1500),
+              first_result_keys: json.results?.[0] ? Object.keys(json.results[0]) : [],
+              first_collection_keys: json.results?.[0]?.collection ? Object.keys(json.results[0].collection) : [],
             }
           } catch { debugFirstResponse = { raw: 'parse error' } }
           isFirstRequest = false
         }
 
-        const results = json.results || json.data || []
-        monthOps.push(...results)
+        const results = json.results || []
+        // collections/search wraps data in { collection: {...} }
+        for (const r of results) {
+          const col = r.collection || r
+          // Filter by date range
+          const createdAt = col.date_created || col.date_approved || ''
+          if (createdAt >= chunk.from && createdAt <= chunk.to) {
+            monthOps.push(col)
+          }
+        }
 
-        const total = json.paging?.total ?? json.total ?? 0
+        const total = json.paging?.total ?? 0
         // ML API limits offset to 10000
         if (offset + limit >= total || offset + limit >= 10000 || results.length === 0) break
         offset += limit
@@ -136,25 +144,25 @@ export async function POST(req: NextRequest) {
         await delay(200)
       }
 
-      // Parse and upsert
-      const opRows = monthOps.map((op: any) => {
-        const createdAt = op.date_created || op.date || ''
+      // Parse collections into finance operations
+      const opRows = monthOps.map((col: any) => {
+        const createdAt = col.date_created || col.date_approved || ''
         const date = createdAt ? createdAt.split('T')[0] : null
 
         return {
           workspace_id,
-          operation_id: String(op.id || op.movement_id || op.reference_id || `${chunk.label}-${offset}`),
+          operation_id: String(col.id || col.collection_id),
           date: date || chunk.from.split('T')[0],
-          type: op.type || op.movement_type || 'movement',
-          status: op.status || 'processed',
-          amount: Number(op.amount || op.transaction_amount || op.total_amount || 0),
-          net_amount: Number(op.net_amount || op.amount || 0),
-          fee_amount: Number(op.fee_amount || op.marketplace_fee || 0),
-          description: op.description || op.detail?.description || op.reason || '',
-          reference_id: op.reference_id ? String(op.reference_id) : null,
-          currency: op.currency_id || 'BRL',
+          type: col.payment_type || col.operation_type || 'payment',
+          status: col.status || 'approved',
+          amount: Number(col.transaction_amount || col.total_paid_amount || 0),
+          net_amount: Number(col.net_received_amount || col.transaction_amount || 0),
+          fee_amount: Number(col.marketplace_fee || col.mercadolibre_fee || 0),
+          description: col.reason || col.description || '',
+          reference_id: col.external_reference ? String(col.external_reference) : (col.merchant_order_id ? String(col.merchant_order_id) : null),
+          currency: col.currency_id || 'BRL',
         }
-      }).filter((r: any) => r.date)
+      }).filter((r: any) => r.date && r.operation_id)
 
       let monthSynced = 0
       if (opRows.length > 0) {
