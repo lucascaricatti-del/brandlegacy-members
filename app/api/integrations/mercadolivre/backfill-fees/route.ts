@@ -27,26 +27,40 @@ export async function POST(req: NextRequest) {
   try {
     const accessToken = await getMlToken(workspace_id)
 
-    // Query orders missing fees
-    const { data: orders, error: queryErr } = await (adminSupabase as any)
-      .from('ml_orders')
-      .select('order_id, revenue, ml_commission, frete_custo')
-      .eq('workspace_id', workspace_id)
-      .gte('date', dateFrom)
-      .lte('date', dateTo)
-      .neq('status', 'cancelled')
-      .or('ml_commission.eq.0,ml_commission.is.null')
-      .order('date', { ascending: true })
+    // ═══ PAGINATED FETCH: get ALL orders missing fees ═══
+    const PAGE_SIZE = 100
+    let allOrders: any[] = []
+    let offset = 0
+    let totalPages = 0
 
-    if (queryErr) {
-      return NextResponse.json({ error: `Query failed: ${queryErr.message}` }, { status: 500 })
+    while (true) {
+      const { data, error: queryErr } = await (adminSupabase as any)
+        .from('ml_orders')
+        .select('order_id, revenue, shipping_id')
+        .eq('workspace_id', workspace_id)
+        .gte('date', dateFrom)
+        .lte('date', dateTo)
+        .neq('status', 'cancelled')
+        .or('ml_commission.eq.0,ml_commission.is.null')
+        .order('date', { ascending: true })
+        .range(offset, offset + PAGE_SIZE - 1)
+
+      if (queryErr) {
+        return NextResponse.json({ error: `Query failed: ${queryErr.message}` }, { status: 500 })
+      }
+
+      const page = data || []
+      allOrders.push(...page)
+      totalPages++
+
+      if (page.length < PAGE_SIZE) break
+      offset += PAGE_SIZE
     }
 
-    const toProcess = orders || []
-    console.log(`[ml/backfill] month=${month}, orders_missing_fees=${toProcess.length}, dry_run=${dry_run}`)
+    console.log(`[ml/backfill] month=${month}, total_pages=${totalPages}, orders_missing_fees=${allOrders.length}, dry_run=${dry_run}`)
 
-    if (toProcess.length === 0) {
-      return NextResponse.json({ month, processed: 0, updated: 0, skipped: 0, errors: [], message: 'No orders need backfill' })
+    if (allOrders.length === 0) {
+      return NextResponse.json({ month, total_pages: totalPages, processed: 0, updated: 0, skipped: 0, errors: [], message: 'No orders need backfill' })
     }
 
     let updated = 0
@@ -55,14 +69,14 @@ export async function POST(req: NextRequest) {
     const preview: any[] = []
 
     // Process in batches of 10
-    for (let b = 0; b < toProcess.length; b += 10) {
-      const batch = toProcess.slice(b, b + 10)
+    for (let b = 0; b < allOrders.length; b += 10) {
+      const batch = allOrders.slice(b, b + 10)
 
       const enriched = await Promise.allSettled(
         batch.map(async (order: any) => {
           const orderId = order.order_id
 
-          // Step a: Fetch full order from ML to get payment_id and shipping_id
+          // Step 1: Fetch order from ML → get sale_fee + listing_type_id from order_items + shipping.id
           const orderRes = await fetch(`https://api.mercadolibre.com/orders/${orderId}`, {
             headers: { Authorization: `Bearer ${accessToken}` },
             signal: AbortSignal.timeout(10000),
@@ -70,90 +84,50 @@ export async function POST(req: NextRequest) {
           if (!orderRes.ok) throw new Error(`Order fetch ${orderRes.status}`)
           const orderData = await orderRes.json()
 
-          const paymentId = orderData.payments?.[0]?.id
-          const shippingId = orderData.shipping?.id
-
-          // Step b: Fetch payment and shipment in parallel
-          const [paymentResult, shipmentResult] = await Promise.allSettled([
-            paymentId
-              ? fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
-                  headers: { Authorization: `Bearer ${accessToken}` },
-                  signal: AbortSignal.timeout(10000),
-                }).then(r => r.ok ? r.json() : null)
-              : Promise.resolve(null),
-            shippingId
-              ? fetch(`https://api.mercadolibre.com/shipments/${shippingId}`, {
-                  headers: { Authorization: `Bearer ${accessToken}` },
-                  signal: AbortSignal.timeout(10000),
-                }).then(r => r.ok ? r.json() : null)
-              : Promise.resolve(null),
-          ])
-
-          const payment = paymentResult.status === 'fulfilled' ? paymentResult.value : null
-          const shipment = shipmentResult.status === 'fulfilled' ? shipmentResult.value : null
-
-          // Step c: Extract commission from fee_details
+          // Extract commission from sale_fee
           let mlCommission = 0
           let mlFixedFee = 0
-          const feeDetails: any[] = payment?.fee_details || []
-          for (const fee of feeDetails) {
-            const t = fee.type || ''
-            const amount = Math.abs(Number(fee.amount || 0))
-            if (t === 'mercadopago_fee' || t === 'ml_fee') mlCommission += amount
-            else if (t === 'fixed_fee' || t === 'listing_fee') mlFixedFee += amount
-          }
+          const orderItems = orderData.order_items || []
 
-          // Fallback: if commission still 0, derive from transaction_details (handles coupon_fee-only cases)
-          if (mlCommission === 0 && payment?.transaction_details) {
-            const td = payment.transaction_details
-            if (td.net_received_amount != null && td.total_paid_amount != null) {
-              mlCommission = Math.abs(Number(td.total_paid_amount) - Number(td.net_received_amount))
+          for (const item of orderItems) {
+            const qty = Number(item.quantity) || 1
+            mlCommission += Number(item.sale_fee || 0)
+            if (item.listing_type_id === 'gold_pro') {
+              mlFixedFee += 6.0 * qty
             }
           }
 
-          // Fixed fee: R$6.00 per unit for Premium (gold_pro) listings — fetch from /items/{id}
-          if (mlFixedFee === 0) {
-            const orderItems = orderData.order_items || []
-            for (const item of orderItems) {
-              const itemId = String(item.item?.id || '')
-              if (!itemId) continue
-              const itemRes = await fetch(`https://api.mercadolibre.com/items/${itemId}?attributes=listing_type_id`, {
-                headers: { Authorization: `Bearer ${accessToken}` },
-                signal: AbortSignal.timeout(10000),
-              })
-              if (itemRes.ok) {
-                const itemData = await itemRes.json()
-                if (itemData.listing_type_id === 'gold_pro') {
-                  mlFixedFee += 6.0 * (Number(item.quantity) || 1)
-                }
-              }
-              await new Promise(r => setTimeout(r, 200))
+          // Step 2: Fetch shipment for frete_custo
+          const shippingId = orderData.shipping?.id
+          let freteCusto = 0
+
+          if (shippingId) {
+            const shipRes = await fetch(`https://api.mercadolibre.com/shipments/${shippingId}`, {
+              headers: { Authorization: `Bearer ${accessToken}` },
+              signal: AbortSignal.timeout(10000),
+            })
+            if (shipRes.ok) {
+              const shipment = await shipRes.json()
+              freteCusto = Number(
+                shipment?.shipping_option?.cost
+                || shipment?.base_cost
+                || shipment?.cost
+                || 0
+              )
             }
           }
 
-          // Step d: Extract frete
-          const freteCusto = Number(
-            shipment?.shipping_option?.cost
-            || shipment?.base_cost
-            || shipment?.cost
-            || 0
-          )
-
-          // Step e: Calculate net revenue
+          // Step 3: Calculate net revenue
           const revenue = Number(order.revenue || 0)
-          const totalFee = mlCommission + mlFixedFee
           const netRevenueFull = revenue - mlCommission - mlFixedFee - freteCusto
 
           return {
             order_id: orderId,
             revenue,
-            ml_commission: mlCommission,
-            ml_fixed_fee: mlFixedFee,
-            frete_custo: freteCusto,
-            net_revenue_full: netRevenueFull,
-            marketplace_fee: totalFee,
-            net_revenue: revenue - totalFee,
-            shipping_cost: freteCusto,
+            ml_commission: Math.round(mlCommission * 100) / 100,
+            ml_fixed_fee: Math.round(mlFixedFee * 100) / 100,
+            frete_custo: Math.round(freteCusto * 100) / 100,
+            net_revenue_full: Math.round(netRevenueFull * 100) / 100,
           }
         })
       )
@@ -178,7 +152,7 @@ export async function POST(req: NextRequest) {
           preview.push(data)
           updated++
         } else {
-          const { error: upsertErr } = await (adminSupabase as any)
+          const { error: updateErr } = await (adminSupabase as any)
             .from('ml_orders')
             .update({
               ml_commission: data.ml_commission,
@@ -186,15 +160,15 @@ export async function POST(req: NextRequest) {
               ml_financing_fee: 0,
               frete_custo: data.frete_custo,
               net_revenue_full: data.net_revenue_full,
-              marketplace_fee: data.marketplace_fee,
-              net_revenue: data.net_revenue,
-              shipping_cost: data.shipping_cost,
+              marketplace_fee: data.ml_commission + data.ml_fixed_fee,
+              net_revenue: data.revenue - data.ml_commission - data.ml_fixed_fee,
+              shipping_cost: data.frete_custo,
             })
             .eq('workspace_id', workspace_id)
             .eq('order_id', orderId)
 
-          if (upsertErr) {
-            errors.push({ order_id: orderId, error: upsertErr.message })
+          if (updateErr) {
+            errors.push({ order_id: orderId, error: updateErr.message })
           } else {
             updated++
           }
@@ -202,17 +176,23 @@ export async function POST(req: NextRequest) {
       }
 
       // 500ms delay between batches
-      if (b + 10 < toProcess.length) await delay(500)
+      if (b + 10 < allOrders.length) await delay(500)
+
+      // Log progress every 100 orders
+      if ((b + 10) % 100 === 0) {
+        console.log(`[ml/backfill] progress: ${b + 10}/${allOrders.length} (updated=${updated}, skipped=${skipped}, errors=${errors.length})`)
+      }
     }
 
-    console.log(`[ml/backfill] done: month=${month}, processed=${toProcess.length}, updated=${updated}, skipped=${skipped}, errors=${errors.length}`)
+    console.log(`[ml/backfill] done: month=${month}, processed=${allOrders.length}, updated=${updated}, skipped=${skipped}, errors=${errors.length}`)
 
     return NextResponse.json({
       month,
-      processed: toProcess.length,
+      total_pages: totalPages,
+      processed: allOrders.length,
       updated,
       skipped,
-      errors,
+      errors: errors.slice(0, 50),
       ...(dry_run && { dry_run: true, preview: preview.slice(0, 20) }),
     })
   } catch (err: any) {
