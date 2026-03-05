@@ -121,39 +121,39 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 3. Aggregate by day for yampi_metrics ──
+    // In Yampi, all non-cancelled orders are valid sales (pending = payment confirmed)
+    const CANCEL = ['cancelled', 'refused']
+    const APPROVED = ['paid', 'invoiced', 'shipped', 'delivered']
     const dailyMap = new Map<string, {
-      paid_revenue: number
-      paid_count: number
+      revenue: number
+      order_count: number
       cancelled_count: number
-      pending_count: number
       total_count: number
       pix_total: number
-      pix_paid: number
+      pix_approved: number
     }>()
 
     for (const o of orderRows) {
       if (!o.date) continue
       const d = dailyMap.get(o.date) ?? {
-        paid_revenue: 0, paid_count: 0,
-        cancelled_count: 0, pending_count: 0, total_count: 0,
-        pix_total: 0, pix_paid: 0,
+        revenue: 0, order_count: 0,
+        cancelled_count: 0, total_count: 0,
+        pix_total: 0, pix_approved: 0,
       }
 
       d.total_count++
 
-      if (o.status === 'paid' || o.status === 'invoiced' || o.status === 'shipped' || o.status === 'delivered') {
-        d.paid_revenue += o.revenue
-        d.paid_count++
-      } else if (o.status === 'cancelled' || o.status === 'refused') {
+      if (CANCEL.includes(o.status)) {
         d.cancelled_count++
       } else {
-        d.pending_count++
+        d.revenue += o.revenue
+        d.order_count++
       }
 
       if (o.payment_method === 'pix') {
         d.pix_total++
-        if (o.status === 'paid' || o.status === 'invoiced' || o.status === 'shipped' || o.status === 'delivered') {
-          d.pix_paid++
+        if (APPROVED.includes(o.status)) {
+          d.pix_approved++
         }
       }
 
@@ -163,14 +163,14 @@ export async function POST(req: NextRequest) {
     const metricRows = Array.from(dailyMap.entries()).map(([date, d]) => ({
       workspace_id,
       date,
-      revenue: d.paid_revenue,
-      orders: d.paid_count,
-      avg_ticket: d.paid_count > 0 ? d.paid_revenue / d.paid_count : 0,
+      revenue: d.revenue,
+      orders: d.order_count,
+      avg_ticket: d.order_count > 0 ? d.revenue / d.order_count : 0,
       checkout_conversion: d.total_count > 0
-        ? Math.round((d.paid_count / d.total_count) * 100 * 100) / 100
+        ? Math.round((d.order_count / d.total_count) * 100 * 100) / 100
         : 0,
       pix_approval_rate: d.pix_total > 0
-        ? Math.round((d.pix_paid / d.pix_total) * 100 * 100) / 100
+        ? Math.round((d.pix_approved / d.pix_total) * 100 * 100) / 100
         : 0,
       cancellation_rate: d.total_count > 0
         ? Math.round((d.cancelled_count / d.total_count) * 100 * 100) / 100

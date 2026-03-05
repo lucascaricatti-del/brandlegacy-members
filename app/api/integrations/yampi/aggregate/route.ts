@@ -46,9 +46,10 @@ export async function POST(request: Request) {
     }
 
     // Group by date and calculate metrics
+    // In Yampi checkout, "pending" = order placed (valid sale), only "cancelled"/"refused" are not sales
     const dailyMap = new Map<string, {
       revenue: number
-      non_cancelled_count: number
+      order_count: number
       cancelled_count: number
       total_count: number
       pix_total: number
@@ -58,7 +59,7 @@ export async function POST(request: Request) {
     for (const o of allOrders) {
       if (!o.date) continue
       const d = dailyMap.get(o.date) ?? {
-        revenue: 0, non_cancelled_count: 0,
+        revenue: 0, order_count: 0,
         cancelled_count: 0, total_count: 0,
         pix_total: 0, pix_approved: 0,
       }
@@ -70,7 +71,7 @@ export async function POST(request: Request) {
 
       if (!isCancelled) {
         d.revenue += Number(o.revenue) || 0
-        d.non_cancelled_count++
+        d.order_count++
       } else {
         d.cancelled_count++
       }
@@ -91,9 +92,11 @@ export async function POST(request: Request) {
       workspace_id,
       date,
       revenue: d.revenue,
-      orders: d.non_cancelled_count,
-      avg_ticket: d.non_cancelled_count > 0 ? d.revenue / d.non_cancelled_count : 0,
-      checkout_conversion: 0,
+      orders: d.order_count,
+      avg_ticket: d.order_count > 0 ? d.revenue / d.order_count : 0,
+      checkout_conversion: d.total_count > 0
+        ? Math.round((d.order_count / d.total_count) * 100 * 100) / 100
+        : 0,
       pix_approval_rate: d.pix_total > 0
         ? Math.round((d.pix_approved / d.pix_total) * 100 * 100) / 100
         : 0,

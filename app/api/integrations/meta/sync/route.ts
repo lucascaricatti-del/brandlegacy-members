@@ -49,11 +49,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Meta not connected or no account' }, { status: 404 })
   }
 
-  // Smart sync: if last_sync exists, only sync last 2 days; otherwise full 180 days
+  // Smart sync: if last_sync exists, always re-fetch last 3 days (Meta has 48h attribution delay);
+  // otherwise full 180 days for first sync
   const lastSync = (integration as any).metadata?.last_sync
   const fallbackSince = new Date(Date.now() - 180 * 86400000).toLocaleDateString('sv-SE')
   const smartSince = lastSync
-    ? new Date(Date.now() - 2 * 86400000).toLocaleDateString('sv-SE')
+    ? new Date(Date.now() - 3 * 86400000).toLocaleDateString('sv-SE')
     : fallbackSince
   const since = date_from || smartSince
   const until = date_to || new Date().toLocaleDateString('sv-SE')
