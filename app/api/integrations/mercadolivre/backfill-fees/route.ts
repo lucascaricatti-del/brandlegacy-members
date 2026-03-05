@@ -94,17 +94,30 @@ export async function POST(req: NextRequest) {
 
           // Step c: Extract commission
           let mlCommission = 0
+          let mlFixedFee = 0
           const feeDetails: any[] = payment?.fee_details || []
           if (feeDetails.length > 0) {
             for (const fee of feeDetails) {
               const t = fee.type || ''
               const amount = Math.abs(Number(fee.amount || 0))
               if (t === 'mercadopago_fee' || t === 'ml_fee') mlCommission += amount
+              else if (t === 'fixed_fee' || t === 'listing_fee') mlFixedFee += amount
             }
           } else if (payment?.transaction_details) {
             const td = payment.transaction_details
             if (td.net_received_amount != null && td.total_paid_amount != null) {
               mlCommission = Math.abs(Number(td.total_paid_amount) - Number(td.net_received_amount))
+            }
+          }
+
+          // Fixed fee: R$6.00 per unit for Premium (gold_pro) listings
+          if (mlFixedFee === 0) {
+            const orderItems = orderData.order_items || []
+            for (const item of orderItems) {
+              const listingType = item.item?.listing_type_id || ''
+              if (listingType === 'gold_pro') {
+                mlFixedFee += 6.0 * (Number(item.quantity) || 1)
+              }
             }
           }
 
@@ -118,16 +131,18 @@ export async function POST(req: NextRequest) {
 
           // Step e: Calculate net revenue
           const revenue = Number(order.revenue || 0)
-          const netRevenueFull = revenue - mlCommission - freteCusto
+          const totalFee = mlCommission + mlFixedFee
+          const netRevenueFull = revenue - mlCommission - mlFixedFee - freteCusto
 
           return {
             order_id: orderId,
             revenue,
             ml_commission: mlCommission,
+            ml_fixed_fee: mlFixedFee,
             frete_custo: freteCusto,
             net_revenue_full: netRevenueFull,
-            marketplace_fee: mlCommission,
-            net_revenue: revenue - mlCommission,
+            marketplace_fee: totalFee,
+            net_revenue: revenue - totalFee,
             shipping_cost: freteCusto,
           }
         })
@@ -144,7 +159,7 @@ export async function POST(req: NextRequest) {
         }
 
         const data = result.value
-        if (data.ml_commission === 0 && data.frete_custo === 0) {
+        if (data.ml_commission === 0 && data.ml_fixed_fee === 0 && data.frete_custo === 0) {
           skipped++
           continue
         }
@@ -157,7 +172,7 @@ export async function POST(req: NextRequest) {
             .from('ml_orders')
             .update({
               ml_commission: data.ml_commission,
-              ml_fixed_fee: 0,
+              ml_fixed_fee: data.ml_fixed_fee,
               ml_financing_fee: 0,
               frete_custo: data.frete_custo,
               net_revenue_full: data.net_revenue_full,

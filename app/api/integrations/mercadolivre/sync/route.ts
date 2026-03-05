@@ -190,7 +190,8 @@ export async function POST(req: NextRequest) {
         const createdAt = order.date_created || ''
         const date = createdAt.split('T')[0] || ''
 
-        const items = (order.order_items || []).map((item: any) => ({
+        const orderItems = order.order_items || []
+        const items = orderItems.map((item: any) => ({
           item_id: String(item.item?.id || ''),
           title: item.item?.title || '',
           quantity: Number(item.quantity || 1),
@@ -216,12 +217,22 @@ export async function POST(req: NextRequest) {
             else if (t === 'financing_fee' || t === 'financing') mlFinancingFee += amount
           }
         } else {
-          // Fallback: derive total fee from transaction_details (transaction_amount - net_received_amount)
+          // Fallback: derive total fee from transaction_details
           const txDetails = paymentDetail.transaction_details
           if (txDetails?.net_received_amount != null && txDetails?.total_paid_amount != null) {
             mlCommission = Math.abs(Number(txDetails.total_paid_amount) - Number(txDetails.net_received_amount))
           } else if (paymentDetail.marketplace_fee) {
             mlCommission = Math.abs(Number(paymentDetail.marketplace_fee || 0))
+          }
+        }
+
+        // Fixed fee: R$6.00 per unit for Premium (gold_pro) listings
+        if (mlFixedFee === 0) {
+          for (const item of orderItems) {
+            const listingType = item.item?.listing_type_id || ''
+            if (listingType === 'gold_pro') {
+              mlFixedFee += 6.0 * (Number(item.quantity) || 1)
+            }
           }
         }
 

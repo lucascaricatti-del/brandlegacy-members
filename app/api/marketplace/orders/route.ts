@@ -7,14 +7,18 @@ const supabase = createClient(
 )
 
 export async function POST(req: NextRequest) {
-  const { workspace_id, date_from } = await req.json()
+  const { workspace_id, date_from, date_to } = await req.json()
   if (!workspace_id) return NextResponse.json({ error: 'workspace_id required' }, { status: 400 })
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('ml_orders')
     .select('order_id, date, status, revenue, net_revenue, marketplace_fee, ml_commission, ml_fixed_fee, ml_financing_fee, frete_custo, net_revenue_full, buyer_nickname, items, currency')
     .eq('workspace_id', workspace_id)
-    .gte('date', date_from)
+
+  if (date_from) query = query.gte('date', date_from)
+  if (date_to) query = query.lte('date', date_to)
+
+  const { data, error } = await query
     .order('date', { ascending: false })
     .limit(5000)
 
