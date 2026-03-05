@@ -12,7 +12,7 @@ export const maxDuration = 300 // 5 min (Vercel Pro)
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 export async function POST(req: NextRequest) {
-  const { workspace_id, month, dry_run = false, limit = 200 } = await req.json()
+  const { workspace_id, month, dry_run = false, limit = 200, force = false } = await req.json()
 
   if (!workspace_id) return NextResponse.json({ error: 'workspace_id required' }, { status: 400 })
   if (!month || !/^\d{4}-\d{2}$/.test(month)) {
@@ -38,14 +38,15 @@ export async function POST(req: NextRequest) {
 
     while (allOrders.length < maxOrders) {
       const fetchSize = Math.min(PAGE_SIZE, maxOrders - allOrders.length)
-      const { data, error: queryErr } = await (adminSupabase as any)
+      let query = (adminSupabase as any)
         .from('ml_orders')
         .select('order_id, revenue, shipping_id')
         .eq('workspace_id', workspace_id)
         .gte('date', dateFrom)
         .lte('date', dateTo)
         .neq('status', 'cancelled')
-        .or('ml_commission.eq.0,ml_commission.is.null')
+      if (!force) query = query.or('ml_commission.eq.0,ml_commission.is.null')
+      const { data, error: queryErr } = await query
         .order('date', { ascending: true })
         .range(offset, offset + fetchSize - 1)
 
@@ -62,14 +63,15 @@ export async function POST(req: NextRequest) {
     }
 
     // Count total remaining (for progress tracking)
-    const { count: totalRemaining } = await (adminSupabase as any)
+    let countQuery = (adminSupabase as any)
       .from('ml_orders')
       .select('order_id', { count: 'exact', head: true })
       .eq('workspace_id', workspace_id)
       .gte('date', dateFrom)
       .lte('date', dateTo)
       .neq('status', 'cancelled')
-      .or('ml_commission.eq.0,ml_commission.is.null')
+    if (!force) countQuery = countQuery.or('ml_commission.eq.0,ml_commission.is.null')
+    const { count: totalRemaining } = await countQuery
 
     console.log(`[ml/backfill] month=${month}, batch=${allOrders.length}/${totalRemaining ?? '?'}, dry_run=${dry_run}`)
 
