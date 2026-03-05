@@ -84,8 +84,9 @@ export async function POST(req: NextRequest) {
       // Paginate money_movements for this period
       while (true) {
         const url =
-          `https://api.mercadolibre.com/users/${sellerId}/movements` +
-          `?begin_date=${encodeURIComponent(chunk.from)}` +
+          `https://api.mercadolibre.com/mercadopago_account/movements/search` +
+          `?range=date_created` +
+          `&begin_date=${encodeURIComponent(chunk.from)}` +
           `&end_date=${encodeURIComponent(chunk.to)}` +
           `&offset=${offset}&limit=${limit}`
 
