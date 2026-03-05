@@ -73,6 +73,8 @@ export async function POST(req: NextRequest) {
     console.log(`[ml/finance-sync] smart sync: last_finance_sync=${lastFinanceSync || 'none'}, chunks=${monthChunks.length}`)
     let totalSynced = 0
     const monthResults: { month: string; operations: number }[] = []
+    let debugFirstResponse: any = null
+    let debugFirstError: string | null = null
 
     let isFirstRequest = true
 
@@ -98,6 +100,10 @@ export async function POST(req: NextRequest) {
         if (!res.ok) {
           const errText = await res.text()
           console.error(`[ml/finance-sync] ${chunk.label} offset=${offset} error:`, res.status, errText)
+          if (isFirstRequest) {
+            debugFirstError = `${res.status}: ${errText.slice(0, 500)}`
+            isFirstRequest = false
+          }
           break
         }
 
@@ -105,7 +111,9 @@ export async function POST(req: NextRequest) {
 
         // Log first raw response
         if (isFirstRequest) {
-          console.log(`[ml/finance-sync] RAW FIRST RESPONSE:`, JSON.stringify(json).slice(0, 2000))
+          const rawStr = JSON.stringify(json).slice(0, 2000)
+          console.log(`[ml/finance-sync] RAW FIRST RESPONSE:`, rawStr)
+          debugFirstResponse = JSON.parse(JSON.stringify(json).slice(0, 3000) + (JSON.stringify(json).length > 3000 ? '..."truncated"}' : ''))
           isFirstRequest = false
         }
 
@@ -176,6 +184,8 @@ export async function POST(req: NextRequest) {
       months_processed: monthResults.length,
       months: monthResults,
       smart: !!lastFinanceSync,
+      ...(debugFirstResponse && { _debug_first_response: debugFirstResponse }),
+      ...(debugFirstError && { _debug_first_error: debugFirstError }),
     })
   } catch (err: any) {
     console.error('[ml/finance-sync] error:', err.message)
