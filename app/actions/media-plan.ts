@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { MONTHS, KEY_METRICS, calcMonth, type KeyValues } from '@/lib/utils/media-plan-calc'
 
 // ============================================================
 // AUTH HELPERS
@@ -264,55 +265,52 @@ export async function syncMediaToFinancial(workspaceId: string, year: number) {
     finPlan = created
   }
 
-  // Get media plan metrics: REV_BILLED + spend keys
+  // Get ALL key metrics from media plan (REV_BILLED and SPEND_TOTAL are calculated, not stored)
   const { data: mediaMetrics } = await adminSupabase
     .from('media_plan_metrics')
     .select('metric_key, month, value_numeric')
     .eq('media_plan_id', mediaPlan.id)
-    .in('metric_key', ['REV_BILLED', 'SPEND_META', 'SPEND_GOOGLE', 'SPEND_INFLUENCER'])
+    .in('metric_key', KEY_METRICS as unknown as string[])
 
   if (!mediaMetrics || mediaMetrics.length === 0) return { error: 'Nenhuma métrica encontrada no plano de mídia' }
 
-  // Build per-month maps
-  const revByMonth: Record<number, number> = {}
-  const spendByMonth: Record<number, number> = {}
+  // Build KeyValues structure for the calc engine
+  const keyValues: KeyValues = {}
   for (const m of mediaMetrics) {
-    const val = Number(m.value_numeric || 0)
-    if (m.metric_key === 'REV_BILLED') {
-      revByMonth[m.month] = val
-    } else {
-      spendByMonth[m.month] = (spendByMonth[m.month] || 0) + val
-    }
+    const key = m.metric_key
+    if (!keyValues[key]) keyValues[key] = {}
+    keyValues[key][m.month] = Number(m.value_numeric || 0)
   }
 
+  // Calculate results for each month using the media plan engine
   const now = new Date().toISOString()
   const rows: Array<{ media_plan_id: string; metric_key: string; month: number; value_numeric: number; delta_pct: null; input_mode: string; updated_at: string }> = []
 
-  // Sync REV_BILLED → FATURAMENTO
-  for (const [month, val] of Object.entries(revByMonth)) {
-    if (val > 0) {
+  for (const month of MONTHS) {
+    const results = calcMonth(keyValues, month)
+    const revBilled = results.REV_BILLED
+    const spendTotal = results.SPEND_TOTAL
+
+    // Sync REV_BILLED → FATURAMENTO
+    if (revBilled > 0) {
       rows.push({
         media_plan_id: finPlan.id,
         metric_key: 'FATURAMENTO',
-        month: Number(month),
-        value_numeric: val,
+        month,
+        value_numeric: revBilled,
         delta_pct: null,
         input_mode: 'value',
         updated_at: now,
       })
     }
-  }
 
-  // Sync SPEND_TOTAL → MIDIA_PCT (derive % from spend/rev)
-  for (const [month, spend] of Object.entries(spendByMonth)) {
-    const m = Number(month)
-    const rev = revByMonth[m] || 0
-    if (spend > 0 && rev > 0) {
-      const midiaPct = Math.round((spend / rev) * 10000) / 100 // 2 decimal places
+    // Sync SPEND_TOTAL → MIDIA_PCT (derive % from spend/rev)
+    if (spendTotal > 0 && revBilled > 0) {
+      const midiaPct = Math.round((spendTotal / revBilled) * 10000) / 100
       rows.push({
         media_plan_id: finPlan.id,
         metric_key: 'MIDIA_PCT',
-        month: m,
+        month,
         value_numeric: midiaPct,
         delta_pct: null,
         input_mode: 'value',
