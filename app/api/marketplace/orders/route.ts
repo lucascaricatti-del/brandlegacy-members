@@ -9,19 +9,26 @@ const supabase = createClient(
 export async function POST(req: NextRequest) {
   const { workspace_id, date_from, date_to } = await req.json()
   if (!workspace_id) return NextResponse.json({ error: 'workspace_id required' }, { status: 400 })
+  if (!date_from || !date_to) return NextResponse.json({ error: 'date_from and date_to required' }, { status: 400 })
 
-  let query = supabase
-    .from('ml_orders')
-    .select('order_id, date, status, revenue, net_revenue, marketplace_fee, ml_commission, ml_fixed_fee, ml_financing_fee, frete_custo, net_revenue_full, buyer_nickname, items, currency')
-    .eq('workspace_id', workspace_id)
+  const [metricsRes, topRes] = await Promise.all([
+    supabase.rpc('get_ml_metrics', {
+      p_workspace_id: workspace_id,
+      p_date_from: date_from,
+      p_date_to: date_to,
+    }),
+    supabase.rpc('get_ml_top_products', {
+      p_workspace_id: workspace_id,
+      p_date_from: date_from,
+      p_date_to: date_to,
+    }),
+  ])
 
-  if (date_from) query = query.gte('date', date_from)
-  if (date_to) query = query.lte('date', date_to)
+  if (metricsRes.error) return NextResponse.json({ error: metricsRes.error.message }, { status: 500 })
+  if (topRes.error) return NextResponse.json({ error: topRes.error.message }, { status: 500 })
 
-  const { data, error } = await query
-    .order('date', { ascending: false })
-    .limit(5000)
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data || [])
+  return NextResponse.json({
+    metrics: metricsRes.data,
+    top_products: topRes.data ?? [],
+  })
 }

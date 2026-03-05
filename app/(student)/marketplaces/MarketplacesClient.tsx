@@ -1,22 +1,27 @@
 'use client'
 
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 
-type Order = {
-  order_id: string
-  date: string
-  status: string
-  revenue: number
-  net_revenue: number
-  marketplace_fee: number
-  ml_commission: number
-  ml_fixed_fee: number
-  ml_financing_fee: number
-  frete_custo: number
-  net_revenue_full: number
-  buyer_nickname: string
-  items: any[]
-  currency: string
+type Metrics = {
+  total_revenue: number
+  total_orders: number
+  total_cancelled: number
+  total_units: number
+  avg_ticket: number
+  total_commission: number
+  total_fixed_fee: number
+  total_financing_fee: number
+  total_frete: number
+  total_fees: number
+  total_net: number
+}
+
+type TopProduct = {
+  title: string
+  order_count: number
+  total_units: number
+  total_revenue: number
+  avg_ticket: number
 }
 
 type Claim = {
@@ -64,15 +69,10 @@ function getDateRange(period: Period, customFrom?: string, customTo?: string): {
   if (period === 'today') return { date_from: today, date_to: today }
   if (period === 'yesterday') {
     const y = new Date(); y.setDate(y.getDate() - 1)
-    const yd = toYMD(y)
-    return { date_from: yd, date_to: yd }
+    return { date_from: toYMD(y), date_to: toYMD(y) }
   }
-  if (period === 'mes_atual') {
-    return { date_from: today.slice(0, 7) + '-01', date_to: today }
-  }
-  if (period === 'custom' && customFrom && customTo) {
-    return { date_from: customFrom, date_to: customTo }
-  }
+  if (period === 'mes_atual') return { date_from: today.slice(0, 7) + '-01', date_to: today }
+  if (period === 'custom' && customFrom && customTo) return { date_from: customFrom, date_to: customTo }
   const daysMap: Record<string, number> = { '7d': 7, '14d': 14, '30d': 30, '90d': 90 }
   const days = daysMap[period] ?? 30
   const since = new Date(); since.setDate(since.getDate() - days)
@@ -81,6 +81,12 @@ function getDateRange(period: Period, customFrom?: string, customTo?: string): {
 
 function formatBRL(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+}
+
+const EMPTY_METRICS: Metrics = {
+  total_revenue: 0, total_orders: 0, total_cancelled: 0, total_units: 0,
+  avg_ticket: 0, total_commission: 0, total_fixed_fee: 0, total_financing_fee: 0,
+  total_frete: 0, total_fees: 0, total_net: 0,
 }
 
 export default function MarketplacesClient({
@@ -102,11 +108,12 @@ export default function MarketplacesClient({
   const [appliedTo, setAppliedTo] = useState('')
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [ordersData, setOrdersData] = useState<Order[]>([])
-  const [loadingOrders, setLoadingOrders] = useState(true)
+  const [metrics, setMetrics] = useState<Metrics>(EMPTY_METRICS)
+  const [topProducts, setTopProducts] = useState<TopProduct[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const fetchOrders = useCallback(async (p: Period, cFrom?: string, cTo?: string) => {
-    setLoadingOrders(true)
+  const fetchData = useCallback(async (p: Period, cFrom?: string, cTo?: string) => {
+    setLoading(true)
     try {
       const range = getDateRange(p, cFrom, cTo)
       const res = await fetch('/api/marketplace/orders', {
@@ -115,53 +122,28 @@ export default function MarketplacesClient({
         body: JSON.stringify({ workspace_id: workspaceId, ...range }),
       })
       const data = await res.json()
-      if (Array.isArray(data)) setOrdersData(data)
+      if (data.error) {
+        console.error('[marketplaces] API error:', data.error)
+        setMetrics(EMPTY_METRICS)
+        setTopProducts([])
+      } else {
+        setMetrics(data.metrics ?? EMPTY_METRICS)
+        setTopProducts(data.top_products ?? [])
+      }
     } catch (err) {
-      console.error('[marketplaces] fetch orders error:', err)
+      console.error('[marketplaces] fetch error:', err)
     }
-    setLoadingOrders(false)
+    setLoading(false)
   }, [workspaceId])
 
   useEffect(() => {
     if (!isConnected) return
     if (period === 'custom') {
-      if (appliedFrom && appliedTo) fetchOrders(period, appliedFrom, appliedTo)
+      if (appliedFrom && appliedTo) fetchData(period, appliedFrom, appliedTo)
     } else {
-      fetchOrders(period)
+      fetchData(period)
     }
-  }, [period, appliedFrom, appliedTo, isConnected, fetchOrders])
-
-  const kpis = useMemo(() => {
-    const totalRevenue = ordersData.reduce((s, o) => s + (o.revenue || 0), 0)
-    const totalOrders = ordersData.length
-    const avgTicket = totalOrders > 0 ? totalRevenue / totalOrders : 0
-    const totalCommission = ordersData.reduce((s, o) => s + (o.ml_commission || 0), 0)
-    const totalFixedFee = ordersData.reduce((s, o) => s + (o.ml_fixed_fee || 0), 0)
-    const totalFinancingFee = ordersData.reduce((s, o) => s + (o.ml_financing_fee || 0), 0)
-    const totalFrete = ordersData.reduce((s, o) => s + (o.frete_custo || 0), 0)
-    // Always recalculate net revenue on frontend
-    const netRevenueFull = totalRevenue - totalCommission - totalFixedFee - totalFinancingFee - totalFrete
-    const margin = totalRevenue > 0 ? (netRevenueFull / totalRevenue) * 100 : 0
-    return { totalRevenue, totalOrders, avgTicket, totalCommission, totalFixedFee, totalFinancingFee, totalFrete, netRevenueFull, margin }
-  }, [ordersData])
-
-  // Top 5 products by order count
-  const topProducts = useMemo(() => {
-    const productMap = new Map<string, { title: string; orders: number; revenue: number }>()
-    for (const o of ordersData) {
-      const items = o.items || []
-      for (const item of items) {
-        const title = item.title || item.name || 'Sem título'
-        const existing = productMap.get(title) ?? { title, orders: 0, revenue: 0 }
-        existing.orders += Number(item.quantity || 1)
-        existing.revenue += Number(item.unit_price || item.price || 0) * Number(item.quantity || 1)
-        productMap.set(title, existing)
-      }
-    }
-    return Array.from(productMap.values())
-      .sort((a, b) => b.orders - a.orders)
-      .slice(0, 5)
-  }, [ordersData])
+  }, [period, appliedFrom, appliedTo, isConnected, fetchData])
 
   async function handleSync() {
     setSyncing(true); setSyncMsg(null)
@@ -175,13 +157,17 @@ export default function MarketplacesClient({
       if (data.error) setSyncMsg({ type: 'error', text: data.error })
       else {
         setSyncMsg({ type: 'success', text: `${data.synced} pedidos sincronizados!` })
-        fetchOrders(period, appliedFrom, appliedTo)
+        fetchData(period, appliedFrom, appliedTo)
       }
     } catch {
       setSyncMsg({ type: 'error', text: 'Erro ao sincronizar.' })
     }
     setSyncing(false)
   }
+
+  const margin = metrics.total_revenue > 0
+    ? (metrics.total_net / metrics.total_revenue) * 100
+    : 0
 
   const tab = TABS.find((t) => t.id === activeTab)!
 
@@ -228,7 +214,7 @@ export default function MarketplacesClient({
             </div>
           ) : (
             <>
-              {/* Period Filter */}
+              {/* Period Filter + Sync */}
               <div className="flex flex-wrap gap-1.5 md:gap-2">
                 {PERIODS.map((p) => (
                   <button
@@ -254,9 +240,8 @@ export default function MarketplacesClient({
                     className="w-full sm:w-auto px-4 py-1.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 transition-opacity disabled:opacity-40 cursor-pointer">Buscar</button>
                 </div>
               )}
-              {/* Sync */}
               <div className="flex items-center gap-2">
-                {loadingOrders && <span className="text-xs text-text-muted">Carregando...</span>}
+                {loading && <span className="text-xs text-text-muted">Carregando...</span>}
                 {syncMsg && (
                   <span className={`text-xs ${syncMsg.type === 'success' ? 'text-success' : 'text-error'}`}>
                     {syncMsg.text}
@@ -268,32 +253,56 @@ export default function MarketplacesClient({
                 </button>
               </div>
 
-              {/* KPI Cards */}
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                <KPICard label="Receita Bruta" value={formatBRL(kpis.totalRevenue)} />
-                <KPICard label="Pedidos" value={kpis.totalOrders.toLocaleString('pt-BR')} />
-                <KPICard label="Ticket Médio" value={formatBRL(kpis.avgTicket)} />
-                <KPICard label="Comissão ML" value={`-${formatBRL(kpis.totalCommission)}`} negative />
-                <KPICard label="Tarifa Fixa" value={`-${formatBRL(kpis.totalFixedFee)}`} negative />
-                <KPICard label="Frete" value={`-${formatBRL(kpis.totalFrete)}`} negative />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <KPICard label="Receita Líquida" value={formatBRL(kpis.netRevenueFull)} highlight />
-                <KPICard label="Margem" value={kpis.totalRevenue > 0 ? `${kpis.margin.toFixed(1)}%` : '—'} highlight />
+              {/* ═══════════════ SECTION 1: VISÃO GERAL ═══════════════ */}
+              <SectionTitle title="Visão Geral" />
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                <KPICard label="Vendas Brutas" value={formatBRL(metrics.total_revenue)} />
+                <KPICard label="Qtd Vendas" value={metrics.total_orders.toLocaleString('pt-BR')} />
+                <KPICard label="Unidades Vendidas" value={metrics.total_units.toLocaleString('pt-BR')} />
+                <KPICard label="Preço Médio" value={formatBRL(metrics.avg_ticket)} />
+                <KPICard label="Canceladas" value={metrics.total_cancelled.toLocaleString('pt-BR')} negative />
               </div>
 
-              {/* Top 5 Products */}
-              {topProducts.length > 0 && (
+              {/* ═══════════════ SECTION 2: CUSTOS ═══════════════ */}
+              <SectionTitle title="Custos" />
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                <CostCard label="Tarifas de Vendas" value={metrics.total_commission} />
+                <CostCard label="Tarifa Envios" value={metrics.total_frete} />
+                <CostCard label="Tarifa Fixa" value={metrics.total_fixed_fee} />
+                <LockedCard label="Custo Ads" />
+                <LockedCard label="Custo Produto" />
+                <LockedCard label="Impostos" />
+                <CostCard label="CUSTO TOTAL" value={metrics.total_fees} highlight />
+              </div>
+
+              {/* ═══════════════ SECTION 3: RESULTADO ═══════════════ */}
+              <SectionTitle title="Resultado" />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <ResultCard
+                  label="Vendas Líquidas"
+                  value={formatBRL(metrics.total_net)}
+                  color="green"
+                />
+                <ResultCard
+                  label="Margem de Contribuição"
+                  value={metrics.total_revenue > 0 ? `${margin.toFixed(1)}%` : '—'}
+                  color={margin >= 30 ? 'green' : margin >= 15 ? 'yellow' : 'red'}
+                />
+              </div>
+
+              {/* ═══════════════ SECTION 4: TOP 10 ANÚNCIOS ═══════════════ */}
+              <SectionTitle title="Top 10 Anúncios" />
+              {topProducts.length > 0 ? (
                 <div className="bg-bg-card border border-border rounded-xl p-4">
-                  <h3 className="text-sm font-semibold text-text-primary mb-3">Top 5 Produtos Mais Vendidos</h3>
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-border text-text-muted text-left">
                           <th className="pb-2 pr-4 w-10">#</th>
                           <th className="pb-2 pr-4">Produto</th>
+                          <th className="pb-2 pr-4 text-right">Unidades</th>
                           <th className="pb-2 pr-4 text-right">Pedidos</th>
-                          <th className="pb-2 pr-4 text-right">Receita</th>
+                          <th className="pb-2 pr-4 text-right">Receita Bruta</th>
                           <th className="pb-2 text-right">Ticket Médio</th>
                         </tr>
                       </thead>
@@ -302,20 +311,24 @@ export default function MarketplacesClient({
                           <tr key={i} className="border-b border-border/50 last:border-0">
                             <td className="py-2 pr-4 text-text-muted">{i + 1}</td>
                             <td className="py-2 pr-4 text-text-primary truncate max-w-[300px]">{p.title}</td>
-                            <td className="py-2 pr-4 text-right text-text-secondary">{p.orders}</td>
-                            <td className="py-2 pr-4 text-right text-text-secondary">{formatBRL(p.revenue)}</td>
-                            <td className="py-2 text-right text-text-secondary">{formatBRL(p.orders > 0 ? p.revenue / p.orders : 0)}</td>
+                            <td className="py-2 pr-4 text-right text-text-secondary">{p.total_units?.toLocaleString('pt-BR') ?? '—'}</td>
+                            <td className="py-2 pr-4 text-right text-text-secondary">{p.order_count?.toLocaleString('pt-BR') ?? '—'}</td>
+                            <td className="py-2 pr-4 text-right text-text-secondary">{formatBRL(p.total_revenue ?? 0)}</td>
+                            <td className="py-2 text-right text-text-secondary">{formatBRL(p.avg_ticket ?? 0)}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
                 </div>
+              ) : (
+                <div className="bg-bg-card border border-border rounded-xl p-6 text-center text-text-muted text-sm">
+                  {loading ? 'Carregando...' : 'Nenhum produto encontrado no período.'}
+                </div>
               )}
 
               {/* Inventory + Claims Summary */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {/* Inventory Card */}
                 <div className="bg-bg-card border border-border rounded-xl p-4">
                   <h3 className="text-sm font-semibold text-text-primary mb-3">Estoque</h3>
                   <div className="grid grid-cols-2 gap-4">
@@ -329,8 +342,6 @@ export default function MarketplacesClient({
                     </div>
                   </div>
                 </div>
-
-                {/* Claims Card */}
                 <div className="bg-bg-card border border-border rounded-xl p-4">
                   <h3 className="text-sm font-semibold text-text-primary mb-3">Reclamações</h3>
                   <div className="grid grid-cols-2 gap-4">
@@ -382,11 +393,59 @@ export default function MarketplacesClient({
   )
 }
 
-function KPICard({ label, value, highlight, negative }: { label: string; value: string; highlight?: boolean; negative?: boolean }) {
+/* ═══════════════ Subcomponents ═══════════════ */
+
+function SectionTitle({ title }: { title: string }) {
   return (
-    <div className={`rounded-xl p-4 border ${highlight ? 'bg-brand-gold/10 border-brand-gold/30' : 'bg-bg-card border-border'}`}>
+    <h2 className="text-base font-semibold text-text-primary mt-2">{title}</h2>
+  )
+}
+
+function KPICard({ label, value, negative }: { label: string; value: string; negative?: boolean }) {
+  return (
+    <div className="bg-bg-card border border-border rounded-xl p-4">
       <p className="text-xs text-text-muted mb-1">{label}</p>
-      <p className={`text-lg font-bold ${highlight ? 'text-brand-gold' : negative ? 'text-red-400' : 'text-text-primary'}`}>{value}</p>
+      <p className={`text-lg font-bold ${negative ? 'text-red-400' : 'text-text-primary'}`}>{value}</p>
+    </div>
+  )
+}
+
+function CostCard({ label, value, highlight }: { label: string; value: number; highlight?: boolean }) {
+  return (
+    <div className={`rounded-xl p-4 border ${highlight ? 'bg-red-500/10 border-red-500/30' : 'bg-bg-card border-border'}`}>
+      <p className="text-xs text-text-muted mb-1">{label}</p>
+      <p className={`text-lg font-bold ${highlight ? 'text-red-400' : 'text-red-400'}`}>
+        -{formatBRL(value)}
+      </p>
+    </div>
+  )
+}
+
+function LockedCard({ label }: { label: string }) {
+  return (
+    <div className="bg-bg-card border border-border rounded-xl p-4 opacity-50">
+      <p className="text-xs text-text-muted mb-1">{label}</p>
+      <div className="flex items-center gap-1.5">
+        <svg className="w-4 h-4 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+        </svg>
+        <span className="text-sm text-text-muted">Em breve</span>
+      </div>
+    </div>
+  )
+}
+
+function ResultCard({ label, value, color }: { label: string; value: string; color: 'green' | 'yellow' | 'red' }) {
+  const colorMap = {
+    green: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', text: 'text-emerald-400' },
+    yellow: { bg: 'bg-yellow-500/10', border: 'border-yellow-500/30', text: 'text-yellow-400' },
+    red: { bg: 'bg-red-500/10', border: 'border-red-500/30', text: 'text-red-400' },
+  }
+  const c = colorMap[color]
+  return (
+    <div className={`rounded-xl p-5 border ${c.bg} ${c.border}`}>
+      <p className="text-xs text-text-muted mb-1">{label}</p>
+      <p className={`text-2xl font-bold ${c.text}`}>{value}</p>
     </div>
   )
 }
