@@ -12,7 +12,7 @@ export const maxDuration = 300 // 5 min (Vercel Pro)
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 export async function POST(req: NextRequest) {
-  const { workspace_id, month, dry_run = false, limit = 200, force = false } = await req.json()
+  const { workspace_id, month, dry_run = false, limit = 200, force = false, start_offset = 0 } = await req.json()
 
   if (!workspace_id) return NextResponse.json({ error: 'workspace_id required' }, { status: 400 })
   if (!month || !/^\d{4}-\d{2}$/.test(month)) {
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
     const PAGE_SIZE = 100
     const maxOrders = Math.min(Number(limit) || 200, 500)
     let allOrders: any[] = []
-    let offset = 0
+    let offset = Number(start_offset) || 0
     let totalPages = 0
 
     while (allOrders.length < maxOrders) {
@@ -193,7 +193,10 @@ export async function POST(req: NextRequest) {
 
     console.log(`[ml/backfill] done: month=${month}, processed=${allOrders.length}, updated=${updated}, skipped=${skipped}, errors=${errors.length}`)
 
-    const remaining = Math.max(0, (totalRemaining ?? 0) - allOrders.length)
+    const remaining = force
+      ? Math.max(0, (totalRemaining ?? 0) - (Number(start_offset) || 0) - allOrders.length)
+      : Math.max(0, (totalRemaining ?? 0) - allOrders.length)
+    const nextOffset = force ? (Number(start_offset) || 0) + allOrders.length : undefined
 
     return NextResponse.json({
       month,
@@ -202,6 +205,7 @@ export async function POST(req: NextRequest) {
       updated,
       skipped,
       remaining,
+      ...(nextOffset !== undefined && { next_offset: nextOffset }),
       errors: errors.slice(0, 50),
       ...(dry_run && { dry_run: true, preview: preview.slice(0, 20) }),
     })
