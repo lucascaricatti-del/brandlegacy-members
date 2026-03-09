@@ -7,7 +7,7 @@ type ViewType = 'consolidado' | 'macro' | 'micro' | 'ranking'
 type Period = 'mes_atual' | '7d' | '14d' | '30d' | '90d' | 'custom'
 type FeeType = 'fixed' | 'commission' | 'fixed_commission' | 'barter'
 type Tier = 'macro' | 'micro'
-type ModalStep = 1 | 2 | 3
+type ModalStep = 1 | 2 | 3 | 4
 type ContentType = 'stories' | 'reels' | 'feed' | 'live'
 type SeqStatus = 'pending' | 'published' | 'delayed'
 type ContractMode = 'month' | 'months' | 'custom'
@@ -57,6 +57,7 @@ type Performance = {
   total_orders: number; total_revenue: number; avg_ticket: number; total_cost: number
   roas: number | null; sequences: Sequence[]; renewals: Renewal[]
   prev_orders?: number; prev_revenue?: number; total_sequences?: number
+  utm_source?: string | null; utm_url?: string | null; utm_medium?: string | null; utm_campaign?: string | null; utm_full_url?: string | null
 }
 
 type SeqForm = { scheduled_date: string; content_type: string; description: string; status: SeqStatus; published_at: string; cost: number }
@@ -68,6 +69,7 @@ type FormState = {
   totalSequences: number; sequences: SeqForm[]
   contractMode: ContractMode; contractMonth: string; contractDuration: number
   createCouponYampi: boolean; discountType: 'percent' | 'value'; discountValue: string; maxUses: string
+  utmUrl: string; utmSource: string; utmMedium: string; utmCampaign: string
 }
 
 function makeEmptySeq(): SeqForm {
@@ -81,6 +83,7 @@ const INITIAL_FORM: FormState = {
   totalSequences: 3, sequences: [makeEmptySeq(), makeEmptySeq(), makeEmptySeq()],
   contractMode: 'month', contractMonth: '', contractDuration: 1,
   createCouponYampi: false, discountType: 'percent', discountValue: '', maxUses: '',
+  utmUrl: '', utmSource: '', utmMedium: 'influencer', utmCampaign: '',
 }
 
 function toYMD(d: Date) { return d.toISOString().slice(0, 10) }
@@ -103,6 +106,20 @@ function fmtDateBR(d: string) {
   const [y, m, day] = d.split('-')
   return `${day}/${m}/${y}`
 }
+function buildUtmFullUrl(url: string, source: string, medium: string, campaign: string): string | null {
+  if (!url.trim()) return null
+  try {
+    const base = url.startsWith('http') ? url : `https://${url}`
+    const u = new URL(base)
+    if (source) u.searchParams.set('utm_source', source)
+    if (medium) u.searchParams.set('utm_medium', medium)
+    if (campaign) u.searchParams.set('utm_campaign', campaign)
+    return u.toString()
+  } catch {
+    return null
+  }
+}
+
 function lastDayOfMonth(year: number, month: number) {
   return new Date(year, month, 0).getDate()
 }
@@ -138,6 +155,8 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
   const [renewSaving, setRenewSaving] = useState(false)
   // Seq popover
   const [seqPopoverId, setSeqPopoverId] = useState<string | null>(null)
+  // GA4 attribution
+  const [ga4Data, setGa4Data] = useState<Map<string, { sessions: number; conversions: number; conversion_rate: number }>>(new Map())
 
   useEffect(() => {
     const v = searchParams.get('view') as ViewType
@@ -165,6 +184,24 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
   }, [workspaceId, period, appliedFrom, appliedTo, view])
 
   useEffect(() => { fetchPerformance() }, [fetchPerformance])
+
+  // Fetch GA4 attribution when data changes (for macro/micro views)
+  useEffect(() => {
+    if ((view !== 'macro' && view !== 'micro') || data.length === 0) return
+    const hasUtm = data.some(d => d.utm_source)
+    if (!hasUtm) return
+    const range = getRange(period, appliedFrom, appliedTo)
+    fetch(`/api/influencers/ga4-attribution?workspace_id=${workspaceId}&date_from=${range.date_from}&date_to=${range.date_to}`)
+      .then(r => r.json())
+      .then(json => {
+        const map = new Map<string, { sessions: number; conversions: number; conversion_rate: number }>()
+        for (const a of json.attribution || []) {
+          map.set(a.influencer_id, { sessions: a.sessions, conversions: a.conversions, conversion_rate: a.conversion_rate })
+        }
+        setGa4Data(map)
+      })
+      .catch(() => {})
+  }, [data, view, workspaceId, period, appliedFrom, appliedTo])
 
   // Coupon preview
   async function previewCoupon(code: string) {
@@ -269,6 +306,7 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
       contractMonth: '',
       contractDuration: 1,
       createCouponYampi: false, discountType: 'percent', discountValue: '', maxUses: '',
+      utmUrl: inf.utm_url || '', utmSource: inf.utm_source || '', utmMedium: inf.utm_medium || 'influencer', utmCampaign: inf.utm_campaign || '',
     })
     setCouponPreview(null)
     setModalStep(1)
@@ -295,6 +333,11 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
       followers_count: parseInt(form.followers.replace(/\D/g, '')) || null,
       contract_status: form.endDate && new Date(form.endDate) < new Date() ? 'expired' : 'active',
       total_sequences: form.totalSequences,
+      utm_url: form.utmUrl.trim() || null,
+      utm_source: form.utmSource.trim() || null,
+      utm_medium: form.utmMedium.trim() || 'influencer',
+      utm_campaign: form.utmCampaign.trim() || null,
+      utm_full_url: buildUtmFullUrl(form.utmUrl, form.utmSource, form.utmMedium, form.utmCampaign),
     }
     if (editingId) body.id = editingId
 
@@ -587,6 +630,7 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
                       <th className="px-3 py-2.5 font-medium text-right">Pedidos</th>
                       <th className="px-3 py-2.5 font-medium text-right">Receita</th>
                       <th className="px-3 py-2.5 font-medium text-right">ROAS</th>
+                      <th className="px-3 py-2.5 font-medium text-right hidden lg:table-cell">GA4</th>
                       <th className="px-3 py-2.5 font-medium text-center hidden sm:table-cell">Status</th>
                       <th className="px-3 py-2.5 font-medium text-right">Acoes</th>
                     </tr>
@@ -627,6 +671,21 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
                                 {inf.roas.toFixed(1)}x
                               </span>
                             ) : <span className="text-text-muted">--</span>}
+                          </td>
+                          <td className="px-3 py-2.5 text-right hidden lg:table-cell">
+                            {(() => {
+                              const ga4 = ga4Data.get(inf.id)
+                              if (!inf.utm_source) return <span className="text-text-muted text-[10px]">--</span>
+                              if (!ga4) return <span className="text-text-muted text-[10px]">...</span>
+                              return (
+                                <div className="text-[10px] leading-tight">
+                                  <span className="text-text-secondary">{ga4.sessions} sess</span>
+                                  {ga4.conversion_rate > 0 && (
+                                    <span className="text-emerald-400 ml-1">{ga4.conversion_rate}%</span>
+                                  )}
+                                </div>
+                              )
+                            })()}
                           </td>
                           <td className="px-3 py-2.5 text-center hidden sm:table-cell">
                             <span className={`inline-block w-2 h-2 rounded-full ${inf.is_active ? 'bg-emerald-400' : 'bg-red-400'}`} />
@@ -749,15 +808,15 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
                   {editingId ? 'Editar Influenciadora' : 'Adicionar Influenciadora'}
                 </h3>
                 <div className="flex items-center gap-1.5 mt-1">
-                  {[1, 2, 3].map(s => (
+                  {[1, 2, 3, 4].map(s => (
                     <div key={s} className="flex items-center gap-1">
                       <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
                         modalStep === s ? 'bg-brand-gold text-bg-base' : modalStep > s ? 'bg-emerald-500/20 text-emerald-400' : 'bg-bg-surface text-text-muted'
                       }`}>{modalStep > s ? '\u2713' : s}</div>
                       <span className={`text-[10px] hidden sm:inline ${modalStep === s ? 'text-text-primary font-medium' : 'text-text-muted'}`}>
-                        {s === 1 ? 'Perfil' : s === 2 ? 'Contrato' : 'Sequencias'}
+                        {s === 1 ? 'Perfil' : s === 2 ? 'Contrato' : s === 3 ? 'Sequencias' : 'UTM'}
                       </span>
-                      {s < 3 && <div className={`w-4 h-px ${modalStep > s ? 'bg-emerald-500/40' : 'bg-border'}`} />}
+                      {s < 4 && <div className={`w-4 h-px ${modalStep > s ? 'bg-emerald-500/40' : 'bg-border'}`} />}
                     </div>
                   ))}
                 </div>
@@ -1040,6 +1099,67 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
                   )}
                 </>
               )}
+
+              {/* STEP 4: UTM Link Builder */}
+              {modalStep === 4 && (
+                <>
+                  <div className="bg-bg-surface/50 border border-border rounded-lg p-3">
+                    <p className="text-[10px] text-text-muted uppercase font-semibold mb-1">Link de Rastreamento (UTM)</p>
+                    <p className="text-[11px] text-text-muted">Gere um link com parametros UTM para rastrear sessoes no GA4.</p>
+                  </div>
+                  <Field label="URL base do site">
+                    <input type="url" value={form.utmUrl} onChange={e => setField('utmUrl', e.target.value)}
+                      placeholder="https://suamarca.com.br" className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold" />
+                  </Field>
+                  <Field label="utm_source (nome da influenciadora)">
+                    <input type="text" value={form.utmSource}
+                      onChange={e => setField('utmSource', e.target.value.toLowerCase().replace(/\s+/g, '_'))}
+                      placeholder={form.instagram ? form.instagram.toLowerCase() : 'nome_influenciadora'}
+                      className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold font-mono" />
+                    {!form.utmSource && form.instagram && (
+                      <button onClick={() => setField('utmSource', form.instagram.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+                        className="text-[10px] text-brand-gold hover:underline mt-0.5 cursor-pointer">
+                        Usar @{form.instagram} como source
+                      </button>
+                    )}
+                  </Field>
+                  <Field label="utm_medium">
+                    <div className="flex gap-1">
+                      {['influencer', 'social', 'referral'].map(m => (
+                        <button key={m} onClick={() => setField('utmMedium', m)}
+                          className={`flex-1 px-2 py-1.5 text-xs rounded-lg font-medium transition-all cursor-pointer ${
+                            form.utmMedium === m ? 'bg-brand-gold text-bg-base' : 'bg-bg-surface border border-border text-text-secondary hover:bg-bg-hover'
+                          }`}>{m}</button>
+                      ))}
+                    </div>
+                  </Field>
+                  <Field label="utm_campaign (opcional)">
+                    <input type="text" value={form.utmCampaign}
+                      onChange={e => setField('utmCampaign', e.target.value.toLowerCase().replace(/\s+/g, '_'))}
+                      placeholder="lancamento_verao"
+                      className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold font-mono" />
+                  </Field>
+
+                  {/* Preview */}
+                  {form.utmUrl && form.utmSource && (
+                    <div className="bg-bg-surface/50 border border-border rounded-lg p-3 space-y-2">
+                      <p className="text-[10px] text-text-muted uppercase font-semibold">Link gerado</p>
+                      <p className="text-[11px] text-brand-gold font-mono break-all select-all">
+                        {buildUtmFullUrl(form.utmUrl, form.utmSource, form.utmMedium, form.utmCampaign) || ''}
+                      </p>
+                      <button
+                        onClick={() => {
+                          const url = buildUtmFullUrl(form.utmUrl, form.utmSource, form.utmMedium, form.utmCampaign)
+                          if (url) navigator.clipboard.writeText(url).then(() => showToast('Link copiado!'))
+                        }}
+                        className="text-[10px] text-text-secondary hover:text-text-primary cursor-pointer flex items-center gap-1">
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
+                        Copiar link
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
 
             {/* Sticky footer */}
@@ -1056,11 +1176,22 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
                 <button onClick={() => setModalStep((modalStep + 1) as ModalStep)}
                   disabled={modalStep === 1 && (!form.name.trim() || !form.coupon.trim())}
                   className="px-5 py-2.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 disabled:opacity-40 cursor-pointer transition-opacity">Proximo</button>
+              ) : modalStep === 3 ? (
+                <button onClick={() => setModalStep(4)}
+                  className="px-5 py-2.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 cursor-pointer transition-opacity">Proximo</button>
               ) : (
-                <button onClick={handleSave} disabled={saving}
-                  className="px-5 py-2.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 disabled:opacity-40 cursor-pointer transition-opacity">
-                  {saving ? 'Salvando...' : editingId ? 'Salvar' : 'Adicionar'}
-                </button>
+                <div className="flex gap-2">
+                  <button onClick={handleSave} disabled={saving}
+                    className="px-4 py-2.5 text-sm rounded-lg border border-border text-text-secondary hover:bg-bg-hover cursor-pointer transition-colors">
+                    {form.utmUrl ? (saving ? 'Salvando...' : editingId ? 'Salvar' : 'Adicionar') : 'Pular'}
+                  </button>
+                  {form.utmUrl && (
+                    <button onClick={handleSave} disabled={saving}
+                      className="px-5 py-2.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 disabled:opacity-40 cursor-pointer transition-opacity">
+                      {saving ? 'Salvando...' : editingId ? 'Salvar' : 'Adicionar'}
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           </div>

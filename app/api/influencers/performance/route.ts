@@ -188,6 +188,11 @@ export async function GET(req: NextRequest) {
       renewals,
       prev_orders,
       prev_revenue,
+      utm_source: inf.utm_source || null,
+      utm_url: inf.utm_url || null,
+      utm_medium: inf.utm_medium || null,
+      utm_campaign: inf.utm_campaign || null,
+      utm_full_url: inf.utm_full_url || null,
     }
   })
 

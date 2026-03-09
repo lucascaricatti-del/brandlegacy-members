@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { workspace_id, name, instagram, category, coupon_code, fee_type, monthly_fee, commission_pct, start_date, end_date, notes, is_active, tier, contract_status, followers_count, niche } = body
+  const { workspace_id, name, instagram, category, coupon_code, fee_type, monthly_fee, commission_pct, start_date, end_date, notes, is_active, tier, contract_status, followers_count, niche, utm_url, utm_source, utm_medium, utm_campaign, utm_full_url } = body
 
   const auth = await verifyWorkspaceAccess(workspace_id)
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
@@ -50,6 +50,11 @@ export async function POST(req: NextRequest) {
       followers_count: followers_count || null,
       niche: niche || null,
       total_sequences: body.total_sequences || 3,
+      utm_url: utm_url || null,
+      utm_source: utm_source || null,
+      utm_medium: utm_medium || 'influencer',
+      utm_campaign: utm_campaign || null,
+      utm_full_url: utm_full_url || null,
     })
     .select()
     .single()
