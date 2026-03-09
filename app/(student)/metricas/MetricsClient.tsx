@@ -48,6 +48,7 @@ const PERIODS: { key: Period; label: string; days: number }[] = [
 type Tab = 'meta' | 'google' | 'yampi' | 'influenciadores'
 
 function normalize(d: string) { return d?.slice(0, 10) ?? '' }
+function toDateStr(d: Date) { return d.toISOString().slice(0, 10) }
 
 /* ── SVG Icons ── */
 function MetaIcon() {
@@ -159,11 +160,11 @@ export default function MetricsClient({
 
   // ── Period filter helper ──
   function filterByPeriod<T extends { date: string }>(data: T[]): T[] {
-    const today = new Date().toLocaleDateString('sv-SE')
+    const today = toDateStr(new Date())
     if (period === 'today') return data.filter(m => normalize(m.date) === today)
     if (period === 'yesterday') {
       const y = new Date(); y.setDate(y.getDate() - 1)
-      return data.filter(m => normalize(m.date) === y.toLocaleDateString('sv-SE'))
+      return data.filter(m => normalize(m.date) === toDateStr(y))
     }
     if (period === 'mes_atual') {
       const firstDay = today.slice(0, 7) + '-01'
@@ -174,7 +175,7 @@ export default function MetricsClient({
     }
     const days = PERIODS.find(p => p.key === period)?.days ?? 30
     const since = new Date(); since.setDate(since.getDate() - days)
-    const sinceStr = since.toLocaleDateString('sv-SE')
+    const sinceStr = toDateStr(since)
     return data.filter(m => normalize(m.date) >= sinceStr && normalize(m.date) <= today)
   }
 
@@ -281,22 +282,24 @@ export default function MetricsClient({
   const filteredYampiOrders = useMemo(() => filterByPeriod(yampiOrders), [yampiOrders, period, appliedFrom, appliedTo, activeTab])
 
   const yampiTotals = useMemo(() => {
-    const PAID = ['paid', 'invoiced', 'shipped', 'delivered']
-    const CANCELLED = ['cancelled', 'refused']
-    const paidOrders = filteredYampiOrders.filter(o => PAID.includes(o.status))
-    const cancelledOrders = filteredYampiOrders.filter(o => CANCELLED.includes(o.status))
-    const pixOrders = filteredYampiOrders.filter(o => (o.payment_method ?? '').toLowerCase() === 'pix')
-    const pixPaid = pixOrders.filter(o => PAID.includes(o.status))
-
-    const revenue = paidOrders.reduce((s, o) => s + (Number(o.revenue) || 0), 0)
-    const orders = paidOrders.length
+    // Use pre-aggregated yampi_metrics instead of recalculating from raw orders
+    const revenue = filteredYampiMetrics.reduce((s, m) => s + (Number(m.revenue) || 0), 0)
+    const orders = filteredYampiMetrics.reduce((s, m) => s + (Number(m.orders) || 0), 0)
     const avg_ticket = orders > 0 ? revenue / orders : 0
-    const total = filteredYampiOrders.length
-    const checkout_conversion = total > 0 ? Math.round((orders / total) * 100 * 100) / 100 : 0
-    const pix_approval_rate = pixOrders.length > 0 ? Math.round((pixPaid.length / pixOrders.length) * 100 * 100) / 100 : 0
-    const cancellation_rate = total > 0 ? Math.round((cancelledOrders.length / total) * 100 * 100) / 100 : 0
+
+    // Weighted averages for rate metrics
+    const totalDays = filteredYampiMetrics.length
+    const checkout_conversion = totalDays > 0
+      ? Math.round(filteredYampiMetrics.reduce((s, m) => s + (Number(m.checkout_conversion) || 0), 0) / totalDays * 100) / 100
+      : 0
+    const pix_approval_rate = totalDays > 0
+      ? Math.round(filteredYampiMetrics.reduce((s, m) => s + (Number(m.pix_approval_rate) || 0), 0) / totalDays * 100) / 100
+      : 0
+    const cancellation_rate = totalDays > 0
+      ? Math.round(filteredYampiMetrics.reduce((s, m) => s + (Number(m.cancellation_rate) || 0), 0) / totalDays * 100) / 100
+      : 0
     return { revenue, orders, avg_ticket, checkout_conversion, pix_approval_rate, cancellation_rate }
-  }, [filteredYampiOrders])
+  }, [filteredYampiMetrics])
 
   const yampiDaily = useMemo(() => {
     const PAID = ['paid', 'invoiced', 'shipped', 'delivered']
@@ -357,8 +360,8 @@ export default function MetricsClient({
 
   // ── Handlers ──
   const handleSync = async () => {
-    const dateFrom = new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0]
-    const dateTo = new Date().toISOString().split('T')[0]
+    const dateFrom = toDateStr(new Date(Date.now() - 180 * 86400000))
+    const dateTo = toDateStr(new Date())
 
     if (activeTab === 'meta') {
       setMetaSyncing(true); setMetaSyncMsg('')
