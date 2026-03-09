@@ -44,38 +44,11 @@ export default async function PerformancePage() {
 
   const ws = workspaces[0]
 
-  const today = new Date()
-  const currentDay = today.getDate()
-  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate()
-  const currentMonthLabel = today.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
-
-  const since = new Date()
-  since.setDate(since.getDate() - 180)
-  const sinceStr = new Date(since.getTime() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
-
-  const [
-    { data: yampiOrders },
-    { data: metaAds },
-    { data: googleAds },
-    { data: shopifyMetrics },
-    { data: ga4Metrics },
-  ] = await Promise.all([
-    (adminSupabase as any).from('yampi_orders').select('*')
-      .eq('workspace_id', ws.id).gte('date', sinceStr).limit(10000),
-    (adminSupabase as any).from('ads_metrics').select('*')
-      .eq('workspace_id', ws.id).eq('provider', 'meta_ads')
-      .gte('date', sinceStr).limit(5000),
-    (adminSupabase as any).from('ads_metrics').select('*')
-      .eq('workspace_id', ws.id).eq('provider', 'google_ads')
-      .gte('date', sinceStr).limit(5000),
-    (adminSupabase as any).from('ecommerce_metrics').select('*')
-      .eq('workspace_id', ws.id).eq('provider', 'shopify')
-      .gte('date', sinceStr).limit(2000),
-    (adminSupabase as any).from('ga4_metrics').select('*')
-      .eq('workspace_id', ws.id).gte('date', sinceStr).limit(2000)
-      .then((r: any) => ({ data: r.data ?? [] }))
-      .catch(() => ({ data: [] })),
-  ])
+  const now = new Date()
+  const brNow = new Date(now.getTime() - 3 * 60 * 60 * 1000)
+  const currentDay = brNow.getUTCDate()
+  const daysInMonth = new Date(brNow.getUTCFullYear(), brNow.getUTCMonth() + 1, 0).getDate()
+  const currentMonthLabel = brNow.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' })
 
   return (
     <div className="animate-fade-in">
@@ -90,11 +63,6 @@ export default async function PerformancePage() {
         currentDay={currentDay}
         daysInMonth={daysInMonth}
         currentMonthLabel={currentMonthLabel}
-        yampiOrders={(yampiOrders ?? []) as any[]}
-        metaAds={(metaAds ?? []) as any[]}
-        googleAds={(googleAds ?? []) as any[]}
-        shopifyMetrics={(shopifyMetrics ?? []) as any[]}
-        ga4Metrics={(ga4Metrics ?? []) as any[]}
       />
     </div>
   )
