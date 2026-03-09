@@ -303,6 +303,12 @@ async function syncYampi(workspaceId: string, since: string, until: string): Pro
     page++
   }
 
+  // Guard: if API returned nothing, preserve existing metrics
+  if (allOrders.length === 0) {
+    console.warn(`[cron/sync-metrics] yampi returned 0 orders for ws=${workspaceId} — skipping metrics update`)
+    return 0
+  }
+
   const orderRows = allOrders.map((order: any) => {
     const statusAlias = order.status?.data?.alias ?? order.status_alias ?? 'unknown'
     const paymentMethod = order.transactions?.data?.[0]?.payment?.data?.alias ?? null

@@ -76,6 +76,17 @@ export async function POST(req: NextRequest) {
       page++
     }
 
+    // ── Guard: if API returned nothing, preserve existing metrics ──
+    if (allOrders.length === 0) {
+      console.warn('[yampi/sync] API returned 0 orders — skipping metrics update to preserve data')
+      return NextResponse.json({
+        synced: 0,
+        total_orders: 0,
+        period: { since, until },
+        message: 'API unavailable or returned 0 orders — metrics preserved',
+      })
+    }
+
     // ── 2. Parse and upsert individual orders ──
     const orderRows = allOrders.map((order: any) => {
       const statusAlias = order.status?.data?.alias ?? order.status_alias ?? 'unknown'
