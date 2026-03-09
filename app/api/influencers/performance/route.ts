@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { verifyWorkspaceAccess } from '@/lib/api-auth'
 
 const adminSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -50,13 +51,16 @@ function groupByCoupon(orders: any[]) {
 
 export async function GET(req: NextRequest) {
   const workspace_id = req.nextUrl.searchParams.get('workspace_id')
+  const auth = await verifyWorkspaceAccess(workspace_id)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
   const date_from = req.nextUrl.searchParams.get('date_from')
   const date_to = req.nextUrl.searchParams.get('date_to')
   const include_inactive = req.nextUrl.searchParams.get('include_inactive') === 'true'
   const compare = req.nextUrl.searchParams.get('compare') === 'true'
 
-  if (!workspace_id || !date_from || !date_to) {
-    return NextResponse.json({ error: 'workspace_id, date_from, date_to required' }, { status: 400 })
+  if (!date_from || !date_to) {
+    return NextResponse.json({ error: 'date_from, date_to required' }, { status: 400 })
   }
 
   // 1. Fetch influencers
@@ -88,7 +92,7 @@ export async function GET(req: NextRequest) {
 
   // 3. Fetch orders for current period
   let allOrders: any[]
-  try { allOrders = await fetchOrders(workspace_id, date_from, date_to) }
+  try { allOrders = await fetchOrders(auth.workspaceId, date_from, date_to) }
   catch (e: any) { return NextResponse.json({ error: e.message }, { status: 500 }) }
 
   const ordersByCoupon = groupByCoupon(allOrders)
@@ -102,7 +106,7 @@ export async function GET(req: NextRequest) {
     const prevFromDate = new Date(prevToDate)
     prevFromDate.setDate(prevFromDate.getDate() - periodDays + 1)
     try {
-      const prevOrders = await fetchOrders(workspace_id, toYMD(prevFromDate), toYMD(prevToDate))
+      const prevOrders = await fetchOrders(auth.workspaceId, toYMD(prevFromDate), toYMD(prevToDate))
       prevOrdersByCoupon = groupByCoupon(prevOrders)
     } catch { /* ignore compare errors */ }
   }

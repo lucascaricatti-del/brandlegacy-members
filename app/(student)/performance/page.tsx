@@ -51,7 +51,7 @@ export default async function PerformancePage() {
 
   const since = new Date()
   since.setDate(since.getDate() - 180)
-  const sinceStr = since.toLocaleDateString('sv-SE')
+  const sinceStr = new Date(since.getTime() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
   const [
     { data: yampiOrders },

@@ -10,9 +10,6 @@ export default async function ModulosPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // DEBUG 1 — user
-  console.log('[modulos] user.id:', user.id)
-
   // Busca plano do workspace ativo do usuário via adminClient (bypass RLS em workspace_members)
   const adminSupabase = createAdminClient()
   type WsMembership = { workspaces: { plan_type: string } | null }
@@ -24,15 +21,8 @@ export default async function ModulosPage() {
     .limit(1)
     .single()
 
-  // DEBUG 2 — workspace_members
-  console.log('[modulos] wsMembership:', JSON.stringify(wsMembership))
-  console.log('[modulos] wsError:', wsError?.message ?? null)
-
   const userPlan = (wsMembership as unknown as WsMembership)?.workspaces?.plan_type ?? 'club'
   const userRank = PLAN_RANK[userPlan] ?? 2
-
-  // DEBUG 3 — plano detectado
-  console.log('[modulos] userPlan:', userPlan, '| userRank:', userRank)
 
   // Usa adminClient para buscar módulos — bypass RLS de plano
   const [modulesRes, progressRes] = await Promise.all([
@@ -47,33 +37,14 @@ export default async function ModulosPage() {
       .eq('user_id', user.id),
   ])
 
-  // DEBUG 4 — módulos antes do filtro
-  console.log('[modulos] modulesRes.error:', modulesRes.error?.message ?? null)
-  console.log('[modulos] total antes do filtro:', modulesRes.data?.length ?? 0)
-  modulesRes.data?.forEach((mod) => {
-    console.log(`  - "${mod.title}" | content_type: ${mod.content_type} | min_plan: ${mod.min_plan} | is_published: ${mod.is_published}`)
-  })
-
   // Filtra módulos acessíveis pelo plano do usuário
   const allModules = modulesRes.data ?? []
   const modules = allModules.filter((mod) => {
-    if (mod.content_type === 'masterclass') {
-      console.log(`[modulos] REMOVIDO (masterclass): "${mod.title}"`)
-      return false
-    }
-    if (mod.content_type === 'webinar') {
-      const pass = mod.webinar_open_to_all
-      console.log(`[modulos] webinar "${mod.title}" | webinar_open_to_all: ${mod.webinar_open_to_all} → ${pass ? 'PASSOU' : 'REMOVIDO'}`)
-      return pass
-    }
+    if (mod.content_type === 'masterclass') return false
+    if (mod.content_type === 'webinar') return mod.webinar_open_to_all
     const modRank = PLAN_RANK[mod.min_plan] ?? 0
-    const pass = modRank <= userRank
-    console.log(`[modulos] course "${mod.title}" | min_plan: ${mod.min_plan} (rank ${modRank}) <= userRank ${userRank} → ${pass ? 'PASSOU' : 'REMOVIDO'}`)
-    return pass
+    return modRank <= userRank
   })
-
-  // DEBUG 5 — resultado final
-  console.log('[modulos] módulos após filtro:', modules.length)
 
   const completedIds = new Set((progressRes.data ?? []).map((p) => p.lesson_id))
 

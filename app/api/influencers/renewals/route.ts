@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { verifyWorkspaceAccess } from '@/lib/api-auth'
 
 const adminSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,6 +9,10 @@ const adminSupabase = createClient(
 
 export async function GET(req: NextRequest) {
   const influencer_id = req.nextUrl.searchParams.get('influencer_id')
+  const workspace_id = req.nextUrl.searchParams.get('workspace_id')
+  const auth = await verifyWorkspaceAccess(workspace_id)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
   if (!influencer_id) return NextResponse.json({ error: 'influencer_id required' }, { status: 400 })
 
   const { data, error } = await (adminSupabase as any)
@@ -24,8 +29,11 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const { influencer_id, workspace_id, start_date, end_date, fee_type, monthly_fee, commission_pct, notes } = body
 
-  if (!influencer_id || !workspace_id || !start_date) {
-    return NextResponse.json({ error: 'influencer_id, workspace_id, start_date required' }, { status: 400 })
+  const auth = await verifyWorkspaceAccess(workspace_id)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
+  if (!influencer_id || !start_date) {
+    return NextResponse.json({ error: 'influencer_id, start_date required' }, { status: 400 })
   }
 
   // Set all existing renewals for this influencer to not current
@@ -62,8 +70,11 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
-  const { id, ...updates } = await req.json()
+  const { id, workspace_id, ...updates } = await req.json()
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
+
+  const auth = await verifyWorkspaceAccess(workspace_id)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const { data, error } = await (adminSupabase as any)
     .from('influencer_renewals')

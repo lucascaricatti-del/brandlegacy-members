@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { verifyWorkspaceAccess } from '@/lib/api-auth'
 
 const adminSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,7 +13,8 @@ export async function GET(req: NextRequest) {
   const date_from = searchParams.get('date_from')
   const date_to = searchParams.get('date_to')
 
-  if (!workspace_id) return NextResponse.json({ error: 'workspace_id required' }, { status: 400 })
+  const auth = await verifyWorkspaceAccess(workspace_id)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
   if (!date_from || !date_to) return NextResponse.json({ error: 'date_from and date_to required' }, { status: 400 })
 
   // Get first day of date_from month and first day of date_to month
@@ -45,7 +47,8 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const { workspace_id, month, ml_ads_cost, ml_fulfillment_cost, ml_return_fee, ml_other_fees, notes } = body
 
-  if (!workspace_id) return NextResponse.json({ error: 'workspace_id required' }, { status: 400 })
+  const authPost = await verifyWorkspaceAccess(workspace_id)
+  if ('error' in authPost) return NextResponse.json({ error: authPost.error }, { status: authPost.status })
   if (!month) return NextResponse.json({ error: 'month required (YYYY-MM-01)' }, { status: 400 })
 
   const { data, error } = await (adminSupabase as any)

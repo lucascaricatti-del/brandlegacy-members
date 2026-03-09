@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
+import { verifyWorkspaceAccess } from '@/lib/api-auth'
 
 export async function POST(req: NextRequest) {
-  const { totals, funnel, campaigns, period } = await req.json()
+  const { workspace_id, totals, funnel, campaigns, period } = await req.json()
+
+  const auth = await verifyWorkspaceAccess(workspace_id)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   if (!totals) {
     return NextResponse.json({ error: 'totals required' }, { status: 400 })

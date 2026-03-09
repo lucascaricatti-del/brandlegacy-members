@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { verifyWorkspaceAccess } from '@/lib/api-auth'
+
+export const maxDuration = 300 // 5 min (Vercel Pro)
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -37,9 +40,8 @@ function getDateChunks(since: string, until: string): { since: string; until: st
 export async function POST(req: NextRequest) {
   const { workspace_id, date_from, date_to } = await req.json()
 
-  if (!workspace_id) {
-    return NextResponse.json({ error: 'workspace_id required' }, { status: 400 })
-  }
+  const auth = await verifyWorkspaceAccess(workspace_id)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const { data: integration } = await supabase
     .from('workspace_integrations')
@@ -71,8 +73,6 @@ export async function POST(req: NextRequest) {
 
     // Split into weekly chunks to avoid "Please reduce the amount of data" error
     const weekChunks = getDateChunks(since, until)
-    console.log(`[meta/sync] splitting into ${weekChunks.length} chunks (30-day each)`)
-
     for (const chunk of weekChunks) {
       let url: string | null =
         `https://graph.facebook.com/v22.0/act_${accountIdClean}/insights?` +
@@ -84,9 +84,7 @@ export async function POST(req: NextRequest) {
         `&access_token=${integration.access_token}`
 
       while (url) {
-        // Log URL without access_token for debugging
         const urlForLog = url.replace(/access_token=[^&]+/, 'access_token=REDACTED')
-        console.log(`[meta/sync] fetching: ${urlForLog}`)
 
         const pageRes: Response = await fetch(url)
         const data: any = await pageRes.json()

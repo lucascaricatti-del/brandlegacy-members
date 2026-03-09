@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { verifyWorkspaceAccess } from '@/lib/api-auth'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -33,6 +34,9 @@ async function getAccessToken(integration: any) {
 export async function GET(req: NextRequest) {
   const workspaceId = req.nextUrl.searchParams.get('workspace_id')
   if (!workspaceId) return NextResponse.json({ error: 'workspace_id required' }, { status: 400 })
+
+  const auth = await verifyWorkspaceAccess(workspaceId)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const { data: integration } = await supabase
     .from('workspace_integrations')

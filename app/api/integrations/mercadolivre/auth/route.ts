@@ -64,8 +64,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to save code_verifier', detail: insertErr.message }, { status: 500 })
   }
 
-  console.log('[ml/auth] code_verifier saved for workspace:', workspaceId)
-
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: process.env.MERCADOLIVRE_CLIENT_ID!,

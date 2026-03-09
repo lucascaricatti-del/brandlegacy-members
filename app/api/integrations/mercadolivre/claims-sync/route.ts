@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getMlToken } from '@/lib/ml-token'
+import { verifyWorkspaceAccess } from '@/lib/api-auth'
+
+export const maxDuration = 300 // 5 min (Vercel Pro)
 
 const adminSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,6 +18,9 @@ export async function POST(req: NextRequest) {
   if (!workspace_id) {
     return NextResponse.json({ error: 'workspace_id required' }, { status: 400 })
   }
+
+  const auth = await verifyWorkspaceAccess(workspace_id)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
     const accessToken = await getMlToken(workspace_id)
@@ -40,7 +46,6 @@ export async function POST(req: NextRequest) {
     const allClaims: any[] = []
     let offset = 0
     const limit = 50
-    let isFirstRequest = true
 
     while (true) {
       const url =
@@ -61,17 +66,10 @@ export async function POST(req: NextRequest) {
 
       const json = await res.json()
 
-      if (isFirstRequest) {
-        console.log(`[ml/claims-sync] RAW FIRST RESPONSE:`, JSON.stringify(json).slice(0, 2000))
-        isFirstRequest = false
-      }
-
       const results = json.data || json.results || []
       allClaims.push(...results)
 
       const total = json.paging?.total ?? json.total ?? 0
-      console.log(`[ml/claims-sync] fetched ${allClaims.length}/${total} claims`)
-
       if (offset + limit >= total || offset + limit >= 10000 || results.length === 0) break
       offset += limit
 

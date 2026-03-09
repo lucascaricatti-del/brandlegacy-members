@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { aggregateOrdersToMetrics } from '@/lib/yampi/parser'
+import { verifyWorkspaceAccess } from '@/lib/api-auth'
 
-const PAID_STATUSES = ['paid', 'invoiced', 'shipped', 'delivered']
-const CANCELLED_STATUSES = ['cancelled', 'refused']
+export const maxDuration = 300 // 5 min (Vercel Pro)
 
 export async function POST(request: Request) {
   try {
@@ -11,6 +12,9 @@ export async function POST(request: Request) {
     if (!workspace_id) {
       return NextResponse.json({ error: 'workspace_id required' }, { status: 400 })
     }
+
+    const auth = await verifyWorkspaceAccess(workspace_id)
+    if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -45,63 +49,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ days_aggregated: 0, total_orders: 0 })
     }
 
-    // Group by date — revenue/orders count ONLY paid statuses
-    const dailyMap = new Map<string, {
-      paid_revenue: number
-      paid_count: number
-      cancelled_count: number
-      total_count: number
-      pix_total: number
-      pix_paid: number
-    }>()
-
-    for (const o of allOrders) {
-      if (!o.date) continue
-      const d = dailyMap.get(o.date) ?? {
-        paid_revenue: 0, paid_count: 0,
-        cancelled_count: 0, total_count: 0,
-        pix_total: 0, pix_paid: 0,
-      }
-
-      d.total_count++
-
-      const isPaid = PAID_STATUSES.includes(o.status)
-      const isCancelled = CANCELLED_STATUSES.includes(o.status)
-
-      if (isPaid) {
-        d.paid_revenue += Number(o.revenue) || 0
-        d.paid_count++
-      } else if (isCancelled) {
-        d.cancelled_count++
-      }
-
-      const pm = (o.payment_method ?? '').toLowerCase()
-      if (pm === 'pix') {
-        d.pix_total++
-        if (isPaid) d.pix_paid++
-      }
-
-      dailyMap.set(o.date, d)
-    }
-
-    // Build metric rows
-    const metricRows = Array.from(dailyMap.entries()).map(([date, d]) => ({
-      workspace_id,
-      date,
-      revenue: d.paid_revenue,
-      orders: d.paid_count,
-      avg_ticket: d.paid_count > 0 ? d.paid_revenue / d.paid_count : 0,
-      checkout_conversion: d.total_count > 0
-        ? Math.round((d.paid_count / d.total_count) * 100 * 100) / 100
-        : 0,
-      pix_approval_rate: d.pix_total > 0
-        ? Math.round((d.pix_paid / d.pix_total) * 100 * 100) / 100
-        : 0,
-      cancellation_rate: d.total_count > 0
-        ? Math.round((d.cancelled_count / d.total_count) * 100 * 100) / 100
-        : 0,
-      synced_at: new Date().toISOString(),
-    }))
+    // Aggregate using shared function
+    const metricRows = aggregateOrdersToMetrics(allOrders, workspace_id)
 
     // Upsert in batches
     for (let i = 0; i < metricRows.length; i += 500) {

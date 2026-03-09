@@ -96,16 +96,6 @@ export async function getFinancialKPIs(month: string): Promise<FinancialKPIs> {
     0
   );
 
-  // DEBUG
-  console.log("[KPI DEBUG] month:", month);
-  console.log("[KPI DEBUG] vendas sample:", vendas.slice(0, 3).map(v => ({ id: v.venda_id, data: v.data_venda, status: v.status_venda, valor: v.valor_liquido_contratado })));
-  console.log("[KPI DEBUG] recebimentos sample:", recebimentos.slice(0, 3).map(r => ({ id: r.recebimento_id, ano_mes: r.ano_mes, valor: r.valor_liquido_recebido })));
-
-  // DEBUG
-  console.log("[KPI DEBUG] month:", month);
-  console.log("[KPI DEBUG] vendas sample:", vendas.slice(0, 3).map(v => ({ id: v.venda_id, data: v.data_venda, status: v.status_venda, valor: v.valor_liquido_contratado })));
-  console.log("[KPI DEBUG] recebimentos sample:", recebimentos.slice(0, 3).map(r => ({ id: r.recebimento_id, ano_mes: r.ano_mes, valor: r.valor_liquido_recebido })));
-
   const vendasMonth = vendas.filter(
     (v) => toYYYYMM(v.data_venda) === month && vendaStatusOk(v)
   );

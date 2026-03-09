@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { verifyWorkspaceAccess } from '@/lib/api-auth'
+
+export const maxDuration = 300 // 5 min (Vercel Pro)
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -43,7 +46,9 @@ const CHANNEL_MAP: Record<string, string> = {
 
 export async function POST(req: NextRequest) {
   const { workspace_id } = await req.json()
-  if (!workspace_id) return NextResponse.json({ error: 'workspace_id required' }, { status: 400 })
+
+  const auth = await verifyWorkspaceAccess(workspace_id)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const { data: integration } = await supabase
     .from('workspace_integrations')

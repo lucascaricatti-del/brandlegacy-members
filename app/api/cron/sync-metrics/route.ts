@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { parseYampiOrder, aggregateOrdersToMetrics } from '@/lib/yampi/parser'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -309,35 +310,7 @@ async function syncYampi(workspaceId: string, since: string, until: string): Pro
     return 0
   }
 
-  const orderRows = allOrders.map((order: any) => {
-    const statusAlias = order.status?.data?.alias ?? order.status_alias ?? 'unknown'
-    const paymentMethod = order.transactions?.data?.[0]?.payment?.data?.alias ?? null
-    const couponCode = order.promocode?.data?.code ?? order.search?.data?.discount_names?.[0] ?? null
-    const state = order.shipping_address?.data?.state ?? order.shipping_address?.data?.uf ?? null
-    const createdAtRaw = order.created_at?.date ?? order.created_at ?? ''
-    const date = typeof createdAtRaw === 'string' ? createdAtRaw.split(' ')[0].split('T')[0] : ''
-    const free_shipping = Number(order.value_shipment ?? 1) === 0
-    const items = (order.items?.data ?? []).map((item: any) => ({
-      product_id: String(item.product_id ?? item.id ?? ''),
-      name: item.sku?.data?.title ?? item.item_sku ?? item.name ?? '',
-      quantity: Number(item.quantity) || 1,
-      price: Number(item.price) || 0,
-    }))
-
-    return {
-      workspace_id: workspaceId,
-      order_id: String(order.number ?? order.id),
-      date,
-      status: statusAlias,
-      payment_method: paymentMethod,
-      coupon_code: couponCode,
-      state,
-      revenue: Number(order.value_total) || 0,
-      items,
-      free_shipping,
-      synced_at: new Date().toISOString(),
-    }
-  })
+  const orderRows = allOrders.map((order: any) => parseYampiOrder(order, workspaceId))
 
   if (orderRows.length > 0) {
     for (let i = 0; i < orderRows.length; i += 200) {
@@ -348,33 +321,7 @@ async function syncYampi(workspaceId: string, since: string, until: string): Pro
     }
   }
 
-  // Revenue/orders = ONLY paid statuses; pending does NOT count as revenue
-  const CANCEL = ['cancelled', 'refused']
-  const APPROVED = ['paid', 'invoiced', 'shipped', 'delivered']
-  const dailyMap = new Map<string, {
-    paid_revenue: number; paid_count: number; cancelled_count: number;
-    total_count: number; pix_total: number; pix_paid: number;
-  }>()
-
-  for (const o of orderRows) {
-    if (!o.date) continue
-    const d = dailyMap.get(o.date) ?? { paid_revenue: 0, paid_count: 0, cancelled_count: 0, total_count: 0, pix_total: 0, pix_paid: 0 }
-    d.total_count++
-    if (APPROVED.includes(o.status)) { d.paid_revenue += o.revenue; d.paid_count++ }
-    else if (CANCEL.includes(o.status)) { d.cancelled_count++ }
-    if (o.payment_method === 'pix') { d.pix_total++; if (APPROVED.includes(o.status)) d.pix_paid++ }
-    dailyMap.set(o.date, d)
-  }
-
-  const metricRows = Array.from(dailyMap.entries()).map(([date, d]) => ({
-    workspace_id: workspaceId, date,
-    revenue: d.paid_revenue, orders: d.paid_count,
-    avg_ticket: d.paid_count > 0 ? d.paid_revenue / d.paid_count : 0,
-    checkout_conversion: d.total_count > 0 ? Math.round((d.paid_count / d.total_count) * 100 * 100) / 100 : 0,
-    pix_approval_rate: d.pix_total > 0 ? Math.round((d.pix_paid / d.pix_total) * 100 * 100) / 100 : 0,
-    cancellation_rate: d.total_count > 0 ? Math.round((d.cancelled_count / d.total_count) * 100 * 100) / 100 : 0,
-    synced_at: new Date().toISOString(),
-  }))
+  const metricRows = aggregateOrdersToMetrics(orderRows, workspaceId)
 
   await (supabase as any).from('yampi_metrics').delete()
     .eq('workspace_id', workspaceId).gte('date', since).lte('date', until)

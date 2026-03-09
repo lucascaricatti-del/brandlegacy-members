@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { verifyWorkspaceAccess } from '@/lib/api-auth'
 
 const adminSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,12 +9,15 @@ const adminSupabase = createClient(
 
 export async function GET(req: NextRequest) {
   const workspace_id = req.nextUrl.searchParams.get('workspace_id')
+  const auth = await verifyWorkspaceAccess(workspace_id)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
   const coupon_code = req.nextUrl.searchParams.get('coupon_code')
   const date_from = req.nextUrl.searchParams.get('date_from')
   const date_to = req.nextUrl.searchParams.get('date_to')
 
-  if (!workspace_id || !coupon_code) {
-    return NextResponse.json({ error: 'workspace_id, coupon_code required' }, { status: 400 })
+  if (!coupon_code) {
+    return NextResponse.json({ error: 'coupon_code required' }, { status: 400 })
   }
 
   let query = (adminSupabase as any)

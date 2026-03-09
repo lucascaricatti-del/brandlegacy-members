@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { verifyWorkspaceAccess } from '@/lib/api-auth'
 
 const adminSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,7 +9,8 @@ const adminSupabase = createClient(
 
 export async function GET(req: NextRequest) {
   const workspace_id = req.nextUrl.searchParams.get('workspace_id')
-  if (!workspace_id) return NextResponse.json({ error: 'workspace_id required' }, { status: 400 })
+  const auth = await verifyWorkspaceAccess(workspace_id)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const { data, error } = await (adminSupabase as any)
     .from('influencers')
@@ -24,8 +26,11 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const { workspace_id, name, instagram, category, coupon_code, fee_type, monthly_fee, commission_pct, start_date, end_date, notes, is_active, tier, contract_status, followers_count, niche } = body
 
-  if (!workspace_id || !name || !coupon_code) {
-    return NextResponse.json({ error: 'workspace_id, name, coupon_code required' }, { status: 400 })
+  const auth = await verifyWorkspaceAccess(workspace_id)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
+  if (!name || !coupon_code) {
+    return NextResponse.json({ error: 'name, coupon_code required' }, { status: 400 })
   }
 
   const { data, error } = await (adminSupabase as any)
@@ -54,9 +59,12 @@ export async function POST(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   const body = await req.json()
-  const { id, ...updates } = body
+  const { id, workspace_id, ...updates } = body
 
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
+
+  const auth = await verifyWorkspaceAccess(workspace_id)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   if (updates.coupon_code) updates.coupon_code = updates.coupon_code.toUpperCase()
   updates.updated_at = new Date().toISOString()
@@ -73,8 +81,11 @@ export async function PUT(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const { id } = await req.json()
+  const { id, workspace_id } = await req.json()
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
+
+  const auth = await verifyWorkspaceAccess(workspace_id)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const { error } = await (adminSupabase as any)
     .from('influencers')

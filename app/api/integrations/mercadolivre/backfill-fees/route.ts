@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getMlToken } from '@/lib/ml-token'
+import { verifyWorkspaceAccess } from '@/lib/api-auth'
 
 const adminSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,7 +15,8 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
 export async function POST(req: NextRequest) {
   const { workspace_id, month, dry_run = false, limit = 200, force = false, start_offset = 0 } = await req.json()
 
-  if (!workspace_id) return NextResponse.json({ error: 'workspace_id required' }, { status: 400 })
+  const auth = await verifyWorkspaceAccess(workspace_id)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
   if (!month || !/^\d{4}-\d{2}$/.test(month)) {
     return NextResponse.json({ error: 'month required in YYYY-MM format' }, { status: 400 })
   }
@@ -183,10 +185,7 @@ export async function POST(req: NextRequest) {
       // 500ms delay between batches
       if (b + 10 < allOrders.length) await delay(500)
 
-      // Log progress every 100 orders
-      if ((b + 10) % 100 === 0) {
-        console.log(`[ml/backfill] progress: ${b + 10}/${allOrders.length} (updated=${updated}, skipped=${skipped}, errors=${errors.length})`)
-      }
+      // Progress tracked via response
     }
 
     console.log(`[ml/backfill] done: month=${month}, processed=${allOrders.length}, updated=${updated}, skipped=${skipped}, errors=${errors.length}`)

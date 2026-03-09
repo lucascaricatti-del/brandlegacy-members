@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getMlToken } from '@/lib/ml-token'
+import { verifyWorkspaceAccess } from '@/lib/api-auth'
+
+export const maxDuration = 300 // 5 min (Vercel Pro)
 
 const adminSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -32,9 +35,8 @@ function getMonthChunks(months: number): { from: string; to: string; label: stri
 export async function POST(req: NextRequest) {
   const { workspace_id, months, days } = await req.json()
 
-  if (!workspace_id) {
-    return NextResponse.json({ error: 'workspace_id required' }, { status: 400 })
-  }
+  const auth = await verifyWorkspaceAccess(workspace_id)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   // Support both months and days params
   const syncMonths = days ? Math.max(1, Math.ceil(days / 30)) : (months || 6)
@@ -136,7 +138,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      console.log(`[ml/sync] ${chunk.label}: fetching ${paymentIds.length} payment details + ${shippingIds.length} shipments`)
+      // Fetch payment and shipment details in parallel
 
       // Fetch payment details in batches of 20 concurrently
       for (let b = 0; b < paymentIds.length; b += 20) {
@@ -248,7 +250,6 @@ export async function POST(req: NextRequest) {
 
       // Upsert in batches
       let monthSynced = 0
-      console.log(`[ml/sync] ${chunk.label}: ${orderRows.length} orders to upsert`)
       if (orderRows.length > 0) {
         for (let i = 0; i < orderRows.length; i += 200) {
           const batch = orderRows.slice(i, i + 200)

@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
 
     const accessToken = tokenData.access_token
     const mccId = process.env.GOOGLE_ADS_MCC_ID
-    console.log('Token OK. MCC:', mccId)
+    // Token exchanged successfully
 
     // 2. List accessible customers
     let accounts: any[] = []
@@ -55,7 +55,6 @@ export async function GET(req: NextRequest) {
       }
     )
     const customersText = await customersRes.text()
-    console.log('listAccessible status:', customersRes.status, 'body:', customersText.slice(0, 500))
 
     let resourceNames: string[] = []
     try {
@@ -68,13 +67,10 @@ export async function GET(req: NextRequest) {
       console.error('Not JSON:', customersText.slice(0, 300))
     }
 
-    console.log('Resource names:', JSON.stringify(resourceNames))
-
     // 3. Try to get details using MCC as login-customer-id
     for (const rn of resourceNames.slice(0, 10)) {
       const customerId = rn.replace('customers/', '')
       const loginId = mccId || customerId
-      console.log(`Fetching customer ${customerId} with login-id ${loginId}`)
       try {
         const detailRes = await fetch(
           `https://googleads.googleapis.com/v23/customers/${customerId}`,
@@ -87,7 +83,6 @@ export async function GET(req: NextRequest) {
           }
         )
         const detailText = await detailRes.text()
-        console.log(`Customer ${customerId} status:`, detailRes.status, 'body:', detailText.slice(0, 300))
         if (detailRes.ok) {
           const detail = JSON.parse(detailText)
           accounts.push({
@@ -104,7 +99,6 @@ export async function GET(req: NextRequest) {
 
     // 4. If MCC found but no sub-accounts, try GAQL to list child accounts
     if (mccId && accounts.length <= 1) {
-      console.log('Trying GAQL to list MCC child accounts...')
       try {
         const gaqlRes = await fetch(
           `https://googleads.googleapis.com/v23/customers/${mccId}/googleAds:search`,
@@ -122,7 +116,6 @@ export async function GET(req: NextRequest) {
           }
         )
         const gaqlText = await gaqlRes.text()
-        console.log('GAQL status:', gaqlRes.status, 'body:', gaqlText.slice(0, 500))
         if (gaqlRes.ok) {
           const gaqlData = JSON.parse(gaqlText)
           const results = gaqlData.results ?? []
@@ -142,8 +135,6 @@ export async function GET(req: NextRequest) {
         console.error('GAQL error:', e.message)
       }
     }
-
-    console.log('Final accounts:', JSON.stringify(accounts))
 
     const firstAccount = accounts.find(a => !a.is_manager) || accounts[0]
 
@@ -167,9 +158,9 @@ export async function GET(req: NextRequest) {
             })
           }
         }
-        console.log(`GA4: found ${ga4Properties.length} properties`)
+        // GA4 properties found
       } else {
-        console.log('GA4: analytics scope not available (user needs to reconnect)')
+        // GA4: analytics scope not available
       }
     } catch (e: any) {
       console.error('GA4 listing error:', e.message)

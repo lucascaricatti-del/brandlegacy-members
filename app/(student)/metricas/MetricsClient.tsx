@@ -402,6 +402,7 @@ export default function MetricsClient({
       const res = await fetch('/api/metricas/relatorio', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          workspace_id: workspaceId,
           totals,
           funnel: funnel?.steps ?? [],
           campaigns: campaignData.slice(0, 15).map(c => {

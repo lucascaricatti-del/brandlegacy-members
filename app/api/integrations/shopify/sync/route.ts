@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { verifyWorkspaceAccess } from '@/lib/api-auth'
+
+export const maxDuration = 300 // 5 min (Vercel Pro)
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,6 +15,9 @@ export async function POST(req: NextRequest) {
   if (!workspace_id) {
     return NextResponse.json({ error: 'workspace_id required' }, { status: 400 })
   }
+
+  const auth = await verifyWorkspaceAccess(workspace_id)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const { data: integration } = await supabase
     .from('workspace_integrations')
@@ -29,7 +35,7 @@ export async function POST(req: NextRequest) {
   const since = date_from || new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0]
   const until = date_to || new Date().toISOString().split('T')[0]
 
-  console.log('[shopify/sync] workspace_id:', workspace_id, 'domain:', domain)
+  // shopify sync started
 
   try {
     const allOrders: any[] = []
@@ -38,16 +44,12 @@ export async function POST(req: NextRequest) {
     let pageNum = 0
     const MAX_PAGES = 100
 
-    console.log('[shopify/sync] first URL:', pageUrl)
-
     while (pageUrl && pageNum < MAX_PAGES) {
       pageNum++
       const pageRes: Response = await fetch(pageUrl, {
         headers: { 'X-Shopify-Access-Token': integration.access_token },
         signal: AbortSignal.timeout(10000),
       })
-
-      console.log(`[shopify/sync] page ${pageNum} status:`, pageRes.status, 'orders so far:', allOrders.length)
 
       if (!pageRes.ok) {
         const errText = await pageRes.text()

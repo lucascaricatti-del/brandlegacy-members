@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createHmac, timingSafeEqual } from 'crypto'
 import { getMlToken } from '@/lib/ml-token'
 
 const adminSupabase = createClient(
@@ -9,6 +10,27 @@ const adminSupabase = createClient(
 
 export async function POST(request: Request) {
   try {
+    // ── HMAC signature validation ──
+    const webhookSecret = process.env.ML_WEBHOOK_SECRET
+    if (webhookSecret) {
+      const signature = request.headers.get('x-signature')
+      const rawBody = await request.clone().text()
+
+      if (!signature) {
+        console.warn('[ml/webhook] missing signature header')
+        return NextResponse.json({ error: 'Missing signature' }, { status: 401 })
+      }
+
+      const expected = createHmac('sha256', webhookSecret).update(rawBody).digest('hex')
+      const sigBuffer = Buffer.from(signature, 'hex')
+      const expectedBuffer = Buffer.from(expected, 'hex')
+
+      if (sigBuffer.length !== expectedBuffer.length || !timingSafeEqual(sigBuffer, expectedBuffer)) {
+        console.warn('[ml/webhook] invalid signature')
+        return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
+      }
+    }
+
     const payload = await request.json()
     const { topic, resource, user_id } = payload
 
@@ -162,6 +184,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true })
   } catch (e) {
     console.error('[ml/webhook] error:', e)
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ error: 'Processing failed' }, { status: 500 })
   }
 }

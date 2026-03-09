@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { verifyWorkspaceAccess } from '@/lib/api-auth'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -8,7 +9,9 @@ const supabase = createClient(
 
 export async function POST(req: NextRequest) {
   const { workspace_id, date_from, date_to } = await req.json()
-  if (!workspace_id) return NextResponse.json({ error: 'workspace_id required' }, { status: 400 })
+
+  const auth = await verifyWorkspaceAccess(workspace_id)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
   if (!date_from || !date_to) return NextResponse.json({ error: 'date_from and date_to required' }, { status: 400 })
 
   const [metricsRes, topRes] = await Promise.all([

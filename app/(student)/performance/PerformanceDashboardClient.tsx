@@ -45,6 +45,9 @@ const PAID = ['paid', 'invoiced', 'shipped', 'delivered']
 const CANCELLED = ['cancelled', 'refused']
 
 function normalize(d: string) { return d?.slice(0, 10) ?? '' }
+function toDateStr(d: Date) {
+  return new Date(d.getTime() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
+}
 
 function calcMetrics(orders: YampiOrder[], meta: AdsRow[], google: AdsRow[], shopify: ShopifyRow[], ga4: GA4Row[] = []) {
   const paid = orders.filter(o => PAID.includes(o.status))
@@ -185,11 +188,11 @@ export default function PerformanceDashboardClient(props: Props) {
   }
 
   function filterByPeriod<T extends { date: string }>(data: T[]): T[] {
-    const today = new Date().toLocaleDateString('sv-SE')
+    const today = toDateStr(new Date())
     if (period === 'today') return data.filter(m => normalize(m.date) === today)
     if (period === 'yesterday') {
       const y = new Date(); y.setDate(y.getDate() - 1)
-      return data.filter(m => normalize(m.date) === y.toLocaleDateString('sv-SE'))
+      return data.filter(m => normalize(m.date) === toDateStr(y))
     }
     if (period === 'mes_atual') {
       const firstDay = today.slice(0, 7) + '-01'
@@ -200,7 +203,7 @@ export default function PerformanceDashboardClient(props: Props) {
     }
     const days = PERIODS.find(p => p.key === period)?.days ?? 30
     const since = new Date(); since.setDate(since.getDate() - days)
-    const sinceStr = since.toLocaleDateString('sv-SE')
+    const sinceStr = toDateStr(since)
     return data.filter(m => normalize(m.date) >= sinceStr && normalize(m.date) <= today)
   }
 
@@ -215,7 +218,7 @@ export default function PerformanceDashboardClient(props: Props) {
     [filteredYampi, filteredMeta, filteredGoogle, filteredShopify, filteredGa4])
 
   // MTD — always compute for the MTD section
-  const todayStr = new Date().toLocaleDateString('sv-SE')
+  const todayStr = toDateStr(new Date())
   const mtdStart = todayStr.slice(0, 7) + '-01'
   const mtdYampi = useMemo(() => yampiOrders.filter(o => normalize(o.date) >= mtdStart && normalize(o.date) <= todayStr), [yampiOrders, mtdStart, todayStr])
   const mtdMeta = useMemo(() => metaAds.filter(m => normalize(m.date) >= mtdStart && normalize(m.date) <= todayStr), [metaAds, mtdStart, todayStr])
@@ -227,9 +230,9 @@ export default function PerformanceDashboardClient(props: Props) {
   // Prev month same-period comparison
   const today2 = new Date()
   const prevMonthDate = new Date(today2.getFullYear(), today2.getMonth() - 1, 1)
-  const prevMonthStart = prevMonthDate.toLocaleDateString('sv-SE')
+  const prevMonthStart = toDateStr(prevMonthDate)
   const daysInPrevMonth = new Date(today2.getFullYear(), today2.getMonth(), 0).getDate()
-  const prevMonthSameDay = new Date(today2.getFullYear(), today2.getMonth() - 1, Math.min(currentDay, daysInPrevMonth)).toLocaleDateString('sv-SE')
+  const prevMonthSameDay = toDateStr(new Date(today2.getFullYear(), today2.getMonth() - 1, Math.min(currentDay, daysInPrevMonth)))
   const prevMonthLabel = prevMonthDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
 
   const prevYampi = useMemo(() => yampiOrders.filter(o => normalize(o.date) >= prevMonthStart && normalize(o.date) <= prevMonthSameDay), [yampiOrders, prevMonthStart, prevMonthSameDay])
