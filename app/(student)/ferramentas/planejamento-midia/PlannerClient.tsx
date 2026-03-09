@@ -915,16 +915,19 @@ function SFEditableCell({ value, format, isSaving, onSave }: {
   const [inputValue, setInputValue] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
+  const isCurrency = format === 'currency'
+  const isPct = format === 'percent'
+
   function fmtDisplay(v: number | null): string {
     if (v === null) return '-'
-    if (format === 'currency') return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 })
-    if (format === 'percent') return `${v}%`
+    if (isCurrency) return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 })
+    if (isPct) return `${v.toFixed(1).replace('.', ',')}%`
     if (format === 'number') return v.toLocaleString('pt-BR')
     return String(v)
   }
 
   function startEdit() {
-    setInputValue(value != null ? String(value) : '')
+    setInputValue(value != null ? String(value).replace('.', ',') : '')
     setEditing(true)
   }
 
@@ -942,12 +945,26 @@ function SFEditableCell({ value, format, isSaving, onSave }: {
 
   if (editing) {
     return (
-      <input ref={inputRef} type="text" value={inputValue}
-        onChange={e => setInputValue(e.target.value)}
-        onBlur={commit}
-        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false) }}
-        className="w-full border rounded px-2 py-1.5 text-center outline-none tabular-nums"
-        style={{ fontSize: 12, background: 'rgba(201,168,76,0.08)', borderColor: 'rgba(201,168,76,0.4)', color: '#e8e0d0' }} />
+      <div className="relative flex items-center">
+        {isCurrency && <span className="absolute left-1.5 text-brand-gold/60" style={{ fontSize: 10 }}>R$</span>}
+        <input ref={inputRef} type="text" value={inputValue}
+          onChange={e => {
+            const v = e.target.value.replace(/[^0-9,.\-]/g, '')
+            setInputValue(v)
+          }}
+          onBlur={commit}
+          onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false) }}
+          className="w-full border rounded py-1.5 text-center outline-none tabular-nums"
+          style={{
+            fontSize: 12,
+            background: 'rgba(201,168,76,0.08)',
+            borderColor: 'rgba(201,168,76,0.4)',
+            color: '#e8e0d0',
+            paddingLeft: isCurrency ? 24 : 8,
+            paddingRight: isPct ? 20 : 8,
+          }} />
+        {isPct && <span className="absolute right-1.5 text-brand-gold/60" style={{ fontSize: 10 }}>%</span>}
+      </div>
     )
   }
 
@@ -1220,11 +1237,14 @@ function EditableCell({
   const [inputValue, setInputValue] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
+  const isCurrency = format === 'currency'
+  const isPct = format === 'percent' || format === 'decimal'
+
   const startEdit = () => {
     if (isDeltaMode) {
-      setInputValue(rawCell?.delta_pct?.toString() ?? '')
+      setInputValue(rawCell?.delta_pct?.toString().replace('.', ',') ?? '')
     } else {
-      setInputValue(rawCell?.value?.toString() ?? value.toString())
+      setInputValue((rawCell?.value?.toString() ?? value.toString()).replace('.', ','))
     }
     setEditing(true)
   }
@@ -1245,28 +1265,35 @@ function EditableCell({
   }
 
   if (editing) {
+    const showPctSuffix = isDeltaMode || isPct
     return (
-      <div className="relative">
+      <div className="relative flex items-center">
+        {isCurrency && !isDeltaMode && <span className="absolute left-1.5 text-brand-gold/60 z-10" style={{ fontSize: 10 }}>R$</span>}
         <input
           ref={inputRef}
           type="text"
           value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
+          onChange={(e) => {
+            const v = e.target.value.replace(/[^0-9,.\-]/g, '')
+            setInputValue(v)
+          }}
           onBlur={commitEdit}
           onKeyDown={(e) => {
             if (e.key === 'Enter') commitEdit()
             if (e.key === 'Escape') setEditing(false)
           }}
-          className="w-full border rounded px-2 py-1.5 text-center outline-none tabular-nums"
+          className="w-full border rounded py-1.5 text-center outline-none tabular-nums"
           style={{
             fontSize: 12,
             background: 'rgba(201,168,76,0.08)',
             borderColor: 'rgba(201,168,76,0.4)',
             color: '#e8e0d0',
+            paddingLeft: isCurrency && !isDeltaMode ? 24 : 8,
+            paddingRight: showPctSuffix ? 20 : 8,
           }}
         />
-        {isDeltaMode && (
-          <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-brand-gold" style={{ fontSize: 10 }}>%</span>
+        {showPctSuffix && (
+          <span className="absolute right-1.5 text-brand-gold/60" style={{ fontSize: 10 }}>%</span>
         )}
       </div>
     )
