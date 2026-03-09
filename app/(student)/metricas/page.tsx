@@ -90,7 +90,8 @@ export default async function MetricasPage({
   // Busca 180 dias de métricas
   const since = new Date()
   since.setDate(since.getDate() - 180)
-  const sinceStr = since.toISOString().slice(0, 10)
+  const brazil = new Date(since.getTime() - 3 * 60 * 60 * 1000)
+  const sinceStr = brazil.toISOString().slice(0, 10)
 
   const [
     { data: metaMetrics },

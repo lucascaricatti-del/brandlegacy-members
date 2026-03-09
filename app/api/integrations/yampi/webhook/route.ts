@@ -33,7 +33,7 @@ export async function POST(request: Request) {
     const createdAtRaw = resource.created_at?.date ?? resource.created_at ?? ''
     const date = typeof createdAtRaw === 'string'
       ? createdAtRaw.split(' ')[0]
-      : new Date().toLocaleDateString('sv-SE')
+      : new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
     // Order ID
     const order_id = String(resource.number)
