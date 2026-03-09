@@ -12,6 +12,7 @@ import { upsertMetrics, upsertMetricsAdmin, syncMediaToFinancial } from '@/app/a
 // View mode types
 // ============================================================
 
+type TopTab = 'midia_plan' | 'sales_forecast'
 type ViewMode = 'completo' | 'quarters' | 'mes'
 
 type ViewColumn = { key: string; label: string; months: number[]; color?: string }
@@ -52,6 +53,7 @@ interface Props {
 // ============================================================
 
 export default function PlannerClient({ planId, workspaceId, year, initialMetrics, isAdmin }: Props) {
+  const [topTab, setTopTab] = useState<TopTab>('midia_plan')
   const [cells, setCells] = useState<Record<string, Record<number, CellData>>>(() => {
     const map: Record<string, Record<number, CellData>> = {}
     for (const m of initialMetrics) {
@@ -241,6 +243,23 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
 
   return (
     <div className="animate-fade-in">
+      {/* Top tab selector */}
+      <div className="flex gap-1 bg-bg-card border border-border rounded-xl p-1 mb-6">
+        <button onClick={() => setTopTab('midia_plan')}
+          className={`flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${topTab === 'midia_plan' ? 'bg-brand-gold text-bg-base shadow-sm' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'}`}>
+          Midia Plan
+        </button>
+        <button onClick={() => setTopTab('sales_forecast')}
+          className={`flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${topTab === 'sales_forecast' ? 'bg-brand-gold text-bg-base shadow-sm' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'}`}>
+          Sales Forecast
+        </button>
+      </div>
+
+      {topTab === 'sales_forecast' && (
+        <SalesForecastTab workspaceId={workspaceId} year={year} isAdmin={isAdmin} />
+      )}
+
+      {topTab === 'midia_plan' && (<>
       {/* Header */}
       <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
         <div>
@@ -391,7 +410,439 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
         </span>
         <span>Clique no &Delta;% para alternar entre valor absoluto e variação percentual</span>
       </div>
+      </>)}
     </div>
+  )
+}
+
+// ============================================================
+// Sales Forecast Tab
+// ============================================================
+
+type ForecastChannel = 'ecommerce' | 'marketplaces' | 'consolidado'
+type ForecastRow = {
+  key: string
+  label: string
+  section: string
+  editable: boolean
+  format: 'currency' | 'number' | 'percent' | 'roas'
+  field?: string // maps to DB column for editable fields
+  highlight?: boolean
+  resultColor?: 'gold' | 'profit'
+}
+
+const SF_MONTHS = [1,2,3,4,5,6,7,8,9,10,11,12]
+const SF_MONTH_LABELS = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+
+const FORECAST_ROWS: ForecastRow[] = [
+  // FATURAMENTO
+  { key: 'faturamento_bruto', label: 'Faturamento Bruto', section: 'faturamento', editable: true, format: 'currency', field: 'faturamento_bruto' },
+  { key: 'pedidos', label: 'Pedidos', section: 'faturamento', editable: true, format: 'number', field: 'pedidos' },
+  { key: 'ticket_medio', label: 'Ticket Médio', section: 'faturamento', editable: false, format: 'currency', resultColor: 'gold' },
+  // TAXAS & COMISSÕES
+  { key: 'imposto_pct', label: 'Impostos %', section: 'taxas', editable: true, format: 'percent', field: 'imposto_pct' },
+  { key: 'imposto_rs', label: 'Impostos R$', section: 'taxas', editable: false, format: 'currency', resultColor: 'gold' },
+  { key: 'cmv_pct', label: 'CMV %', section: 'taxas', editable: true, format: 'percent', field: 'cmv_pct' },
+  { key: 'cmv_rs', label: 'CMV R$', section: 'taxas', editable: false, format: 'currency', resultColor: 'gold' },
+  // MÍDIA
+  { key: 'investimento_midia', label: 'Investimento Mídia', section: 'midia', editable: true, format: 'currency', field: 'investimento_midia' },
+  { key: 'roas', label: 'ROAS', section: 'midia', editable: false, format: 'roas', resultColor: 'gold' },
+  // RESULTADO
+  { key: 'faturamento_liquido', label: 'Faturamento Líquido', section: 'resultado', editable: false, format: 'currency', resultColor: 'gold', highlight: true },
+  { key: 'lucro_apos_aquisicao', label: 'Lucro Após Aquisição', section: 'resultado', editable: false, format: 'currency', resultColor: 'profit', highlight: true },
+]
+
+const SF_SECTIONS = [
+  { key: 'faturamento', label: 'FATURAMENTO', icon: '💰', color: 'text-brand-gold' },
+  { key: 'taxas', label: 'TAXAS & COMISSÕES', icon: '📊', color: 'text-yellow-400' },
+  { key: 'midia', label: 'MÍDIA', icon: '📢', color: 'text-blue-400' },
+  { key: 'resultado', label: 'RESULTADO', icon: '🎯', color: 'text-emerald-400' },
+]
+
+type ForecastData = Record<string, Record<number, Record<string, number | null>>>
+// channel -> month -> field -> value
+
+function SalesForecastTab({ workspaceId, year, isAdmin }: { workspaceId: string; year: number; isAdmin?: boolean }) {
+  const [channel, setChannel] = useState<ForecastChannel>('ecommerce')
+  const [data, setData] = useState<ForecastData>({})
+  const [loading, setLoading] = useState(true)
+  const [savingCell, setSavingCell] = useState<string | null>(null)
+
+  useEffect(() => {
+    setLoading(true)
+    fetch(`/api/sales-forecast?workspace_id=${workspaceId}&year=${year}`)
+      .then(r => r.json())
+      .then(json => {
+        const map: ForecastData = {}
+        for (const f of json.forecasts || []) {
+          if (!map[f.channel]) map[f.channel] = {}
+          map[f.channel][f.month] = {
+            faturamento_bruto: f.faturamento_bruto != null ? Number(f.faturamento_bruto) : null,
+            pedidos: f.pedidos != null ? Number(f.pedidos) : null,
+            investimento_midia: f.investimento_midia != null ? Number(f.investimento_midia) : null,
+            imposto_pct: f.imposto_pct != null ? Number(f.imposto_pct) : null,
+            cmv_pct: f.cmv_pct != null ? Number(f.cmv_pct) : null,
+            ticket_medio: f.ticket_medio != null ? Number(f.ticket_medio) : null,
+            imposto_rs: f.imposto_rs != null ? Number(f.imposto_rs) : null,
+            cmv_rs: f.cmv_rs != null ? Number(f.cmv_rs) : null,
+            faturamento_liquido: f.faturamento_liquido != null ? Number(f.faturamento_liquido) : null,
+            lucro_apos_aquisicao: f.lucro_apos_aquisicao != null ? Number(f.lucro_apos_aquisicao) : null,
+            roas: f.roas != null ? Number(f.roas) : null,
+          }
+        }
+        setData(map)
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [workspaceId, year])
+
+  // Get value for a cell — for consolidado, sum ecommerce + marketplaces
+  function getValue(ch: ForecastChannel, month: number, field: string): number | null {
+    if (ch === 'consolidado') {
+      const e = data['ecommerce']?.[month]?.[field] ?? null
+      const m = data['marketplaces']?.[month]?.[field] ?? null
+      if (e === null && m === null) return null
+      // For % fields, compute weighted average
+      if (field === 'imposto_pct' || field === 'cmv_pct') {
+        const eRev = data['ecommerce']?.[month]?.['faturamento_bruto'] ?? 0
+        const mRev = data['marketplaces']?.[month]?.['faturamento_bruto'] ?? 0
+        const total = eRev + mRev
+        if (total === 0) return null
+        return Math.round(((e ?? 0) * eRev + (m ?? 0) * mRev) / total * 100) / 100
+      }
+      // For ticket_medio, recalculate from sums
+      if (field === 'ticket_medio') {
+        const totalRev = (data['ecommerce']?.[month]?.['faturamento_bruto'] ?? 0) + (data['marketplaces']?.[month]?.['faturamento_bruto'] ?? 0)
+        const totalOrd = (data['ecommerce']?.[month]?.['pedidos'] ?? 0) + (data['marketplaces']?.[month]?.['pedidos'] ?? 0)
+        return totalOrd > 0 ? Math.round(totalRev / totalOrd * 100) / 100 : null
+      }
+      // For ROAS, recalculate from sums
+      if (field === 'roas') {
+        const totalRev = (data['ecommerce']?.[month]?.['faturamento_bruto'] ?? 0) + (data['marketplaces']?.[month]?.['faturamento_bruto'] ?? 0)
+        const totalSpend = (data['ecommerce']?.[month]?.['investimento_midia'] ?? 0) + (data['marketplaces']?.[month]?.['investimento_midia'] ?? 0)
+        return totalSpend > 0 ? Math.round(totalRev / totalSpend * 100) / 100 : null
+      }
+      return (e ?? 0) + (m ?? 0)
+    }
+    return data[ch]?.[month]?.[field] ?? null
+  }
+
+  // Compute derived values client-side for immediate feedback
+  function getDisplayValue(ch: ForecastChannel, month: number, field: string): number | null {
+    if (ch === 'consolidado') return getValue(ch, month, field)
+
+    const raw = data[ch]?.[month]
+    if (!raw) return null
+
+    const fb = raw.faturamento_bruto ?? 0
+    const ped = raw.pedidos ?? 0
+    const imp = raw.imposto_pct ?? 0
+    const cmv = raw.cmv_pct ?? 0
+    const inv = raw.investimento_midia ?? 0
+
+    switch (field) {
+      case 'ticket_medio': return ped > 0 ? Math.round(fb / ped * 100) / 100 : null
+      case 'imposto_rs': return Math.round(fb * imp / 100 * 100) / 100
+      case 'cmv_rs': return Math.round(fb * cmv / 100 * 100) / 100
+      case 'faturamento_liquido': return Math.round(fb * (1 - imp / 100) * 100) / 100
+      case 'lucro_apos_aquisicao': return Math.round((fb * (1 - imp / 100 - cmv / 100) - inv) * 100) / 100
+      case 'roas': return inv > 0 ? Math.round(fb / inv * 100) / 100 : null
+      default: return raw[field] ?? null
+    }
+  }
+
+  // Annual total for a row
+  function getAnnual(ch: ForecastChannel, field: string, format: string): number | null {
+    const values = SF_MONTHS.map(m => getDisplayValue(ch, m, field))
+    const nonNull = values.filter(v => v !== null) as number[]
+    if (nonNull.length === 0) return null
+    if (format === 'percent' || format === 'roas') {
+      return Math.round(nonNull.reduce((s, v) => s + v, 0) / nonNull.length * 100) / 100
+    }
+    return Math.round(nonNull.reduce((s, v) => s + v, 0) * 100) / 100
+  }
+
+  async function saveCell(ch: ForecastChannel, month: number, field: string, value: number | null) {
+    const cellKey = `${ch}-${month}-${field}`
+    setSavingCell(cellKey)
+
+    // Update local state immediately
+    setData(prev => {
+      const next = { ...prev }
+      if (!next[ch]) next[ch] = {}
+      next[ch] = { ...next[ch] }
+      next[ch][month] = { ...(next[ch][month] || {}), [field]: value }
+      return next
+    })
+
+    try {
+      const body: any = { workspace_id: workspaceId, year, month, channel: ch }
+      // Send all editable fields for this cell's month/channel
+      const current = data[ch]?.[month] || {}
+      body.faturamento_bruto = field === 'faturamento_bruto' ? value : (current.faturamento_bruto ?? null)
+      body.pedidos = field === 'pedidos' ? value : (current.pedidos ?? null)
+      body.investimento_midia = field === 'investimento_midia' ? value : (current.investimento_midia ?? null)
+      body.imposto_pct = field === 'imposto_pct' ? value : (current.imposto_pct ?? null)
+      body.cmv_pct = field === 'cmv_pct' ? value : (current.cmv_pct ?? null)
+
+      await fetch('/api/sales-forecast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+    } catch {}
+    setSavingCell(null)
+  }
+
+  function fmtVal(v: number | null, format: string): string {
+    if (v === null || v === undefined) return '-'
+    if (format === 'currency') return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 })
+    if (format === 'percent') return `${v}%`
+    if (format === 'roas') return v > 0 ? `${v.toFixed(1)}x` : '-'
+    if (format === 'number') return v.toLocaleString('pt-BR')
+    return String(v)
+  }
+
+  const isConsolidado = channel === 'consolidado'
+
+  return (
+    <>
+      {/* Header */}
+      <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-text-primary">Sales Forecast {year}</h1>
+          <p className="text-sm text-text-muted mt-1">Projeção de faturamento, custos e lucro por canal</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1 bg-bg-card border border-border rounded-lg">
+            <a href={isAdmin ? `?year=${year - 1}` : `/ferramentas/planejamento-midia/${year - 1}`}
+              className="p-2 hover:bg-bg-hover rounded-l-lg transition-colors text-text-muted hover:text-text-primary">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6" /></svg>
+            </a>
+            <span className="px-3 py-1.5 text-sm font-semibold text-text-primary">{year}</span>
+            <a href={isAdmin ? `?year=${year + 1}` : `/ferramentas/planejamento-midia/${year + 1}`}
+              className="p-2 hover:bg-bg-hover rounded-r-lg transition-colors text-text-muted hover:text-text-primary">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>
+            </a>
+          </div>
+        </div>
+      </div>
+
+      {/* Channel sub-tabs */}
+      <div className="flex gap-1 bg-bg-card border border-border rounded-xl p-1 mb-4">
+        {([['ecommerce', 'E-commerce'], ['marketplaces', 'Marketplaces'], ['consolidado', 'Consolidado']] as [ForecastChannel, string][]).map(([k, l]) => (
+          <button key={k} onClick={() => setChannel(k)}
+            className={`flex-1 px-3 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${
+              channel === k ? 'bg-brand-gold text-bg-base shadow-sm' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'
+            }`}>{l}{k === 'consolidado' && <span className="text-[10px] ml-1 opacity-70">(soma)</span>}</button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="bg-bg-card border border-border rounded-xl p-16 text-center">
+          <div className="w-6 h-6 border-2 border-brand-gold border-t-transparent rounded-full animate-spin mx-auto" />
+        </div>
+      ) : (
+        <div className="bg-bg-card border border-border rounded-xl overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-border" style={{ background: 'linear-gradient(90deg, #0a1a0f, #0d2015)' }}>
+                  <th className="sticky left-0 z-10 text-left px-4 py-3 font-semibold text-text-secondary min-w-[200px] border-r border-border" style={{ fontSize: 13, background: '#0a1a0f' }}>
+                    Métrica
+                  </th>
+                  {SF_MONTH_LABELS.map((l, i) => (
+                    <th key={i} className="px-2 py-3 text-center font-medium min-w-[100px]" style={{ fontSize: 12 }}>{l}</th>
+                  ))}
+                  <th className="px-3 py-3 text-center font-bold min-w-[120px] border-l border-border" style={{ fontSize: 13, color: '#c9a84c' }}>
+                    Total/Média
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {SF_SECTIONS.map(section => {
+                  const rows = FORECAST_ROWS.filter(r => r.section === section.key)
+                  return (
+                    <SFSectionGroup key={section.key} section={section} rows={rows} channel={channel}
+                      getDisplayValue={getDisplayValue} getAnnual={getAnnual} fmtVal={fmtVal}
+                      isConsolidado={isConsolidado} saveCell={saveCell} savingCell={savingCell} />
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4 flex items-center gap-6 text-xs text-text-muted flex-wrap">
+        <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-brand-gold" /> Editável</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded text-emerald-400" style={{ fontSize: 10 }}>●</span> Verde = lucro positivo</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded text-red-400" style={{ fontSize: 10 }}>●</span> Vermelho = prejuízo</span>
+        {isConsolidado && <span>Consolidado = soma de E-commerce + Marketplaces (somente leitura)</span>}
+      </div>
+    </>
+  )
+}
+
+// ============================================================
+// Sales Forecast Section Group
+// ============================================================
+
+function SFSectionGroup({ section, rows, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado, saveCell, savingCell }: {
+  section: { key: string; label: string; icon: string; color: string }
+  rows: ForecastRow[]
+  channel: ForecastChannel
+  getDisplayValue: (ch: ForecastChannel, m: number, field: string) => number | null
+  getAnnual: (ch: ForecastChannel, field: string, format: string) => number | null
+  fmtVal: (v: number | null, format: string) => string
+  isConsolidado: boolean
+  saveCell: (ch: ForecastChannel, m: number, field: string, v: number | null) => void
+  savingCell: string | null
+}) {
+  return (
+    <>
+      <tr className="border-t-2 border-border">
+        <td colSpan={14} className="sticky left-0 z-10 px-4 py-3" style={{ background: '#0a1a0f' }}>
+          <div className="flex items-center gap-2.5">
+            <span style={{ fontSize: 16 }}>{section.icon}</span>
+            <span className={`font-bold uppercase tracking-wider ${section.color}`} style={{ fontSize: 13 }}>{section.label}</span>
+          </div>
+        </td>
+      </tr>
+      {rows.map(row => (
+        <SFRow key={row.key} row={row} channel={channel} getDisplayValue={getDisplayValue}
+          getAnnual={getAnnual} fmtVal={fmtVal} isConsolidado={isConsolidado} saveCell={saveCell} savingCell={savingCell} />
+      ))}
+    </>
+  )
+}
+
+// ============================================================
+// Sales Forecast Row
+// ============================================================
+
+function SFRow({ row, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado, saveCell, savingCell }: {
+  row: ForecastRow
+  channel: ForecastChannel
+  getDisplayValue: (ch: ForecastChannel, m: number, field: string) => number | null
+  getAnnual: (ch: ForecastChannel, field: string, format: string) => number | null
+  fmtVal: (v: number | null, format: string) => string
+  isConsolidado: boolean
+  saveCell: (ch: ForecastChannel, m: number, field: string, v: number | null) => void
+  savingCell: string | null
+}) {
+  const canEdit = row.editable && !isConsolidado
+  const annual = getAnnual(channel, row.key, row.format)
+  const isProfit = row.resultColor === 'profit'
+
+  return (
+    <tr className={`border-t transition-colors ${canEdit ? 'hover:bg-bg-hover/30' : ''} ${row.highlight ? 'border-border' : 'border-border/40'}`}
+      style={row.highlight ? { background: 'linear-gradient(90deg, #0a1a0f, #0d2015)' } : undefined}>
+      <td className="sticky left-0 z-10 px-4 py-0 border-r border-border"
+        style={{ background: row.highlight ? '#0a1a0f' : undefined, borderLeft: row.highlight ? '3px solid #c9a84c' : undefined }}>
+        <div className="flex items-center gap-2">
+          {canEdit && <span className="w-1.5 h-1.5 rounded-full bg-brand-gold shrink-0" />}
+          <span className={row.highlight ? 'font-bold' : canEdit ? 'text-text-primary' : 'text-text-secondary'}
+            style={{ fontSize: row.highlight ? 13 : 12, color: row.highlight && !isProfit ? '#c9a84c' : undefined }}>
+            {row.label}
+          </span>
+        </div>
+      </td>
+      {SF_MONTHS.map(m => {
+        const val = getDisplayValue(channel, m, row.key)
+        const cellKey = `${channel}-${m}-${row.key}`
+        const isSaving = savingCell === cellKey
+
+        if (canEdit) {
+          return (
+            <td key={m} className="px-1 py-0 text-center">
+              <SFEditableCell value={val} format={row.format} isSaving={isSaving}
+                onSave={v => saveCell(channel, m, row.field!, v)} />
+            </td>
+          )
+        }
+
+        const color = isProfit
+          ? (val === null ? '#6b7c6f' : val >= 0 ? '#4ade80' : '#ef4444')
+          : (val === null || val === 0 ? '#6b7c6f' : '#c9a84c')
+
+        return (
+          <td key={m} className="px-1 py-0 text-center">
+            <span className="tabular-nums px-2 py-2 block" style={{ fontSize: row.highlight ? 13 : 12, color, fontWeight: row.highlight ? 700 : 600 }}>
+              {fmtVal(val, row.format)}
+            </span>
+          </td>
+        )
+      })}
+      <td className="px-3 py-2 text-center border-l border-border">
+        <span className="tabular-nums font-bold" style={{
+          fontSize: 14,
+          color: isProfit
+            ? (annual === null ? '#6b7c6f' : annual >= 0 ? '#4ade80' : '#ef4444')
+            : '#c9a84c',
+        }}>
+          {fmtVal(annual, row.format)}
+        </span>
+      </td>
+    </tr>
+  )
+}
+
+// ============================================================
+// Sales Forecast Editable Cell
+// ============================================================
+
+function SFEditableCell({ value, format, isSaving, onSave }: {
+  value: number | null; format: string; isSaving: boolean
+  onSave: (v: number | null) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [inputValue, setInputValue] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  function fmtDisplay(v: number | null): string {
+    if (v === null) return '-'
+    if (format === 'currency') return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 })
+    if (format === 'percent') return `${v}%`
+    if (format === 'number') return v.toLocaleString('pt-BR')
+    return String(v)
+  }
+
+  function startEdit() {
+    setInputValue(value != null ? String(value) : '')
+    setEditing(true)
+  }
+
+  useEffect(() => {
+    if (editing) inputRef.current?.focus()
+  }, [editing])
+
+  function commit() {
+    setEditing(false)
+    const trimmed = inputValue.trim()
+    const num = trimmed === '' ? null : parseFloat(trimmed.replace(',', '.'))
+    if (num !== null && isNaN(num)) return
+    onSave(num)
+  }
+
+  if (editing) {
+    return (
+      <input ref={inputRef} type="text" value={inputValue}
+        onChange={e => setInputValue(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false) }}
+        className="w-full border rounded px-2 py-1.5 text-center outline-none tabular-nums"
+        style={{ fontSize: 12, background: 'rgba(201,168,76,0.08)', borderColor: 'rgba(201,168,76,0.4)', color: '#e8e0d0' }} />
+    )
+  }
+
+  return (
+    <button onClick={startEdit}
+      className="w-full tabular-nums px-2 py-2 rounded hover:bg-bg-hover transition-colors text-text-primary cursor-text text-center block relative"
+      style={{ fontSize: 12 }}>
+      {fmtDisplay(value)}
+      {isSaving && <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-brand-gold animate-pulse" />}
+    </button>
   )
 }
 
