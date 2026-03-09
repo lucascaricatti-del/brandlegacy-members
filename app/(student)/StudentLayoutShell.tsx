@@ -9,9 +9,11 @@ type Profile = { name: string | null; role: string | null } | null
 
 export default function StudentLayoutShell({
   profile,
+  workspaceName,
   children,
 }: {
   profile: Profile
+  workspaceName?: string | null
   children: React.ReactNode
 }) {
   const [open, setOpen] = useState(false)
@@ -66,6 +68,14 @@ export default function StudentLayoutShell({
             <IconX />
           </button>
         </div>
+
+        {/* Workspace name */}
+        {workspaceName && (
+          <div className="px-4 py-3 border-b border-white/10">
+            <p className="text-[10px] text-gray-500 uppercase tracking-widest">Workspace</p>
+            <p className="text-sm font-semibold truncate" style={{ color: '#C9971A' }}>{workspaceName}</p>
+          </div>
+        )}
 
         {/* Nav */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">

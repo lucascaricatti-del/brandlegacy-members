@@ -31,8 +31,12 @@ const firaCode = Fira_Code({
 })
 
 export const metadata: Metadata = {
-  title: 'BrandLegacy — Área de Membros',
+  title: 'BrandLegacy Members',
   description: 'Área exclusiva da mentoria BrandLegacy. Acesse seus módulos, aulas e materiais.',
+  icons: {
+    icon: '/icon.jpg',
+    apple: '/icon.jpg',
+  },
 }
 
 export default function RootLayout({
