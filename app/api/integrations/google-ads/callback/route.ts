@@ -158,15 +158,17 @@ export async function GET(req: NextRequest) {
             })
           }
         }
-        // GA4 properties found
       } else {
-        // GA4: analytics scope not available
+        const errText = await ga4Res.text()
+        console.error('GA4 accountSummaries error:', ga4Res.status, errText.slice(0, 500))
       }
     } catch (e: any) {
       console.error('GA4 listing error:', e.message)
     }
 
-    const ga4PropertyId = ga4Properties.length === 1 ? ga4Properties[0].property_id : null
+    // Auto-select first property (or only property)
+    const ga4PropertyId = ga4Properties.length > 0 ? ga4Properties[0].property_id : null
+    const ga4PropertyName = ga4Properties.length > 0 ? ga4Properties[0].display_name : null
 
     await supabase.from('workspace_integrations').upsert({
       workspace_id: workspaceId,
@@ -183,6 +185,7 @@ export async function GET(req: NextRequest) {
         ga4_connected: ga4Connected,
         ga4_properties: ga4Properties,
         ga4_property_id: ga4PropertyId,
+        ga4_property_name: ga4PropertyName,
       },
       updated_at: new Date().toISOString(),
     }, { onConflict: 'workspace_id,provider' })
