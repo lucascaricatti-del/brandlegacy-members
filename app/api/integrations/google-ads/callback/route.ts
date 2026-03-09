@@ -141,13 +141,17 @@ export async function GET(req: NextRequest) {
     // 5. Try to list GA4 properties (analytics.readonly scope)
     let ga4Properties: { property_id: string; display_name: string; account_name: string }[] = []
     let ga4Connected = false
+    console.log('[GA4-DEBUG] attempting accountSummaries with token:', accessToken?.slice(0, 15) + '...')
+    console.log('[GA4-DEBUG] token scopes from response:', tokenData.scope)
     try {
       const ga4Res = await fetch(
         'https://analyticsadmin.googleapis.com/v1beta/accountSummaries',
         { headers: { 'Authorization': `Bearer ${accessToken}` } }
       )
+      console.log('[GA4-DEBUG] accountSummaries response status:', ga4Res.status)
       if (ga4Res.ok) {
         const ga4Data = await ga4Res.json()
+        console.log('[GA4-DEBUG] accountSummaries body:', JSON.stringify(ga4Data).slice(0, 500))
         ga4Connected = true
         for (const acct of ga4Data.accountSummaries ?? []) {
           for (const prop of acct.propertySummaries ?? []) {
@@ -158,13 +162,15 @@ export async function GET(req: NextRequest) {
             })
           }
         }
+        console.log('[GA4-DEBUG] found properties:', ga4Properties.length, ga4Properties.map(p => `${p.property_id}:${p.display_name}`))
       } else {
         const errText = await ga4Res.text()
-        console.error('GA4 accountSummaries error:', ga4Res.status, errText.slice(0, 500))
+        console.error('[GA4-DEBUG] accountSummaries FAILED:', ga4Res.status, errText.slice(0, 800))
       }
     } catch (e: any) {
-      console.error('GA4 listing error:', e.message)
+      console.error('[GA4-DEBUG] listing exception:', e.message)
     }
+    console.log('[GA4-DEBUG] final state: ga4Connected=', ga4Connected, 'properties=', ga4Properties.length)
 
     // Auto-select first property (or only property)
     const ga4PropertyId = ga4Properties.length > 0 ? ga4Properties[0].property_id : null
