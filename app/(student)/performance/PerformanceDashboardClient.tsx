@@ -12,6 +12,10 @@ type AdsRow = {
   conversions: number; revenue: number; page_views?: number; outbound_clicks?: number
 }
 type ShopifyRow = { date: string; sessions: number; orders: number; revenue: number }
+type GA4Row = {
+  date: string; sessions: number; organic_sessions: number; paid_sessions: number
+  direct_sessions: number; social_sessions: number; users: number; new_users: number
+}
 
 type Props = {
   workspaceId: string
@@ -22,6 +26,7 @@ type Props = {
   metaAds: AdsRow[]
   googleAds: AdsRow[]
   shopifyMetrics: ShopifyRow[]
+  ga4Metrics?: GA4Row[]
 }
 
 type Period = 'today' | 'yesterday' | '7d' | '14d' | '21d' | '30d' | 'mes_atual' | 'custom'
@@ -41,7 +46,7 @@ const CANCELLED = ['cancelled', 'refused']
 
 function normalize(d: string) { return d?.slice(0, 10) ?? '' }
 
-function calcMetrics(orders: YampiOrder[], meta: AdsRow[], google: AdsRow[], shopify: ShopifyRow[]) {
+function calcMetrics(orders: YampiOrder[], meta: AdsRow[], google: AdsRow[], shopify: ShopifyRow[], ga4: GA4Row[] = []) {
   const paid = orders.filter(o => PAID.includes(o.status))
   const cancelled = orders.filter(o => CANCELLED.includes(o.status))
   const pix = orders.filter(o => (o.payment_method ?? '').toLowerCase() === 'pix')
@@ -69,13 +74,25 @@ function calcMetrics(orders: YampiOrder[], meta: AdsRow[], google: AdsRow[], sho
 
   const sessions = shopify.reduce((s, m) => s + (Number(m.sessions) || 0), 0)
   const cps = sessions > 0 ? totalSpend / sessions : 0
-  const conversionRate = sessions > 0 ? (ordersFaturados / sessions) * 100 : 0
+
+  // GA4 sessions
+  const ga4Sessions = ga4.reduce((s, m) => s + (Number(m.sessions) || 0), 0)
+  const ga4OrganicSessions = ga4.reduce((s, m) => s + (Number(m.organic_sessions) || 0), 0)
+  const ga4PaidSessions = ga4.reduce((s, m) => s + (Number(m.paid_sessions) || 0), 0)
+  const ga4DirectSessions = ga4.reduce((s, m) => s + (Number(m.direct_sessions) || 0), 0)
+  const ga4SocialSessions = ga4.reduce((s, m) => s + (Number(m.social_sessions) || 0), 0)
+  const hasGa4 = ga4.length > 0
+
+  // Use GA4 sessions for conversion rate if available, fallback to Shopify
+  const totalSessions = hasGa4 ? ga4Sessions : sessions
+  const conversionRate = totalSessions > 0 ? (ordersFaturados / totalSessions) * 100 : 0
 
   return {
     revenueCaptada, revenueFaturada, approvalRate, totalSpend, roas, avgTicket,
     sessions, cps, cac, conversionRate, pixApproval, checkoutConversion,
     ordersCaptados, ordersFaturados, couponOrders: coupon.length,
     cancellationRate, cpm, totalConversions,
+    ga4Sessions, ga4OrganicSessions, ga4PaidSessions, ga4DirectSessions, ga4SocialSessions, hasGa4, totalSessions,
   }
 }
 
@@ -84,7 +101,7 @@ type Metrics = ReturnType<typeof calcMetrics>
 export default function PerformanceDashboardClient(props: Props) {
   const {
     workspaceId, currentDay, daysInMonth, currentMonthLabel,
-    yampiOrders, metaAds, googleAds, shopifyMetrics,
+    yampiOrders, metaAds, googleAds, shopifyMetrics, ga4Metrics = [],
   } = props
 
   const [period, setPeriod] = useState<Period>('mes_atual')
@@ -100,6 +117,8 @@ export default function PerformanceDashboardClient(props: Props) {
   const [tempInvestment, setTempInvestment] = useState('')
   const [loadingPlan, setLoadingPlan] = useState(false)
   const [planError, setPlanError] = useState('')
+  const [syncing, setSyncing] = useState(false)
+  const [syncMsg, setSyncMsg] = useState('')
 
   useEffect(() => {
     const saved = localStorage.getItem('bl_performance_goals')
@@ -126,6 +145,29 @@ export default function PerformanceDashboardClient(props: Props) {
     setInvestmentGoal(i)
     localStorage.setItem('bl_performance_goals', JSON.stringify({ revenue: r, investment: i }))
     setShowGoalsModal(false)
+  }
+
+  async function handleSyncAll() {
+    setSyncing(true); setSyncMsg('')
+    const dateFrom = new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0]
+    const dateTo = new Date().toISOString().split('T')[0]
+    const body = JSON.stringify({ workspace_id: workspaceId, date_from: dateFrom, date_to: dateTo })
+    const headers = { 'Content-Type': 'application/json' }
+    try {
+      const ga4Body = JSON.stringify({ workspace_id: workspaceId })
+      const results = await Promise.allSettled([
+        fetch('/api/integrations/meta/sync', { method: 'POST', headers, body }),
+        fetch('/api/integrations/google-ads/sync', { method: 'POST', headers, body }),
+        fetch('/api/integrations/yampi/sync', { method: 'POST', headers, body }),
+        fetch('/api/integrations/ga4/sync', { method: 'POST', headers, body: ga4Body }),
+      ])
+      const ok = results.filter(r => r.status === 'fulfilled').length
+      setSyncMsg(`${ok}/4 fontes sincronizadas. Recarregando...`)
+      setTimeout(() => window.location.reload(), 1500)
+    } catch {
+      setSyncMsg('Erro ao sincronizar.')
+      setSyncing(false)
+    }
   }
 
   async function fetchFromMediaPlan() {
@@ -166,10 +208,11 @@ export default function PerformanceDashboardClient(props: Props) {
   const filteredMeta = useMemo(() => filterByPeriod(metaAds), [metaAds, period, appliedFrom, appliedTo])
   const filteredGoogle = useMemo(() => filterByPeriod(googleAds), [googleAds, period, appliedFrom, appliedTo])
   const filteredShopify = useMemo(() => filterByPeriod(shopifyMetrics), [shopifyMetrics, period, appliedFrom, appliedTo])
+  const filteredGa4 = useMemo(() => filterByPeriod(ga4Metrics), [ga4Metrics, period, appliedFrom, appliedTo])
 
   const current = useMemo(() =>
-    calcMetrics(filteredYampi, filteredMeta, filteredGoogle, filteredShopify),
-    [filteredYampi, filteredMeta, filteredGoogle, filteredShopify])
+    calcMetrics(filteredYampi, filteredMeta, filteredGoogle, filteredShopify, filteredGa4),
+    [filteredYampi, filteredMeta, filteredGoogle, filteredShopify, filteredGa4])
 
   // MTD — always compute for the MTD section
   const todayStr = new Date().toLocaleDateString('sv-SE')
@@ -178,7 +221,8 @@ export default function PerformanceDashboardClient(props: Props) {
   const mtdMeta = useMemo(() => metaAds.filter(m => normalize(m.date) >= mtdStart && normalize(m.date) <= todayStr), [metaAds, mtdStart, todayStr])
   const mtdGoogle = useMemo(() => googleAds.filter(m => normalize(m.date) >= mtdStart && normalize(m.date) <= todayStr), [googleAds, mtdStart, todayStr])
   const mtdShopify = useMemo(() => shopifyMetrics.filter(m => normalize(m.date) >= mtdStart && normalize(m.date) <= todayStr), [shopifyMetrics, mtdStart, todayStr])
-  const mtdMetrics = useMemo(() => calcMetrics(mtdYampi, mtdMeta, mtdGoogle, mtdShopify), [mtdYampi, mtdMeta, mtdGoogle, mtdShopify])
+  const mtdGa4 = useMemo(() => ga4Metrics.filter(m => normalize(m.date) >= mtdStart && normalize(m.date) <= todayStr), [ga4Metrics, mtdStart, todayStr])
+  const mtdMetrics = useMemo(() => calcMetrics(mtdYampi, mtdMeta, mtdGoogle, mtdShopify, mtdGa4), [mtdYampi, mtdMeta, mtdGoogle, mtdShopify, mtdGa4])
 
   // Prev month same-period comparison
   const today2 = new Date()
@@ -192,7 +236,8 @@ export default function PerformanceDashboardClient(props: Props) {
   const prevMeta = useMemo(() => metaAds.filter(m => normalize(m.date) >= prevMonthStart && normalize(m.date) <= prevMonthSameDay), [metaAds, prevMonthStart, prevMonthSameDay])
   const prevGoogle = useMemo(() => googleAds.filter(m => normalize(m.date) >= prevMonthStart && normalize(m.date) <= prevMonthSameDay), [googleAds, prevMonthStart, prevMonthSameDay])
   const prevShopify = useMemo(() => shopifyMetrics.filter(m => normalize(m.date) >= prevMonthStart && normalize(m.date) <= prevMonthSameDay), [shopifyMetrics, prevMonthStart, prevMonthSameDay])
-  const previous = useMemo(() => calcMetrics(prevYampi, prevMeta, prevGoogle, prevShopify), [prevYampi, prevMeta, prevGoogle, prevShopify])
+  const prevGa4 = useMemo(() => ga4Metrics.filter(m => normalize(m.date) >= prevMonthStart && normalize(m.date) <= prevMonthSameDay), [ga4Metrics, prevMonthStart, prevMonthSameDay])
+  const previous = useMemo(() => calcMetrics(prevYampi, prevMeta, prevGoogle, prevShopify, prevGa4), [prevYampi, prevMeta, prevGoogle, prevShopify, prevGa4])
 
   // Daily targets for gauges (always based on MTD)
   const dailyRevenueTarget = revenueGoal > 0 ? revenueGoal / daysInMonth : 0
@@ -215,8 +260,8 @@ export default function PerformanceDashboardClient(props: Props) {
       { label: 'Conversões Ads', value: fmtNumber(current.totalConversions), curr: current.totalConversions, prev: previous.totalConversions },
       { label: 'CAC', value: fmtCurrency(current.cac), curr: current.cac, prev: previous.cac, invertColor: true },
       { label: 'CPM', value: fmtCurrency(current.cpm), curr: current.cpm, prev: previous.cpm, invertColor: true },
-      { label: 'Sessões', value: fmtNumber(current.sessions), curr: current.sessions, prev: previous.sessions },
-      { label: 'CPS', value: fmtCurrency(current.cps), curr: current.cps, prev: previous.cps, invertColor: true },
+      { label: current.hasGa4 ? 'Sessões (GA4)' : 'Sessões', value: fmtNumber(current.totalSessions), curr: current.totalSessions, prev: previous.totalSessions },
+      { label: 'Sessões Orgânicas', value: current.hasGa4 ? fmtNumber(current.ga4OrganicSessions) : '—', curr: current.ga4OrganicSessions, prev: previous.ga4OrganicSessions },
       { label: 'Taxa Conversão', value: `${current.conversionRate.toFixed(2)}%`, curr: current.conversionRate, prev: previous.conversionRate },
     ],
     [
@@ -246,6 +291,16 @@ export default function PerformanceDashboardClient(props: Props) {
             vs <span className="capitalize">{prevMonthLabel}</span> (mesmos {currentDay} dias)
           </span>
           <button
+            onClick={handleSyncAll}
+            disabled={syncing}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-bg-card border border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors cursor-pointer disabled:opacity-50"
+          >
+            <span className="flex items-center gap-1.5">
+              <SyncIcon />
+              {syncing ? 'Sincronizando...' : 'Sincronizar'}
+            </span>
+          </button>
+          <button
             onClick={openGoalsModal}
             className="px-3 py-1.5 text-xs font-medium rounded-lg bg-bg-card border border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors cursor-pointer"
           >
@@ -255,6 +310,22 @@ export default function PerformanceDashboardClient(props: Props) {
             </span>
           </button>
         </div>
+      </div>
+
+      {/* Sync message */}
+      {syncMsg && (
+        <div className="px-3 py-2 rounded-lg bg-brand-gold/10 border border-brand-gold/20 text-brand-gold text-xs">
+          {syncMsg}
+        </div>
+      )}
+
+      {/* Data source labels */}
+      <div className="flex flex-wrap gap-2">
+        <span className="px-2 py-1 rounded-md bg-bg-card border border-border text-[10px] text-text-muted font-medium">Vendas: Yampi</span>
+        <span className="px-2 py-1 rounded-md bg-bg-card border border-border text-[10px] text-text-muted font-medium">Ads: Meta + Google</span>
+        <span className={`px-2 py-1 rounded-md bg-bg-card border text-[10px] font-medium ${current.hasGa4 ? 'border-orange-500/30 text-orange-400' : 'border-border text-text-muted'}`}>
+          Sessões: {current.hasGa4 ? 'GA4' : 'Shopify'}
+        </span>
       </div>
 
       {/* Period filter pills */}
@@ -511,6 +582,15 @@ function ProjectionIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" /><polyline points="17 6 23 6 23 12" />
+    </svg>
+  )
+}
+
+function SyncIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" />
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
     </svg>
   )
 }

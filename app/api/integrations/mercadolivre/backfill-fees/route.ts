@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
             mlCommission += Number(item.sale_fee || 0)
           }
 
-          // Step 2: Fetch shipment for frete_custo (net of discounts)
+          // Step 2: Fetch shipment for frete_custo (shipping_option.list_cost = actual seller charge)
           const shippingId = orderData.shipping?.id
           let freteCusto = 0
 
@@ -118,10 +118,8 @@ export async function POST(req: NextRequest) {
             })
             if (shipRes.ok) {
               const shipment = await shipRes.json()
-              const baseCost = Number(shipment?.base_cost || 0)
-              const loyalDiscount = Math.abs(Number(shipment?.cost_components?.loyal_discount || 0))
-              const specialDiscount = Math.abs(Number(shipment?.cost_components?.special_discount || 0))
-              freteCusto = Math.max(0, baseCost - loyalDiscount - specialDiscount)
+              const listCost = shipment?.shipping_option?.list_cost
+              freteCusto = listCost != null ? Math.max(0, Number(listCost)) : 0
             }
           }
 

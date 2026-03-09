@@ -177,7 +177,7 @@ export default async function MetricasPage({
         shopifyMetrics={(shopifyMetrics ?? []) as any[]}
         yampiMetrics={(yampiMetrics ?? []) as any[]}
         yampiOrders={(yampiOrders ?? []) as any[]}
-        initialTab={(tab as 'meta' | 'google' | 'yampi') || undefined}
+        initialTab={(tab as 'meta' | 'google' | 'yampi' | 'influenciadores') || undefined}
       />
     </div>
   )

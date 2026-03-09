@@ -147,6 +147,36 @@ export async function GET(req: NextRequest) {
 
     const firstAccount = accounts.find(a => !a.is_manager) || accounts[0]
 
+    // 5. Try to list GA4 properties (analytics.readonly scope)
+    let ga4Properties: { property_id: string; display_name: string; account_name: string }[] = []
+    let ga4Connected = false
+    try {
+      const ga4Res = await fetch(
+        'https://analyticsadmin.googleapis.com/v1beta/accountSummaries',
+        { headers: { 'Authorization': `Bearer ${accessToken}` } }
+      )
+      if (ga4Res.ok) {
+        const ga4Data = await ga4Res.json()
+        ga4Connected = true
+        for (const acct of ga4Data.accountSummaries ?? []) {
+          for (const prop of acct.propertySummaries ?? []) {
+            ga4Properties.push({
+              property_id: prop.property?.replace('properties/', '') || '',
+              display_name: prop.displayName || 'Unknown',
+              account_name: acct.displayName || 'Unknown',
+            })
+          }
+        }
+        console.log(`GA4: found ${ga4Properties.length} properties`)
+      } else {
+        console.log('GA4: analytics scope not available (user needs to reconnect)')
+      }
+    } catch (e: any) {
+      console.error('GA4 listing error:', e.message)
+    }
+
+    const ga4PropertyId = ga4Properties.length === 1 ? ga4Properties[0].property_id : null
+
     await supabase.from('workspace_integrations').upsert({
       workspace_id: workspaceId,
       provider: 'google_ads',
@@ -156,7 +186,13 @@ export async function GET(req: NextRequest) {
       account_id: firstAccount?.customer_id || null,
       account_name: firstAccount?.name || null,
       status: firstAccount ? 'active' : 'pending_account',
-      metadata: { accounts, currency: firstAccount?.currency || 'BRL' },
+      metadata: {
+        accounts,
+        currency: firstAccount?.currency || 'BRL',
+        ga4_connected: ga4Connected,
+        ga4_properties: ga4Properties,
+        ga4_property_id: ga4PropertyId,
+      },
       updated_at: new Date().toISOString(),
     }, { onConflict: 'workspace_id,provider' })
 

@@ -213,13 +213,11 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // Frete: base_cost minus reputation/special discounts from cost_components
+        // Frete: use shipping_option.list_cost (actual seller shipping charge)
         const shippingId = String(order.shipping?.id || '')
         const shipmentDetail = shippingCache.get(shippingId) || {}
-        const baseCost = Number(shipmentDetail.base_cost || 0)
-        const loyalDiscount = Math.abs(Number(shipmentDetail.cost_components?.loyal_discount || 0))
-        const specialDiscount = Math.abs(Number(shipmentDetail.cost_components?.special_discount || 0))
-        const freteCusto = Math.max(0, baseCost - loyalDiscount - specialDiscount)
+        const listCost = shipmentDetail?.shipping_option?.list_cost
+        const freteCusto = listCost != null ? Math.max(0, Number(listCost)) : 0
 
         const totalFee = mlCommission
         const netRevenueFull = revenue - mlCommission - freteCusto

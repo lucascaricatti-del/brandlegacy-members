@@ -78,13 +78,10 @@ export default function StudentLayoutShell({
 
             {/* Collapsible: Métricas de Mídia */}
             <CollapsibleSection title="Métricas de Mídia" icon={<IconMetricasMidia />} isOpen={midiaOpen} onToggle={() => setMidiaOpen(!midiaOpen)} href="/metricas" onNavigate={() => setOpen(false)}>
-              <SubNavItem href="/metricas?tab=meta" label="Meta" onNavigate={() => setOpen(false)} />
-              <SubNavItem href="/metricas?tab=google" label="Google" onNavigate={() => setOpen(false)} />
-              <SubNavItem href="/metricas?tab=yampi" label="Yampi" onNavigate={() => setOpen(false)} />
-              <div className="flex items-center gap-2 px-3 py-2 pl-9 text-xs text-text-muted/60">
-                <span>Influenciadores</span>
-                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-white/5 text-text-muted/50">em breve</span>
-              </div>
+              <SubNavItem href="/metricas?tab=meta" label="Meta Ads" icon={<IconSubMeta />} onNavigate={() => setOpen(false)} />
+              <SubNavItem href="/metricas?tab=google" label="Google Ads" icon={<IconSubGoogle />} onNavigate={() => setOpen(false)} />
+              <SubNavItem href="/metricas?tab=yampi" label="Yampi" icon={<IconSubYampi />} onNavigate={() => setOpen(false)} />
+              <SubNavItem href="/metricas?tab=influenciadores" label="Influenciadores" icon={<IconSubInflu />} onNavigate={() => setOpen(false)} />
             </CollapsibleSection>
 
             <NavItem href="/marketplaces" icon={<IconMarketplaces />} label="Marketplaces" onNavigate={() => setOpen(false)} />
@@ -187,13 +184,14 @@ function NavItem({
   )
 }
 
-function SubNavItem({ href, label, onNavigate }: { href: string; label: string; onNavigate: () => void }) {
+function SubNavItem({ href, label, icon, onNavigate }: { href: string; label: string; icon?: React.ReactNode; onNavigate: () => void }) {
   return (
     <Link
       href={href}
       onClick={onNavigate}
-      className="flex items-center gap-2 px-3 py-2 pl-9 rounded-lg text-xs text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors"
+      className="flex items-center gap-2.5 px-3 py-2 ml-6 rounded-lg text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover border-l-2 border-transparent hover:border-brand-gold transition-all group"
     >
+      {icon && <span className="text-text-muted group-hover:text-brand-gold transition-colors">{icon}</span>}
       {label}
     </Link>
   )
@@ -262,7 +260,7 @@ function CollapsibleSection({
       </div>
       <div
         className={`overflow-hidden transition-all duration-200 ease-in-out ${
-          isOpen ? 'max-h-60 opacity-100' : 'max-h-0 opacity-0'
+          isOpen ? 'max-h-80 opacity-100' : 'max-h-0 opacity-0'
         }`}
       >
         <div className="space-y-0.5 py-0.5">
@@ -408,6 +406,37 @@ function IconLogout() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
+    </svg>
+  )
+}
+function IconSubMeta() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+      <path d="M12 2.04C6.5 2.04 2 6.53 2 12.06C2 17.06 5.66 21.21 10.44 21.96V14.96H7.9V12.06H10.44V9.85C10.44 7.34 11.93 5.96 14.22 5.96C15.31 5.96 16.45 6.15 16.45 6.15V8.62H15.19C13.95 8.62 13.56 9.39 13.56 10.18V12.06H16.34L15.89 14.96H13.56V21.96C18.34 21.21 22 17.06 22 12.06C22 6.53 17.5 2.04 12 2.04Z"/>
+    </svg>
+  )
+}
+function IconSubGoogle() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+      <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
+      <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+      <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+      <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+    </svg>
+  )
+}
+function IconSubYampi() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4 text-green-400">
+      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  )
+}
+function IconSubInflu() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+      <path d="M10 1l2.39 5.75L18 9.27l-4.55 3.56L14.76 19 10 15.67 5.24 19l1.31-6.17L2 9.27l5.61-2.52L10 1z"/>
     </svg>
   )
 }

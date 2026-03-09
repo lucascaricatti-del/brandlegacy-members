@@ -46,7 +46,25 @@ type InventorySummary = {
   total_stock: number
 }
 
+type InventoryItem = {
+  item_id: string
+  sku: string | null
+  title: string
+  available_qty: number
+  sold_qty: number
+  price: number
+  inventory_id: string | null
+  logistic_type: string | null
+  health: number | null
+  listing_type_id: string | null
+  thumbnail: string | null
+  updated_at: string | null
+}
+
 type Tab = 'mercadolivre' | 'shopee' | 'magalu' | 'netshoes'
+type MlSubTab = 'vendas' | 'estoque'
+type SortKey = 'sku' | 'title' | 'available_qty' | 'sold_qty' | 'price' | 'health'
+type SortDir = 'asc' | 'desc'
 
 const TABS: { id: Tab; name: string; color: string; textColor: string; icon: string; enabled: boolean }[] = [
   { id: 'mercadolivre', name: 'Mercado Livre', color: '#FFE600', textColor: '#2D3277', icon: 'ML', enabled: true },
@@ -112,6 +130,7 @@ export default function MarketplacesClient({
   isConnected: boolean
 }) {
   const [activeTab, setActiveTab] = useState<Tab>('mercadolivre')
+  const [mlSubTab, setMlSubTab] = useState<MlSubTab>('vendas')
   const [period, setPeriod] = useState<Period>('mes_atual')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
@@ -124,6 +143,10 @@ export default function MarketplacesClient({
   const [topProducts, setTopProducts] = useState<TopProduct[]>([])
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<string | null>(null)
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([])
+  const [inventoryLoading, setInventoryLoading] = useState(false)
+  const [inventorySyncing, setInventorySyncing] = useState(false)
+  const [inventorySort, setInventorySort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'available_qty', dir: 'asc' })
 
   // Current date range ref for manual cost saves
   const currentRangeRef = useRef<{ date_from: string; date_to: string }>({ date_from: '', date_to: '' })
@@ -222,6 +245,45 @@ export default function MarketplacesClient({
     }
   }
 
+  const fetchInventory = useCallback(async () => {
+    setInventoryLoading(true)
+    try {
+      const res = await fetch(`/api/marketplace/inventory?workspace_id=${workspaceId}`)
+      const data = await res.json()
+      if (!data.error) setInventoryItems(data.items || [])
+    } catch (err) {
+      console.error('[marketplaces] inventory fetch error:', err)
+    }
+    setInventoryLoading(false)
+  }, [workspaceId])
+
+  useEffect(() => {
+    if (isConnected && mlSubTab === 'estoque' && inventoryItems.length === 0) {
+      fetchInventory()
+    }
+  }, [mlSubTab, isConnected, fetchInventory, inventoryItems.length])
+
+  async function handleInventorySync() {
+    setInventorySyncing(true); setSyncMsg(null)
+    try {
+      const res = await fetch('/api/integrations/mercadolivre/items-sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: workspaceId }),
+      })
+      const data = await res.json()
+      if (data.error) {
+        setSyncMsg({ type: 'error', text: data.error })
+      } else {
+        setSyncMsg({ type: 'success', text: `${data.synced} SKUs sincronizados!` })
+        fetchInventory()
+      }
+    } catch {
+      setSyncMsg({ type: 'error', text: 'Erro ao sincronizar estoque.' })
+    }
+    setInventorySyncing(false)
+  }
+
   // Computed values
   const totalManualCosts = manualCosts.ml_ads_cost + manualCosts.ml_fulfillment_cost + manualCosts.ml_return_fee + manualCosts.ml_other_fees
   const totalAutoFees = metrics.total_fees
@@ -229,6 +291,52 @@ export default function MarketplacesClient({
   const vendasLiquidas = metrics.total_revenue - totalAllCosts
   const hasManualCosts = totalManualCosts > 0
   const margin = metrics.total_revenue > 0 ? (vendasLiquidas / metrics.total_revenue) * 100 : 0
+
+  // Inventory computed: group by inventory_id, sort
+  const groupedInventory = (() => {
+    const groups = new Map<string, InventoryItem[]>()
+    for (const item of inventoryItems) {
+      const key = item.inventory_id || item.item_id
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key)!.push(item)
+    }
+    const rows: (InventoryItem & { _group_count: number; _group_items: InventoryItem[] })[] = []
+    for (const [, items] of groups) {
+      const primary = items[0]
+      rows.push({
+        ...primary,
+        sold_qty: items.reduce((s, i) => s + i.sold_qty, 0),
+        _group_count: items.length,
+        _group_items: items,
+      })
+    }
+    // Sort
+    rows.sort((a, b) => {
+      const k = inventorySort.key
+      const av = k === 'title' || k === 'sku' ? (a[k] || '').toLowerCase() : Number(a[k] ?? 0)
+      const bv = k === 'title' || k === 'sku' ? (b[k] || '').toLowerCase() : Number(b[k] ?? 0)
+      if (av < bv) return inventorySort.dir === 'asc' ? -1 : 1
+      if (av > bv) return inventorySort.dir === 'asc' ? 1 : -1
+      return 0
+    })
+    return rows
+  })()
+
+  const invTotalSkus = groupedInventory.length
+  const invFulfillment = groupedInventory.filter(i => i.logistic_type === 'fulfillment').length
+  const invTotalStock = groupedInventory.reduce((s, i) => s + i.available_qty, 0)
+  const invTotalSold = groupedInventory.reduce((s, i) => s + i.sold_qty, 0)
+  const invCritical = groupedInventory.filter(i => i.available_qty > 0 && i.available_qty < 5).length
+  const invZero = groupedInventory.filter(i => i.available_qty === 0).length
+  const invLowHealth = groupedInventory.filter(i => i.health != null && i.health < 0.6).length
+
+  function toggleSort(key: SortKey) {
+    setInventorySort(prev =>
+      prev.key === key
+        ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+        : { key, dir: key === 'available_qty' ? 'asc' : 'desc' }
+    )
+  }
 
   const tab = TABS.find((t) => t.id === activeTab)!
 
@@ -282,6 +390,32 @@ export default function MarketplacesClient({
             </div>
           ) : (
             <>
+              {/* ML Sub-tabs */}
+              <div className="flex gap-1 border-b border-border pb-0">
+                <button
+                  onClick={() => setMlSubTab('vendas')}
+                  className={`px-4 py-2 text-sm font-medium transition-colors rounded-t-lg ${
+                    mlSubTab === 'vendas'
+                      ? 'text-brand-gold border-b-2 border-brand-gold bg-bg-card'
+                      : 'text-text-muted hover:text-text-secondary'
+                  }`}
+                >
+                  Vendas
+                </button>
+                <button
+                  onClick={() => setMlSubTab('estoque')}
+                  className={`px-4 py-2 text-sm font-medium transition-colors rounded-t-lg ${
+                    mlSubTab === 'estoque'
+                      ? 'text-brand-gold border-b-2 border-brand-gold bg-bg-card'
+                      : 'text-text-muted hover:text-text-secondary'
+                  }`}
+                >
+                  Estoque &amp; SKUs
+                </button>
+              </div>
+
+              {mlSubTab === 'vendas' ? (
+              <>
               {/* Period Filter + Sync */}
               <div className="flex flex-wrap gap-1.5 md:gap-2">
                 {PERIODS.map((p) => (
@@ -435,54 +569,180 @@ export default function MarketplacesClient({
                 </div>
               )}
 
-              {/* Inventory + Claims Summary */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="bg-bg-card border border-border rounded-xl p-4">
-                  <h3 className="text-sm font-semibold text-text-primary mb-3">Estoque</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-xs text-text-muted">Anúncios Ativos</p>
-                      <p className="text-xl font-bold text-text-primary">{inventory.total_items.toLocaleString('pt-BR')}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-text-muted">Unidades em Estoque</p>
-                      <p className="text-xl font-bold text-text-primary">{inventory.total_stock.toLocaleString('pt-BR')}</p>
-                    </div>
+              {/* Claims Summary */}
+              <div className="bg-bg-card border border-border rounded-xl p-4">
+                <h3 className="text-sm font-semibold text-text-primary mb-3">Reclamações</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-text-muted">Total</p>
+                    <p className="text-xl font-bold text-red-400">{claims.length.toLocaleString('pt-BR')}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-text-muted">Valor Total</p>
+                    <p className="text-xl font-bold text-red-400">
+                      {formatBRL(claims.reduce((s, c) => s + (c.amount || 0), 0))}
+                    </p>
                   </div>
                 </div>
-                <div className="bg-bg-card border border-border rounded-xl p-4">
-                  <h3 className="text-sm font-semibold text-text-primary mb-3">Reclamações</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-xs text-text-muted">Total</p>
-                      <p className="text-xl font-bold text-red-400">{claims.length.toLocaleString('pt-BR')}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-text-muted">Valor Total</p>
-                      <p className="text-xl font-bold text-red-400">
-                        {formatBRL(claims.reduce((s, c) => s + (c.amount || 0), 0))}
-                      </p>
+                {claims.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-border">
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      {Object.entries(
+                        claims.reduce<Record<string, number>>((acc, c) => {
+                          const s = c.status || 'unknown'
+                          acc[s] = (acc[s] || 0) + 1
+                          return acc
+                        }, {})
+                      ).map(([status, count]) => (
+                        <span key={status} className="px-2 py-0.5 rounded-full bg-bg-surface text-text-muted border border-border">
+                          {status}: {count}
+                        </span>
+                      ))}
                     </div>
                   </div>
-                  {claims.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-border">
-                      <div className="flex flex-wrap gap-2 text-xs">
-                        {Object.entries(
-                          claims.reduce<Record<string, number>>((acc, c) => {
-                            const s = c.status || 'unknown'
-                            acc[s] = (acc[s] || 0) + 1
-                            return acc
-                          }, {})
-                        ).map(([status, count]) => (
-                          <span key={status} className="px-2 py-0.5 rounded-full bg-bg-surface text-text-muted border border-border">
-                            {status}: {count}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                )}
               </div>
+              </>
+              ) : (
+              /* ═══════════════ ESTOQUE & SKUs TAB ═══════════════ */
+              <>
+                {/* Sync button */}
+                <div className="flex items-center gap-2">
+                  {inventoryLoading && <span className="text-xs text-text-muted">Carregando...</span>}
+                  {syncMsg && (
+                    <span className={`text-xs ${syncMsg.type === 'success' ? 'text-success' : 'text-error'}`}>
+                      {syncMsg.text}
+                    </span>
+                  )}
+                  <button onClick={handleInventorySync} disabled={inventorySyncing}
+                    className="px-3 py-1.5 text-sm rounded-lg border border-border text-text-secondary hover:bg-bg-hover transition-colors disabled:opacity-50">
+                    {inventorySyncing ? 'Sincronizando...' : 'Sincronizar Estoque'}
+                  </button>
+                </div>
+
+                {/* KPI Row */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <KPICard label="Total SKUs Ativos" value={invTotalSkus.toLocaleString('pt-BR')} />
+                  <KPICard label="Em Fulfillment" value={invFulfillment.toLocaleString('pt-BR')} />
+                  <KPICard label="Estoque Total" value={invTotalStock.toLocaleString('pt-BR')} />
+                  <KPICard label="Vendas Totais (histórico)" value={invTotalSold.toLocaleString('pt-BR')} />
+                </div>
+
+                {/* Alert Cards */}
+                {(invZero > 0 || invCritical > 0 || invLowHealth > 0) && (
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {invZero > 0 && (
+                      <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
+                        <p className="text-xs text-red-400 mb-1">Estoque Zerado</p>
+                        <p className="text-xl font-bold text-red-400">{invZero} SKUs</p>
+                      </div>
+                    )}
+                    {invCritical > 0 && (
+                      <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
+                        <p className="text-xs text-red-400 mb-1">Estoque Crítico (&lt; 5 un.)</p>
+                        <p className="text-xl font-bold text-red-400">{invCritical} SKUs</p>
+                      </div>
+                    )}
+                    {invLowHealth > 0 && (
+                      <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4">
+                        <p className="text-xs text-yellow-400 mb-1">Health Baixo (&lt; 60%)</p>
+                        <p className="text-xl font-bold text-yellow-400">{invLowHealth} SKUs</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* SKUs Table */}
+                <SectionTitle title="SKUs" />
+                {groupedInventory.length > 0 ? (
+                  <div className="bg-bg-card border border-border rounded-xl p-4">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-border text-left" style={{ color: '#C9971A' }}>
+                            <th className="pb-2 pr-2 w-12"></th>
+                            <SortableHeader label="SKU" sortKey="sku" current={inventorySort} onSort={toggleSort} />
+                            <SortableHeader label="Produto" sortKey="title" current={inventorySort} onSort={toggleSort} />
+                            <SortableHeader label="Estoque" sortKey="available_qty" current={inventorySort} onSort={toggleSort} align="right" />
+                            <SortableHeader label="Vendas" sortKey="sold_qty" current={inventorySort} onSort={toggleSort} align="right" />
+                            <SortableHeader label="Preço" sortKey="price" current={inventorySort} onSort={toggleSort} align="right" />
+                            <th className="pb-2 pr-2 text-xs font-medium">Tipo</th>
+                            <SortableHeader label="Health" sortKey="health" current={inventorySort} onSort={toggleSort} align="center" />
+                            <th className="pb-2 text-xs font-medium text-center">Full</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {groupedInventory.map((item) => (
+                            <tr key={item.inventory_id || item.item_id} className="border-b border-border/50 last:border-0">
+                              {/* Thumbnail */}
+                              <td className="py-2 pr-2">
+                                {item.thumbnail ? (
+                                  <img src={item.thumbnail} alt="" className="w-10 h-10 rounded object-cover bg-bg-surface" />
+                                ) : (
+                                  <div className="w-10 h-10 rounded bg-bg-surface" />
+                                )}
+                              </td>
+                              {/* SKU */}
+                              <td className="py-2 pr-2 text-text-secondary text-xs font-mono whitespace-nowrap">
+                                {item.sku || item.item_id}
+                                {item._group_count > 1 && (
+                                  <span className="ml-1 text-[10px] px-1 py-0.5 rounded bg-bg-surface text-text-muted border border-border">
+                                    {item._group_count} anúncios
+                                  </span>
+                                )}
+                              </td>
+                              {/* Produto */}
+                              <td className="py-2 pr-2 text-text-primary max-w-[250px]">
+                                <span className="block truncate" title={item.title}>{item.title.slice(0, 40)}{item.title.length > 40 ? '...' : ''}</span>
+                              </td>
+                              {/* Estoque */}
+                              <td className="py-2 pr-2 text-right">
+                                <span className={`font-bold ${
+                                  item.available_qty === 0 ? 'text-red-400' :
+                                  item.available_qty < 5 ? 'text-red-400' :
+                                  item.available_qty < 20 ? 'text-yellow-400' :
+                                  'text-emerald-400'
+                                }`}>
+                                  {item.available_qty.toLocaleString('pt-BR')}
+                                </span>
+                              </td>
+                              {/* Vendas */}
+                              <td className="py-2 pr-2 text-right text-text-secondary">
+                                {item.sold_qty.toLocaleString('pt-BR')}
+                              </td>
+                              {/* Preço */}
+                              <td className="py-2 pr-2 text-right text-text-secondary">
+                                {formatBRL(item.price)}
+                              </td>
+                              {/* Tipo */}
+                              <td className="py-2 pr-2">
+                                <ListingTypeBadge type={item.listing_type_id} />
+                              </td>
+                              {/* Health */}
+                              <td className="py-2 pr-2">
+                                {item.health != null ? <HealthBar value={item.health} /> : <span className="text-text-muted text-xs">—</span>}
+                              </td>
+                              {/* Fulfillment */}
+                              <td className="py-2 text-center">
+                                {item.logistic_type === 'fulfillment' ? (
+                                  <span className="text-emerald-400 text-sm">✓</span>
+                                ) : (
+                                  <span className="text-text-muted text-sm">—</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-bg-card border border-border rounded-xl p-6 text-center text-text-muted text-sm">
+                    {inventoryLoading ? 'Carregando...' : 'Nenhum item encontrado. Clique em "Sincronizar Estoque" para importar.'}
+                  </div>
+                )}
+              </>
+              )}
             </>
           )}
         </>
@@ -688,6 +948,46 @@ function TotalCostCard({ totalAll, totalAuto, totalManual }: { totalAll: number;
           <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-[#1a1a1a]" />
         </div>
       )}
+    </div>
+  )
+}
+
+function SortableHeader({ label, sortKey, current, onSort, align }: {
+  label: string; sortKey: SortKey; current: { key: SortKey; dir: SortDir }; onSort: (k: SortKey) => void; align?: string
+}) {
+  const active = current.key === sortKey
+  return (
+    <th
+      className={`pb-2 pr-2 text-xs font-medium cursor-pointer select-none hover:opacity-80 transition-opacity ${align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : ''}`}
+      onClick={() => onSort(sortKey)}
+    >
+      {label}
+      {active && <span className="ml-0.5">{current.dir === 'asc' ? '↑' : '↓'}</span>}
+    </th>
+  )
+}
+
+function ListingTypeBadge({ type }: { type: string | null }) {
+  if (!type) return <span className="text-text-muted text-xs">—</span>
+  const map: Record<string, { label: string; cls: string }> = {
+    gold_pro: { label: 'Premium', cls: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/20' },
+    gold_special: { label: 'Clássico', cls: 'bg-blue-500/15 text-blue-400 border-blue-500/20' },
+    gold: { label: 'Ouro', cls: 'bg-yellow-500/15 text-yellow-300 border-yellow-500/20' },
+  }
+  const m = map[type] || { label: type.replace(/_/g, ' '), cls: 'bg-bg-surface text-text-muted border-border' }
+  return <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${m.cls}`}>{m.label}</span>
+}
+
+function HealthBar({ value }: { value: number }) {
+  const pct = Math.round(value * 100)
+  const color = pct >= 80 ? 'bg-emerald-400' : pct >= 60 ? 'bg-yellow-400' : 'bg-red-400'
+  const textColor = pct >= 80 ? 'text-emerald-400' : pct >= 60 ? 'text-yellow-400' : 'text-red-400'
+  return (
+    <div className="flex items-center gap-1.5 justify-center">
+      <div className="w-12 h-1.5 bg-bg-surface rounded-full overflow-hidden">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className={`text-[10px] font-mono ${textColor}`}>{pct}%</span>
     </div>
   )
 }

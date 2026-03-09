@@ -6,10 +6,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'workspace_id required' }, { status: 400 })
   }
 
+  const scopes = [
+    'https://www.googleapis.com/auth/adwords',
+    'https://www.googleapis.com/auth/analytics.readonly',
+  ]
+
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_ADS_CLIENT_ID!,
     redirect_uri: `${req.nextUrl.origin}/api/integrations/google-ads/callback`,
-    scope: 'https://www.googleapis.com/auth/adwords',
+    scope: scopes.join(' '),
     state: workspaceId,
     response_type: 'code',
     access_type: 'offline',

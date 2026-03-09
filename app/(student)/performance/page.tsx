@@ -58,6 +58,7 @@ export default async function PerformancePage() {
     { data: metaAds },
     { data: googleAds },
     { data: shopifyMetrics },
+    { data: ga4Metrics },
   ] = await Promise.all([
     (adminSupabase as any).from('yampi_orders').select('*')
       .eq('workspace_id', ws.id).gte('date', sinceStr).limit(10000),
@@ -70,6 +71,10 @@ export default async function PerformancePage() {
     (adminSupabase as any).from('ecommerce_metrics').select('*')
       .eq('workspace_id', ws.id).eq('provider', 'shopify')
       .gte('date', sinceStr).limit(2000),
+    (adminSupabase as any).from('ga4_metrics').select('*')
+      .eq('workspace_id', ws.id).gte('date', sinceStr).limit(2000)
+      .then((r: any) => ({ data: r.data ?? [] }))
+      .catch(() => ({ data: [] })),
   ])
 
   return (
@@ -89,6 +94,7 @@ export default async function PerformancePage() {
         metaAds={(metaAds ?? []) as any[]}
         googleAds={(googleAds ?? []) as any[]}
         shopifyMetrics={(shopifyMetrics ?? []) as any[]}
+        ga4Metrics={(ga4Metrics ?? []) as any[]}
       />
     </div>
   )

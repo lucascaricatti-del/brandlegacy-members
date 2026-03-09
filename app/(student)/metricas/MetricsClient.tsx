@@ -7,6 +7,7 @@ import {
   AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
+import InfluencersTab from './InfluencersTab'
 
 type AdsRow = {
   id: string; date: string; campaign_id: string; campaign_name: string;
@@ -44,7 +45,7 @@ const PERIODS: { key: Period; label: string; days: number }[] = [
   { key: 'custom', label: 'Personalizado', days: 0 },
 ]
 
-type Tab = 'meta' | 'google' | 'yampi'
+type Tab = 'meta' | 'google' | 'yampi' | 'influenciadores'
 
 function normalize(d: string) { return d?.slice(0, 10) ?? '' }
 
@@ -132,7 +133,7 @@ export default function MetricsClient({
 
   // Sync activeTab when URL ?tab= changes (e.g. sidebar navigation)
   useEffect(() => {
-    if (urlTab && (urlTab === 'meta' || urlTab === 'google' || urlTab === 'yampi')) {
+    if (urlTab && (urlTab === 'meta' || urlTab === 'google' || urlTab === 'yampi' || urlTab === 'influenciadores')) {
       setActiveTab(urlTab)
     }
   }, [urlTab])
@@ -140,8 +141,19 @@ export default function MetricsClient({
   const [reportLoading, setReportLoading] = useState(false)
   const [reportMarkdown, setReportMarkdown] = useState('')
 
+  // Campaign table sort state
+  type CampSortKey = 'name' | 'spend' | 'revenue' | 'roas' | 'conversions' | 'cpr' | 'ctr' | 'cpc'
+  const [campSortKey, setCampSortKey] = useState<CampSortKey>('roas')
+  const [campSortAsc, setCampSortAsc] = useState(false)
+
+  function toggleCampSort(key: CampSortKey) {
+    if (campSortKey === key) setCampSortAsc(!campSortAsc)
+    else { setCampSortKey(key); setCampSortAsc(false) }
+  }
+
   const isAdsTab = activeTab === 'meta' || activeTab === 'google'
-  const isConnected = activeTab === 'meta' ? isMetaConnected : activeTab === 'google' ? isGoogleConnected : isYampiConnected
+  const isInfluencersTab = activeTab === 'influenciadores'
+  const isConnected = activeTab === 'meta' ? isMetaConnected : activeTab === 'google' ? isGoogleConnected : activeTab === 'influenciadores' ? isYampiConnected : isYampiConnected
   const syncing = activeTab === 'meta' ? metaSyncing : activeTab === 'google' ? googleSyncing : yampiSyncing
   const syncMsg = activeTab === 'meta' ? metaSyncMsg : activeTab === 'google' ? googleSyncMsg : yampiSyncMsg
 
@@ -407,6 +419,7 @@ export default function MetricsClient({
     { key: 'meta', label: 'Meta Ads', icon: <MetaIcon />, connected: isMetaConnected },
     { key: 'google', label: 'Google Ads', icon: <GoogleIcon />, connected: isGoogleConnected },
     { key: 'yampi', label: 'Yampi', icon: <ShopifyIcon />, connected: isYampiConnected },
+    { key: 'influenciadores', label: 'Influenciadores', icon: <SparklesIcon />, connected: isYampiConnected },
   ]
 
   // ── Custom tooltip component ──
@@ -461,7 +474,7 @@ export default function MetricsClient({
       )}
 
       {/* ═══ Not connected ═══ */}
-      {!isConnected && (
+      {!isConnected && !isInfluencersTab && (
         <div className="bg-bg-card border border-border rounded-xl p-16 text-center">
           <p className="font-sans text-text-primary font-semibold text-lg mb-2">
             {activeTab === 'meta' ? 'Meta Ads não conectado' : activeTab === 'google' ? 'Google Ads não conectado' : 'Yampi não conectado'}
@@ -472,6 +485,15 @@ export default function MetricsClient({
           <Link href="/integracoes" className="inline-block px-5 py-2.5 bg-brand-gold text-bg-base rounded-lg font-semibold hover:opacity-90 transition-opacity cursor-pointer">
             {activeTab === 'yampi' ? 'Conectar Yampi' : activeTab === 'meta' ? 'Conectar Meta Ads' : 'Conectar Google Ads'}
           </Link>
+        </div>
+      )}
+
+      {/* ═══ Not connected — Influenciadores needs Yampi ═══ */}
+      {!isConnected && isInfluencersTab && (
+        <div className="bg-bg-card border border-border rounded-xl p-16 text-center">
+          <p className="font-sans text-text-primary font-semibold text-lg mb-2">Yampi não conectado</p>
+          <p className="text-text-muted mb-4">Conecte a Yampi para rastrear pedidos por cupom de influenciadoras.</p>
+          <Link href="/integracoes" className="inline-block px-5 py-2.5 bg-brand-gold text-bg-base rounded-lg font-semibold hover:opacity-90 transition-opacity cursor-pointer">Conectar Yampi</Link>
         </div>
       )}
 
@@ -520,24 +542,24 @@ export default function MetricsClient({
             <KpiCard label="Receita" value={fmtCurrency(totals.revenue, 0)} />
             <KpiCard label="ROAS" value={`${totals.roas.toFixed(2)}x`}
               badge={totals.roas >= 3 ? 'green' : totals.roas >= 1.5 ? 'yellow' : 'red'} />
-            <KpiCard label="CPA" value={fmtCurrency(totals.cpa)}
+            <KpiCard label="CPR" value={fmtCurrency(totals.cpa)}
               badge={totals.cpa > 0 && totals.cpa <= 50 ? 'green' : totals.cpa <= 100 ? 'yellow' : 'red'} />
             {activeTab === 'meta'
-              ? <KpiCard label="CPS" value={fmtCurrency(totals.cps)} />
+              ? <KpiCard label="CPC" value={fmtCurrency(totals.cpc)} />
               : <KpiCard label="CPC" value={fmtCurrency(totals.google_cpc)} />}
           </div>
 
           {/* ═══ KPI Row 2 ═══ */}
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <KpiCard label="Conversões" value={fmtNumber(totals.conversions)} />
-            <KpiCard label="Taxa de Conversão" value={`${(activeTab === 'meta' ? totals.conversion_rate : totals.google_conversion_rate).toFixed(2)}%`} />
+            <KpiCard label="Taxa Conversão" value={`${(activeTab === 'meta' ? totals.conversion_rate : totals.google_conversion_rate).toFixed(2)}%`} />
             <KpiCard label="CTR" value={`${totals.ctr.toFixed(2)}%`}
               badge={totals.ctr >= 2 ? 'green' : totals.ctr >= 1 ? 'yellow' : 'red'} />
+            <KpiCard label="CPM" value={fmtCurrency(totals.cpm)}
+              badge={totals.cpm > 0 && totals.cpm <= 20 ? 'green' : totals.cpm <= 40 ? 'yellow' : 'red'} />
             {activeTab === 'meta'
               ? <KpiCard label="Connect Rate" value={`${totals.connect_rate.toFixed(1)}%`} />
               : <KpiCard label="Cliques" value={fmtNumber(totals.clicks)} />}
-            <KpiCard label="CPM" value={fmtCurrency(totals.cpm)}
-              badge={totals.cpm > 0 && totals.cpm <= 20 ? 'green' : totals.cpm <= 40 ? 'yellow' : 'red'} />
           </div>
 
           {/* ═══ Funnel — Meta only ═══ */}
@@ -602,89 +624,76 @@ export default function MetricsClient({
             </div>
           )}
 
-          {/* ═══ Spend vs Revenue chart ═══ */}
-          {dailyData.length > 0 && (
-            <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
-              <h3 className="font-sans text-text-primary font-semibold text-lg mb-5">Investimento vs Receita</h3>
-              <div className="h-48 md:h-72">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={dailyData}>
-                    <defs>
-                      <linearGradient id="gSpend" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.25} />
-                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
-                      </linearGradient>
-                      <linearGradient id="gRevenue" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#22c55e" stopOpacity={0.25} />
-                        <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(42,82,51,0.4)" />
-                    <XAxis dataKey="date" tick={{ fill: '#5a6b5e', fontSize: 11, fontFamily: 'var(--font-data)' }} axisLine={false} tickLine={false} tickFormatter={(v: string) => v.slice(5)} />
-                    <YAxis tick={{ fill: '#5a6b5e', fontSize: 11, fontFamily: 'var(--font-data)' }} axisLine={false} tickLine={false} width={65} tickFormatter={(v: number) => `R$${(v/1000).toFixed(0)}k`} />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Area type="monotone" dataKey="spend" stroke="#ef4444" fill="url(#gSpend)" strokeWidth={2} name="Investimento" />
-                    <Area type="monotone" dataKey="revenue" stroke="#22c55e" fill="url(#gRevenue)" strokeWidth={2} name="Receita" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          )}
-
-          {/* ═══ Campaign table ═══ */}
-          {campaignData.length > 0 && (
-            <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
-              <h3 className="font-sans text-text-primary font-semibold text-lg mb-5">Por Campanha</h3>
-              <div className="overflow-x-auto">
-                <table className="table-premium min-w-[500px]">
-                  <thead>
-                    <tr>
-                      <th>Campanha</th>
-                      <th className="text-right">Gasto</th>
-                      <th className="text-right">Receita</th>
-                      <th className="text-right">ROAS</th>
-                      <th className="text-right">CPC</th>
-                      <th className="text-right">CPA</th>
-                      <th className="text-right">Conv.</th>
-                      <th className="text-right">CTR</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {campaignData.map((c, i) => {
-                      const roas = c.spend > 0 ? c.revenue / c.spend : 0
-                      const cpa = c.conversions > 0 ? c.spend / c.conversions : 0
-                      const cpc = activeTab === 'meta' ? (c.outbound_clicks > 0 ? c.spend / c.outbound_clicks : 0) : (c.clicks > 0 ? c.spend / c.clicks : 0)
-                      const ctr = c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0
-                      return (
+          {/* ═══ Campaign table (sortable) ═══ */}
+          {campaignData.length > 0 && (() => {
+            const enriched = campaignData.map(c => {
+              const roas = c.spend > 0 ? c.revenue / c.spend : 0
+              const cpr = c.conversions > 0 ? c.spend / c.conversions : 0
+              const cpc = activeTab === 'meta' ? (c.outbound_clicks > 0 ? c.spend / c.outbound_clicks : 0) : (c.clicks > 0 ? c.spend / c.clicks : 0)
+              const ctr = c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0
+              return { ...c, roas, cpr, cpc, ctr }
+            })
+            const sorted = [...enriched].sort((a, b) => {
+              const valA = campSortKey === 'name' ? a.name.toLowerCase() : (a as any)[campSortKey]
+              const valB = campSortKey === 'name' ? b.name.toLowerCase() : (b as any)[campSortKey]
+              if (valA < valB) return campSortAsc ? -1 : 1
+              if (valA > valB) return campSortAsc ? 1 : -1
+              return 0
+            })
+            const SortTh = ({ k, label, align = 'right' }: { k: CampSortKey; label: string; align?: string }) => (
+              <th className={`${align === 'left' ? '' : 'text-right'} cursor-pointer select-none hover:text-brand-gold transition-colors`} onClick={() => toggleCampSort(k)}>
+                <span className="inline-flex items-center gap-1">
+                  {label}
+                  {campSortKey === k && <span className="text-brand-gold">{campSortAsc ? '↑' : '↓'}</span>}
+                </span>
+              </th>
+            )
+            return (
+              <div className="bg-bg-card border border-border-gold rounded-xl p-6 card-premium">
+                <h3 className="font-sans text-text-primary font-semibold text-lg mb-5">Por Campanha</h3>
+                <div className="overflow-x-auto">
+                  <table className="table-premium min-w-[600px]">
+                    <thead>
+                      <tr>
+                        <SortTh k="name" label="Campanha" align="left" />
+                        <SortTh k="spend" label="Investimento" />
+                        <SortTh k="revenue" label="Receita" />
+                        <SortTh k="roas" label="ROAS" />
+                        <SortTh k="conversions" label="Conversões" />
+                        <SortTh k="cpr" label="CPR" />
+                        <SortTh k="ctr" label="CTR" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sorted.map((c, i) => (
                         <tr key={i}>
                           <td className="text-text-primary max-w-[200px] truncate font-medium">{c.name}</td>
                           <td className="text-right font-data text-red-400">{fmtCurrency(c.spend)}</td>
                           <td className="text-right font-data text-green-400">{fmtCurrency(c.revenue)}</td>
                           <td className="text-right">
-                            <span className={`badge ${roas >= 3 ? 'badge-green' : roas >= 1.5 ? 'badge-yellow' : 'badge-red'}`}>
-                              {roas.toFixed(2)}x
-                            </span>
-                          </td>
-                          <td className="text-right font-data">{fmtCurrency(cpc)}</td>
-                          <td className="text-right">
-                            <span className={`badge ${cpa > 0 && cpa <= 50 ? 'badge-green' : cpa <= 100 ? 'badge-yellow' : 'badge-red'}`}>
-                              {fmtCurrency(cpa)}
+                            <span className={`badge ${c.roas >= 3 ? 'badge-green' : c.roas >= 1.5 ? 'badge-yellow' : 'badge-red'}`}>
+                              {c.roas.toFixed(2)}x
                             </span>
                           </td>
                           <td className="text-right font-data">{c.conversions}</td>
                           <td className="text-right">
-                            <span className={`badge ${ctr >= 2 ? 'badge-green' : ctr >= 1 ? 'badge-yellow' : 'badge-red'}`}>
-                              {ctr.toFixed(2)}%
+                            <span className={`badge ${c.cpr > 0 && c.cpr <= 50 ? 'badge-green' : c.cpr <= 100 ? 'badge-yellow' : 'badge-red'}`}>
+                              {fmtCurrency(c.cpr)}
+                            </span>
+                          </td>
+                          <td className="text-right">
+                            <span className={`badge ${c.ctr >= 2 ? 'badge-green' : c.ctr >= 1 ? 'badge-yellow' : 'badge-red'}`}>
+                              {c.ctr.toFixed(2)}%
                             </span>
                           </td>
                         </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          )}
+            )
+          })()}
 
           {/* ═══ AI Report ═══ */}
           {reportMarkdown && (
@@ -728,14 +737,6 @@ export default function MetricsClient({
                 }`}>{p.label}</button>
             ))}
           </div>
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-            {syncMsg && <span className="text-xs text-text-muted">{syncMsg}</span>}
-            <button onClick={handleSync} disabled={syncing}
-              className="w-full sm:w-auto px-3 py-1.5 text-sm rounded-lg font-medium bg-bg-card border border-border text-text-secondary hover:bg-bg-hover disabled:opacity-50 cursor-pointer transition-colors">
-              {syncing ? 'Sincronizando...' : 'Sincronizar'}
-            </button>
-          </div>
-
           {period === 'custom' && (
             <div className="flex flex-wrap gap-2 items-center">
               <span className="text-text-muted text-xs md:text-sm">De:</span>
@@ -878,6 +879,11 @@ export default function MetricsClient({
             </div>
           )}
         </>
+      )}
+
+      {/* ═══ Connected — Influenciadores tab ═══ */}
+      {isConnected && isInfluencersTab && (
+        <InfluencersTab key={searchParams.get('view') || 'consolidado'} workspaceId={workspaceId} initialView={(searchParams.get('view') as 'consolidado' | 'macro' | 'micro' | 'ranking') || 'consolidado'} />
       )}
 
     </div>
