@@ -2,6 +2,20 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactCompiler: true,
+  async redirects() {
+    return [
+      {
+        source: '/ferramentas/planejamento-financeiro',
+        destination: '/ferramentas/forecast',
+        permanent: true,
+      },
+      {
+        source: '/ferramentas/planejamento-financeiro/:path*',
+        destination: '/ferramentas/forecast/:path*',
+        permanent: true,
+      },
+    ]
+  },
   async headers() {
     return [
       {

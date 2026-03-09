@@ -10,7 +10,7 @@ interface Props {
 export default async function PlanejamentoFinanceiroYearPage({ params }: Props) {
   const { year: yearParam } = await params
   const year = parseInt(yearParam, 10)
-  if (isNaN(year) || year < 2020 || year > 2040) redirect('/ferramentas/planejamento-financeiro')
+  if (isNaN(year) || year < 2020 || year > 2040) redirect('/ferramentas/forecast')
 
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()

@@ -6,7 +6,7 @@ import {
   isFinKeyMetric as isKeyMetric, calcFinAllMonths, resolveFinValue as resolveValue, formatFinValue as formatMetricValue, calcFinAnnualSummary as calcAnnualSummary,
   type FinKeyValues as KeyValues, type FinMetricKey as MetricKey, type FinResultMetric as ResultMetric, type FinMetricDef as MetricDef,
 } from '@/lib/utils/financial-plan-calc'
-import { upsertMetrics, upsertMetricsAdmin, syncMediaToFinancial } from '@/app/actions/media-plan'
+import { upsertMetrics, upsertMetricsAdmin } from '@/app/actions/media-plan'
 
 // ============================================================
 // View mode types
@@ -70,7 +70,6 @@ export default function FinancialPlannerClient({ planId, workspaceId, year, init
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1)
   const [saving, setSaving] = useState(false)
   const [lastSaved, setLastSaved] = useState<Date | null>(null)
-  const [syncMsg, setSyncMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
   const pendingRef = useRef<Array<{ metric_key: string; month: number; value_numeric: number | null; delta_pct: number | null; input_mode: 'value' | 'delta_pct' }>>([])
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -229,21 +228,6 @@ export default function FinancialPlannerClient({ planId, workspaceId, year, init
     URL.revokeObjectURL(url)
   }, [getCellValue, annualSummary, year])
 
-  const handleSyncMidia = useCallback(async () => {
-    setSyncMsg(null)
-    try {
-      const res = await syncMediaToFinancial(workspaceId, year)
-      if (res.error) {
-        setSyncMsg({ type: 'err', text: res.error })
-      } else {
-        setSyncMsg({ type: 'ok', text: 'Midia Plan sincronizado!' })
-        // Reload to pick up new values
-        window.location.reload()
-      }
-    } catch { setSyncMsg({ type: 'err', text: 'Erro ao sincronizar' }) }
-    setTimeout(() => setSyncMsg(null), 4000)
-  }, [workspaceId, year])
-
   // Set of metric keys that are locked (synced from Midia Plan)
   const lockedKeys = useMemo(() => {
     const set = new Set<string>()
@@ -260,12 +244,22 @@ export default function FinancialPlannerClient({ planId, workspaceId, year, init
 
   return (
     <div className="animate-fade-in">
+      {/* Connection banner */}
+      <div className="mb-4 px-4 py-3 rounded-lg border border-brand-gold/20 bg-brand-gold/5 flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#C9971A" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
+          <span className="text-text-secondary">
+            <a href="/ferramentas/planejamento-midia" className="font-medium text-brand-gold hover:underline">Passo 1: Midia Plan</a> → <a href="/ferramentas/planejamento-midia?tab=sales_forecast" className="font-medium text-brand-gold hover:underline">Passo 2: Sales Forecast</a> → <span className="font-medium text-brand-gold">Passo 3: Forecast</span>
+          </span>
+        </div>
+      </div>
+
       {/* Header */}
       <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-text-primary">Planejamento Financeiro (DRE) {year}</h1>
+          <h1 className="text-2xl font-bold text-text-primary">Forecast (DRE) {year}</h1>
           <p className="text-sm text-text-muted mt-1">
-            DRE projetada conectada ao Planejador de Midia via ROAS, sessões e receita mês a mês
+            DRE projetada conectada ao Sales Forecast via receita, investimento e margens
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -312,14 +306,14 @@ export default function FinancialPlannerClient({ planId, workspaceId, year, init
 
           <div className="flex items-center gap-1 bg-bg-card border border-border rounded-lg">
             <a
-              href={isAdmin ? `?year=${year - 1}` : `/ferramentas/planejamento-financeiro/${year - 1}`}
+              href={isAdmin ? `?year=${year - 1}` : `/ferramentas/forecast/${year - 1}`}
               className="p-2 hover:bg-bg-hover rounded-l-lg transition-colors text-text-muted hover:text-text-primary"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6" /></svg>
             </a>
             <span className="px-3 py-1.5 text-sm font-semibold text-text-primary">{year}</span>
             <a
-              href={isAdmin ? `?year=${year + 1}` : `/ferramentas/planejamento-financeiro/${year + 1}`}
+              href={isAdmin ? `?year=${year + 1}` : `/ferramentas/forecast/${year + 1}`}
               className="p-2 hover:bg-bg-hover rounded-r-lg transition-colors text-text-muted hover:text-text-primary"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6" /></svg>
@@ -336,21 +330,8 @@ export default function FinancialPlannerClient({ planId, workspaceId, year, init
             CSV
           </button>
 
-          <button
-            onClick={handleSyncMidia}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-500/10 border border-purple-500/20 text-sm text-purple-400 hover:bg-purple-500/20 transition-colors"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
-            Sincronizar Midia Plan
-          </button>
         </div>
       </div>
-
-      {syncMsg && (
-        <div className={`mb-4 px-4 py-2.5 rounded-lg text-sm ${syncMsg.type === 'ok' ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>
-          {syncMsg.text}
-        </div>
-      )}
 
       {/* Spreadsheet */}
       <div className="bg-bg-card border border-border rounded-xl overflow-hidden">

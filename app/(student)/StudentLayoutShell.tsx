@@ -97,13 +97,18 @@ export default function StudentLayoutShell({
             <NavItem href="/marketplaces" icon={<IconMarketplaces />} label="Marketplaces" onNavigate={() => setOpen(false)} />
             <NavItem href="/performance" icon={<IconPerformance />} label="Performance" onNavigate={() => setOpen(false)} />
             <NavItem href="/ferramentas/calculadora-cenarios" icon={<IconCalc />} label="Calculadora Estratégica" onNavigate={() => setOpen(false)} />
+          </div>
+
+          {/* Business Plan section */}
+          <div className="pt-2 mt-2 border-t border-border">
+            <p className="text-[10px] font-medium px-3 mb-1.5 uppercase tracking-wider" style={{ color: '#C9971A' }}>Business Plan</p>
             <NavItem href="/ferramentas/planejamento-midia" icon={<IconPlanMidia />} label="Midia Plan" onNavigate={() => setOpen(false)} />
-            <NavItem href="/ferramentas/planejamento-financeiro" icon={<IconForecasting />} label="Forecasting" onNavigate={() => setOpen(false)} />
+            <NavItem href="/ferramentas/planejamento-midia?tab=sales_forecast" icon={<IconSalesForecast />} label="Sales Forecast" onNavigate={() => setOpen(false)} />
+            <NavItem href="/ferramentas/forecast" icon={<IconForecasting />} label="Forecast" onNavigate={() => setOpen(false)} />
           </div>
 
           <div className="pt-2 mt-2 border-t border-border">
             <p className="text-text-muted text-[10px] font-medium px-3 mb-1.5 uppercase tracking-wider">Em breve</p>
-            <NavItemSoon href="/ferramentas/sales-forecasting" label="Sales Forecasting" onNavigate={() => setOpen(false)} />
             <NavItemSoon href="/ferramentas/gerador-lp" label="Gerador de LP" onNavigate={() => setOpen(false)} />
             <NavItemSoon href="/ferramentas/funil-vendas" label="Funil de Vendas" onNavigate={() => setOpen(false)} />
           </div>
@@ -378,6 +383,14 @@ function IconPlanMidia() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M18 20V10" /><path d="M12 20V4" /><path d="M6 20v-6" />
+    </svg>
+  )
+}
+
+function IconSalesForecast() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
     </svg>
   )
 }
