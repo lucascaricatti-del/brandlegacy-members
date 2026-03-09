@@ -53,6 +53,7 @@ export async function POST(req: NextRequest) {
       description: s.description || null,
       status: s.status || 'pending',
       published_at: s.published_at || null,
+      cost: Number(s.cost) || 0,
     }))
     .filter(s => s.scheduled_date)
 

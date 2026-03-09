@@ -10,6 +10,7 @@ type Tier = 'macro' | 'micro'
 type ModalStep = 1 | 2 | 3
 type ContentType = 'stories' | 'reels' | 'feed' | 'live'
 type SeqStatus = 'pending' | 'published' | 'delayed'
+type ContractMode = 'month' | 'months' | 'custom'
 
 const PERIODS: { key: Period; label: string }[] = [
   { key: 'mes_atual', label: 'Mês Atual' },
@@ -42,6 +43,7 @@ const VIEWS: { key: ViewType; label: string }[] = [
 type Sequence = {
   id?: string; sequence_number: number; scheduled_date: string
   content_type: string; description: string; status: SeqStatus; published_at: string
+  cost?: number
 }
 type Renewal = {
   id?: string; renewal_number: number; start_date: string; end_date: string | null
@@ -54,25 +56,31 @@ type Performance = {
   niche: string | null; followers_count: number | null; is_active: boolean; notes: string | null
   total_orders: number; total_revenue: number; avg_ticket: number; total_cost: number
   roas: number | null; sequences: Sequence[]; renewals: Renewal[]
-  prev_orders?: number; prev_revenue?: number
+  prev_orders?: number; prev_revenue?: number; total_sequences?: number
 }
+
+type SeqForm = { scheduled_date: string; content_type: string; description: string; status: SeqStatus; published_at: string; cost: number }
 
 type FormState = {
   name: string; instagram: string; tier: Tier; niche: string; followers: string
   coupon: string; startDate: string; endDate: string; feeType: FeeType
   monthlyFee: string; commission: string; notes: string; isActive: boolean
-  sequences: { scheduled_date: string; content_type: string; description: string; status: SeqStatus; published_at: string }[]
+  totalSequences: number; sequences: SeqForm[]
+  contractMode: ContractMode; contractMonth: string; contractDuration: number
+  createCouponYampi: boolean; discountType: 'percent' | 'value'; discountValue: string; maxUses: string
+}
+
+function makeEmptySeq(): SeqForm {
+  return { scheduled_date: '', content_type: '', description: '', status: 'pending', published_at: '', cost: 0 }
 }
 
 const INITIAL_FORM: FormState = {
   name: '', instagram: '', tier: 'micro', niche: '', followers: '',
   coupon: '', startDate: '', endDate: '', feeType: 'fixed',
   monthlyFee: '', commission: '', notes: '', isActive: true,
-  sequences: [
-    { scheduled_date: '', content_type: '', description: '', status: 'pending', published_at: '' },
-    { scheduled_date: '', content_type: '', description: '', status: 'pending', published_at: '' },
-    { scheduled_date: '', content_type: '', description: '', status: 'pending', published_at: '' },
-  ],
+  totalSequences: 3, sequences: [makeEmptySeq(), makeEmptySeq(), makeEmptySeq()],
+  contractMode: 'month', contractMonth: '', contractDuration: 1,
+  createCouponYampi: false, discountType: 'percent', discountValue: '', maxUses: '',
 }
 
 function toYMD(d: Date) { return d.toISOString().slice(0, 10) }
@@ -90,6 +98,18 @@ function daysRemaining(endDate: string | null) {
   if (!endDate) return null
   return Math.ceil((new Date(endDate + 'T00:00:00').getTime() - Date.now()) / 86400000)
 }
+function fmtDateBR(d: string) {
+  if (!d) return ''
+  const [y, m, day] = d.split('-')
+  return `${day}/${m}/${y}`
+}
+function lastDayOfMonth(year: number, month: number) {
+  return new Date(year, month, 0).getDate()
+}
+function getCurrentMonth() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
 
 export default function InfluencersTab({ workspaceId, initialView = 'consolidado' }: { workspaceId: string; initialView?: ViewType }) {
   const searchParams = useSearchParams()
@@ -102,9 +122,6 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
   const [appliedTo, setAppliedTo] = useState('')
   const [data, setData] = useState<Performance[]>([])
   const [loading, setLoading] = useState(true)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [expandedOrders, setExpandedOrders] = useState<any[]>([])
-  const [expandLoading, setExpandLoading] = useState(false)
   const [showModal, setShowModal] = useState(false)
   const [modalStep, setModalStep] = useState<ModalStep>(1)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -114,8 +131,14 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
   const [previewLoading, setPreviewLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const couponTimeout = useRef<NodeJS.Timeout>(null)
+  // Renewal modal
+  const [showRenewalModal, setShowRenewalModal] = useState(false)
+  const [renewTarget, setRenewTarget] = useState<Performance | null>(null)
+  const [renewForm, setRenewForm] = useState({ startDate: '', endDate: '', monthlyFee: '', commission: '', feeType: 'fixed' as FeeType, contractMode: 'month' as ContractMode, contractMonth: '', contractDuration: 1 })
+  const [renewSaving, setRenewSaving] = useState(false)
+  // Seq popover
+  const [seqPopoverId, setSeqPopoverId] = useState<string | null>(null)
 
-  // Sync view with URL changes (sidebar navigation)
   useEffect(() => {
     const v = searchParams.get('view') as ViewType
     if (v && ['consolidado', 'macro', 'micro', 'ranking'].includes(v)) setView(v)
@@ -143,21 +166,6 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
 
   useEffect(() => { fetchPerformance() }, [fetchPerformance])
 
-  // Expand card orders
-  async function handleExpand(inf: Performance) {
-    if (expandedId === inf.id) { setExpandedId(null); return }
-    setExpandedId(inf.id)
-    setExpandLoading(true)
-    setExpandedOrders([])
-    try {
-      const range = getRange(period, appliedFrom, appliedTo)
-      const res = await fetch(`/api/influencers/orders?workspace_id=${workspaceId}&coupon_code=${encodeURIComponent(inf.coupon_code)}&date_from=${range.date_from}&date_to=${range.date_to}`)
-      const json = await res.json()
-      setExpandedOrders(json.orders || [])
-    } catch {}
-    setExpandLoading(false)
-  }
-
   // Coupon preview
   async function previewCoupon(code: string) {
     if (!code.trim()) { setCouponPreview(null); return }
@@ -173,12 +181,48 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
   function setField<K extends keyof FormState>(key: K, val: FormState[K]) {
     setForm(f => ({ ...f, [key]: val }))
   }
-  function setSeqField(idx: number, key: string, val: string) {
+  function setSeqField(idx: number, key: string, val: string | number) {
     setForm(f => {
       const seqs = [...f.sequences]
       seqs[idx] = { ...seqs[idx], [key]: val }
       return { ...f, sequences: seqs }
     })
+  }
+
+  // Auto-update sequences count
+  function setTotalSequences(n: number) {
+    const clamped = Math.max(1, Math.min(20, n))
+    setForm(f => {
+      const seqs = [...f.sequences]
+      while (seqs.length < clamped) seqs.push(makeEmptySeq())
+      while (seqs.length > clamped) seqs.pop()
+      // Recalculate costs
+      const fee = parseFloat(f.monthlyFee.replace(/\./g, '').replace(',', '.')) || 0
+      const costPer = clamped > 0 ? fee / clamped : 0
+      return { ...f, totalSequences: clamped, sequences: seqs.map(s => ({ ...s, cost: Math.round(costPer * 100) / 100 })) }
+    })
+  }
+
+  // Auto-recalculate sequence costs when fee or total changes
+  function recalcSeqCosts(fee: number, total: number, seqs: SeqForm[]): SeqForm[] {
+    const costPer = total > 0 ? fee / total : 0
+    return seqs.map(s => ({ ...s, cost: Math.round(costPer * 100) / 100 }))
+  }
+
+  // Contract date helpers
+  function applyContractDates(mode: ContractMode, month: string, duration: number) {
+    if (mode === 'month' && month) {
+      const [y, m] = month.split('-').map(Number)
+      const start = `${y}-${String(m).padStart(2, '0')}-01`
+      const end = `${y}-${String(m).padStart(2, '0')}-${String(lastDayOfMonth(y, m)).padStart(2, '0')}`
+      setForm(f => ({ ...f, startDate: start, endDate: end, contractMode: mode, contractMonth: month }))
+    } else if (mode === 'months' && month && duration > 0) {
+      const [y, m] = month.split('-').map(Number)
+      const start = `${y}-${String(m).padStart(2, '0')}-01`
+      const endMonth = new Date(y, m - 1 + duration, 0)
+      const end = toYMD(endMonth)
+      setForm(f => ({ ...f, startDate: start, endDate: end, contractMode: mode, contractMonth: month, contractDuration: duration }))
+    }
   }
 
   function openAddModal() {
@@ -191,6 +235,20 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
 
   function openEditModal(inf: Performance) {
     setEditingId(inf.id)
+    const totalSeqs = inf.total_sequences || inf.sequences.length || 3
+    const fee = inf.monthly_fee || 0
+    const costPer = totalSeqs > 0 ? fee / totalSeqs : 0
+    const seqs: SeqForm[] = Array.from({ length: totalSeqs }, (_, i) => {
+      const seq = inf.sequences.find(s => s.sequence_number === i + 1)
+      return {
+        scheduled_date: seq?.scheduled_date || '',
+        content_type: seq?.content_type || '',
+        description: seq?.description || '',
+        status: (seq?.status as SeqStatus) || 'pending',
+        published_at: seq?.published_at || '',
+        cost: seq?.cost ?? Math.round(costPer * 100) / 100,
+      }
+    })
     setForm({
       name: inf.name,
       instagram: inf.instagram?.replace('@', '') || '',
@@ -205,16 +263,12 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
       commission: inf.commission_pct > 0 ? String(inf.commission_pct) : '',
       notes: inf.notes || '',
       isActive: inf.is_active,
-      sequences: [0, 1, 2].map(i => {
-        const seq = inf.sequences.find(s => s.sequence_number === i + 1)
-        return {
-          scheduled_date: seq?.scheduled_date || '',
-          content_type: seq?.content_type || '',
-          description: seq?.description || '',
-          status: (seq?.status as SeqStatus) || 'pending',
-          published_at: seq?.published_at || '',
-        }
-      }),
+      totalSequences: totalSeqs,
+      sequences: seqs,
+      contractMode: 'custom',
+      contractMonth: '',
+      contractDuration: 1,
+      createCouponYampi: false, discountType: 'percent', discountValue: '', maxUses: '',
     })
     setCouponPreview(null)
     setModalStep(1)
@@ -240,6 +294,7 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
       niche: form.niche || null,
       followers_count: parseInt(form.followers.replace(/\D/g, '')) || null,
       contract_status: form.endDate && new Date(form.endDate) < new Date() ? 'expired' : 'active',
+      total_sequences: form.totalSequences,
     }
     if (editingId) body.id = editingId
 
@@ -266,8 +321,35 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
           })
         }
       }
+      // Yampi coupon creation
+      if (!editingId && form.createCouponYampi && form.discountValue) {
+        try {
+          const couponRes = await fetch('/api/influencers/create-coupon', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              workspace_id: workspaceId,
+              coupon_code: form.coupon.trim().toUpperCase(),
+              discount_type: form.discountType,
+              discount_value: parseFloat(form.discountValue) || 0,
+              max_uses: form.maxUses ? parseInt(form.maxUses) : null,
+            }),
+          })
+          const couponJson = await couponRes.json()
+          if (couponJson.cloudflare_blocked) {
+            showToast('Influenciadora salva. Crie o cupom manualmente na Yampi.')
+          } else if (couponJson.success) {
+            showToast('Adicionado + cupom criado na Yampi!')
+          } else {
+            showToast('Influenciadora salva. Erro ao criar cupom.')
+          }
+        } catch {
+          showToast('Influenciadora salva. Erro ao criar cupom.')
+        }
+      } else {
+        showToast(editingId ? 'Atualizado!' : 'Adicionado!')
+      }
       setShowModal(false)
-      showToast(editingId ? 'Atualizado!' : 'Adicionado!')
       fetchPerformance()
     } catch {
       showToast('Erro ao salvar.')
@@ -279,40 +361,64 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
     await fetch('/api/influencers', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: inf.id, is_active: !inf.is_active }),
+      body: JSON.stringify({ id: inf.id, workspace_id: workspaceId, is_active: !inf.is_active }),
     })
     fetchPerformance()
   }
 
-  async function handleRenew(inf: Performance) {
-    const startDate = prompt('Data de inicio da renovacao (AAAA-MM-DD):')
-    if (!startDate) return
-    const endDate = prompt('Data de termino (AAAA-MM-DD, deixe vazio para indefinido):') || null
+  function openRenewalModal(inf: Performance) {
+    setRenewTarget(inf)
+    setRenewForm({
+      startDate: '', endDate: '', monthlyFee: '', commission: '',
+      feeType: (inf.fee_type as FeeType) || 'fixed',
+      contractMode: 'month', contractMonth: getCurrentMonth(), contractDuration: 1,
+    })
+    setShowRenewalModal(true)
+  }
+
+  async function handleRenewalSave() {
+    if (!renewTarget || !renewForm.startDate) return
+    setRenewSaving(true)
+    const fee = parseFloat(renewForm.monthlyFee.replace(/\./g, '').replace(',', '.')) || 0
+    const commission = parseFloat(renewForm.commission.replace(',', '.')) || 0
+    // Create renewal record
     await fetch('/api/influencers/renewals', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        influencer_id: inf.id,
+        influencer_id: renewTarget.id,
         workspace_id: workspaceId,
-        start_date: startDate,
-        end_date: endDate,
-        fee_type: inf.fee_type,
-        monthly_fee: inf.monthly_fee,
-        commission_pct: inf.commission_pct,
+        start_date: renewForm.startDate,
+        end_date: renewForm.endDate || null,
+        fee_type: renewForm.feeType,
+        monthly_fee: fee,
+        commission_pct: commission,
       }),
     })
+    // Update influencer base record
     await fetch('/api/influencers', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: inf.id, start_date: startDate, end_date: endDate, contract_status: 'renewed' }),
+      body: JSON.stringify({
+        id: renewTarget.id,
+        workspace_id: workspaceId,
+        start_date: renewForm.startDate,
+        end_date: renewForm.endDate || null,
+        monthly_fee: fee,
+        commission_pct: commission,
+        fee_type: renewForm.feeType,
+        contract_status: 'renewed',
+      }),
     })
+    setRenewSaving(false)
+    setShowRenewalModal(false)
     showToast('Contrato renovado!')
     fetchPerformance()
   }
 
   function showToast(msg: string) {
     setToast(msg)
-    setTimeout(() => setToast(null), 2500)
+    setTimeout(() => setToast(null), 3000)
   }
 
   // ── Computed ──
@@ -334,16 +440,18 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
   const showFixedFee = form.feeType === 'fixed' || form.feeType === 'fixed_commission'
   const showCommission = form.feeType === 'commission' || form.feeType === 'fixed_commission'
 
-  // Ranking sorted by ROAS desc
   const ranked = [...activeData].sort((a, b) => (b.roas ?? -1) - (a.roas ?? -1))
-
-  // Tier-filtered data for macro/micro views (includes inactive)
   const tierViewData = (view === 'macro' || view === 'micro') ? data.filter(d => d.tier === view) : []
   const tierViewActive = tierViewData.filter(d => d.is_active).length
   const tierViewRevenue = tierViewData.reduce((s, d) => s + d.total_revenue, 0)
   const tierViewCost = tierViewData.reduce((s, d) => s + d.total_cost, 0)
   const tierViewWithRoas = tierViewData.filter(d => d.roas !== null && d.total_orders > 0)
   const tierViewAvgRoas = tierViewWithRoas.length > 0 ? tierViewWithRoas.reduce((s, d) => s + (d.roas ?? 0), 0) / tierViewWithRoas.length : null
+
+  // Seq cost totals for modal validation
+  const seqTotal = form.sequences.reduce((s, seq) => s + (seq.cost || 0), 0)
+  const feeTotal = parseFloat(form.monthlyFee.replace(/\./g, '').replace(',', '.')) || 0
+  const costMatch = Math.abs(seqTotal - feeTotal) < 0.02
 
   return (
     <div className="space-y-6">
@@ -362,7 +470,6 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
           ))}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {loading && <span className="text-xs text-text-muted">Carregando...</span>}
           <button onClick={openAddModal}
             className="px-3 py-1.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 cursor-pointer flex items-center gap-1.5">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
@@ -391,10 +498,24 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
         ))}
       </div>
 
+      {/* Loading skeleton */}
+      {loading && (view === 'macro' || view === 'micro') && (
+        <div className="bg-bg-card border border-border rounded-xl overflow-hidden">
+          {[0, 1, 2].map(i => (
+            <div key={i} className="flex items-center gap-4 p-4 border-b border-border/50 last:border-0 animate-pulse">
+              <div className="h-4 w-24 bg-bg-hover rounded" />
+              <div className="h-4 w-16 bg-bg-hover rounded" />
+              <div className="h-4 w-20 bg-bg-hover rounded" />
+              <div className="flex-1" />
+              <div className="h-4 w-16 bg-bg-hover rounded" />
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* ═══════ VIEW: CONSOLIDADO ═══════ */}
       {view === 'consolidado' && (
         <>
-          {/* Macro KPIs */}
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: '#7C3AED' }}>Macro</p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -404,7 +525,6 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
               <KpiCard label="ROAS Medio" value={macroStats.avgRoas !== null ? `${macroStats.avgRoas.toFixed(1)}x` : '--'} roasValue={macroStats.avgRoas} />
             </div>
           </div>
-          {/* Micro KPIs */}
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: '#2563EB' }}>Micro</p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -414,7 +534,6 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
               <KpiCard label="ROAS Medio" value={microStats.avgRoas !== null ? `${microStats.avgRoas.toFixed(1)}x` : '--'} roasValue={microStats.avgRoas} />
             </div>
           </div>
-          {/* Comparison chart */}
           <div className="bg-bg-card border border-border rounded-xl p-6">
             <h3 className="font-semibold text-sm mb-4" style={{ color: '#C9971A' }}>Comparativo ROAS: Macro vs Micro</h3>
             <div className="space-y-4">
@@ -444,10 +563,9 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
         </>
       )}
 
-      {/* ═══════ VIEW: MACRO / MICRO ═══════ */}
-      {(view === 'macro' || view === 'micro') && (
+      {/* ═══════ VIEW: MACRO / MICRO (List/Table) ═══════ */}
+      {(view === 'macro' || view === 'micro') && !loading && (
         <>
-          {/* KPI row */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <KpiCard label="Ativas" value={String(tierViewActive)} />
             <KpiCard label="Receita Total" value={fmtBRL(tierViewRevenue)} color="gold" />
@@ -455,35 +573,102 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
             <KpiCard label="ROAS Medio" value={tierViewAvgRoas !== null ? `${tierViewAvgRoas.toFixed(1)}x` : '--'} roasValue={tierViewAvgRoas} />
           </div>
 
-          {/* Cards grid */}
           {tierViewData.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {tierViewData.map(inf => (
-                <InfluencerCard
-                  key={inf.id}
-                  inf={inf}
-                  expanded={expandedId === inf.id}
-                  expandLoading={expandLoading}
-                  expandedOrders={expandedOrders}
-                  onExpand={() => handleExpand(inf)}
-                  onEdit={() => openEditModal(inf)}
-                  onRenew={() => handleRenew(inf)}
-                  onToggle={() => handleToggleActive(inf)}
-                />
-              ))}
+            <div className="bg-bg-card border border-border rounded-xl overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-border text-left text-[11px] text-text-muted uppercase tracking-wide">
+                      <th className="px-3 py-2.5 font-medium sticky left-0 bg-bg-card z-10">Nome</th>
+                      <th className="px-3 py-2.5 font-medium hidden sm:table-cell">Instagram</th>
+                      <th className="px-3 py-2.5 font-medium">Cupom</th>
+                      <th className="px-3 py-2.5 font-medium hidden md:table-cell">Periodo</th>
+                      <th className="px-3 py-2.5 font-medium text-center">Seq.</th>
+                      <th className="px-3 py-2.5 font-medium text-right">Pedidos</th>
+                      <th className="px-3 py-2.5 font-medium text-right">Receita</th>
+                      <th className="px-3 py-2.5 font-medium text-right">ROAS</th>
+                      <th className="px-3 py-2.5 font-medium text-center hidden sm:table-cell">Status</th>
+                      <th className="px-3 py-2.5 font-medium text-right">Acoes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tierViewData.map(inf => {
+                      const dr = daysRemaining(inf.end_date)
+                      return (
+                        <tr key={inf.id} className="border-b border-border/50 last:border-0 hover:bg-bg-hover/30 transition-colors">
+                          <td className="px-3 py-2.5 font-medium text-text-primary sticky left-0 bg-bg-card z-10 whitespace-nowrap">
+                            {inf.name}
+                          </td>
+                          <td className="px-3 py-2.5 text-text-muted hidden sm:table-cell">
+                            {inf.instagram ? `@${inf.instagram.replace('@', '')}` : '--'}
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <span className="px-2 py-0.5 rounded bg-bg-surface text-text-secondary text-xs font-mono border border-border">{inf.coupon_code}</span>
+                          </td>
+                          <td className="px-3 py-2.5 text-text-muted text-xs hidden md:table-cell whitespace-nowrap">
+                            {inf.start_date ? `${fmtDateBR(inf.start_date)} → ${inf.end_date ? fmtDateBR(inf.end_date) : '∞'}` : '--'}
+                          </td>
+                          <td className="px-3 py-2.5 text-center relative">
+                            <button
+                              onClick={() => setSeqPopoverId(seqPopoverId === inf.id ? null : inf.id)}
+                              className="cursor-pointer"
+                            >
+                              <SeqDots sequences={inf.sequences} total={inf.total_sequences || 3} />
+                            </button>
+                            {seqPopoverId === inf.id && inf.sequences.length > 0 && (
+                              <SeqPopover sequences={inf.sequences} total={inf.total_sequences || 3} onClose={() => setSeqPopoverId(null)} />
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5 text-right text-text-secondary">{fmtNum(inf.total_orders)}</td>
+                          <td className="px-3 py-2.5 text-right font-medium text-emerald-400">{fmtBRL(inf.total_revenue)}</td>
+                          <td className="px-3 py-2.5 text-right">
+                            {inf.roas !== null ? (
+                              <span className={`font-medium ${inf.roas >= 3 ? 'text-emerald-400' : inf.roas >= 1 ? 'text-yellow-400' : 'text-red-400'}`}>
+                                {inf.roas.toFixed(1)}x
+                              </span>
+                            ) : <span className="text-text-muted">--</span>}
+                          </td>
+                          <td className="px-3 py-2.5 text-center hidden sm:table-cell">
+                            <span className={`inline-block w-2 h-2 rounded-full ${inf.is_active ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                          </td>
+                          <td className="px-3 py-2.5 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <button onClick={() => openEditModal(inf)} title="Editar"
+                                className="p-1.5 rounded-lg hover:bg-bg-surface text-text-muted hover:text-text-primary transition-colors cursor-pointer">
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                              </button>
+                              <button onClick={() => openRenewalModal(inf)} title="Renovar"
+                                className="p-1.5 rounded-lg hover:bg-bg-surface text-text-muted hover:text-emerald-400 transition-colors cursor-pointer">
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                              </button>
+                              <button onClick={() => handleToggleActive(inf)} title={inf.is_active ? 'Desativar' : 'Ativar'}
+                                className={`p-1.5 rounded-lg hover:bg-bg-surface transition-colors cursor-pointer ${inf.is_active ? 'text-text-muted hover:text-red-400' : 'text-red-400 hover:text-emerald-400'}`}>
+                                {inf.is_active ? (
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                ) : (
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                )}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          ) : !loading ? (
+          ) : (
             <div className="bg-bg-card border border-border rounded-xl p-8 text-center">
               <p className="text-text-muted text-sm">Nenhuma influenciadora {view} cadastrada.</p>
             </div>
-          ) : null}
+          )}
         </>
       )}
 
       {/* ═══════ VIEW: RANKING ═══════ */}
       {view === 'ranking' && (
         <>
-          {/* Podium */}
           {ranked.length > 0 && (
             <div className="flex items-end justify-center gap-4 md:gap-8 pt-4 pb-2">
               {ranked.length > 1 && <PodiumCard rank={2} inf={ranked[1]} h="h-24" />}
@@ -491,7 +676,6 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
               {ranked.length > 2 && <PodiumCard rank={3} inf={ranked[2]} h="h-16" />}
             </div>
           )}
-          {/* Ranking table */}
           {ranked.length > 0 ? (
             <div className="bg-bg-card border border-border rounded-xl p-4">
               <div className="overflow-x-auto">
@@ -558,13 +742,12 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/60" onClick={() => setShowModal(false)}>
           <div className="relative w-full max-w-lg md:mx-4 max-h-[95vh] md:max-h-[90vh] flex flex-col rounded-t-2xl md:rounded-xl bg-bg-card border border-border" onClick={e => e.stopPropagation()}>
-            {/* ── Sticky header ── */}
+            {/* Sticky header */}
             <div className="sticky top-0 flex items-center justify-between px-5 py-4 border-b border-border bg-bg-card rounded-t-2xl md:rounded-t-xl z-10 shrink-0">
               <div>
                 <h3 className="text-lg font-semibold text-text-primary">
                   {editingId ? 'Editar Influenciadora' : 'Adicionar Influenciadora'}
                 </h3>
-                {/* Step indicator inline */}
                 <div className="flex items-center gap-1.5 mt-1">
                   {[1, 2, 3].map(s => (
                     <div key={s} className="flex items-center gap-1">
@@ -584,7 +767,7 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
               </button>
             </div>
 
-            {/* ── Scrollable content ── */}
+            {/* Scrollable content */}
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
               {/* STEP 1: Perfil */}
               {modalStep === 1 && (
@@ -592,7 +775,7 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
                   <Field label="Nome *">
                     <input type="text" value={form.name} onChange={e => setField('name', e.target.value)} placeholder="Nome da influenciadora" className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold" />
                   </Field>
-                  <Field label="Instagram *">
+                  <Field label="Instagram">
                     <div className="flex items-center">
                       <span className="text-sm text-text-muted mr-1">@</span>
                       <input type="text" value={form.instagram} onChange={e => setField('instagram', e.target.value)} placeholder="usuario" className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold" />
@@ -610,15 +793,17 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
                         }`} style={form.tier === 'micro' ? { background: '#2563EB' } : {}}>MICRO</button>
                     </div>
                   </Field>
-                  <Field label="Nicho">
-                    <select value={form.niche} onChange={e => setField('niche', e.target.value)} className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold">
-                      <option value="">Selecione</option>
-                      {NICHES.map(n => <option key={n} value={n}>{n}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="Seguidores">
-                    <input type="text" value={form.followers} onChange={e => setField('followers', e.target.value.replace(/\D/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, '.'))} placeholder="120.000" className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold" />
-                  </Field>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Nicho">
+                      <select value={form.niche} onChange={e => setField('niche', e.target.value)} className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold">
+                        <option value="">Selecione</option>
+                        {NICHES.map(n => <option key={n} value={n}>{n}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Seguidores">
+                      <input type="text" value={form.followers} onChange={e => setField('followers', e.target.value.replace(/\D/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, '.'))} placeholder="120.000" className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold" />
+                    </Field>
+                  </div>
                   <Field label="Cupom *">
                     <input type="text" value={form.coupon}
                       onChange={e => {
@@ -632,24 +817,116 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
                     {previewLoading && <p className="text-[11px] text-text-muted mt-1">Buscando...</p>}
                     {couponPreview && !previewLoading && (
                       <p className={`text-[11px] mt-1 ${couponPreview.orders > 0 ? 'text-emerald-400' : 'text-yellow-400'}`}>
-                        {couponPreview.orders > 0 ? `${couponPreview.orders} pedidos encontrados, ${fmtBRL(couponPreview.revenue)} em receita` : 'Nenhum pedido encontrado com este cupom'}
+                        {couponPreview.orders > 0 ? `${couponPreview.orders} pedidos, ${fmtBRL(couponPreview.revenue)}` : 'Nenhum pedido com este cupom'}
                       </p>
                     )}
                   </Field>
+                  {/* Yampi coupon creation toggle */}
+                  {!editingId && (
+                    <div className="bg-bg-surface/50 border border-border rounded-lg p-3 space-y-2">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={form.createCouponYampi} onChange={e => setField('createCouponYampi', e.target.checked)} className="accent-brand-gold w-4 h-4" />
+                        <span className="text-xs text-text-secondary">Criar cupom na Yampi automaticamente</span>
+                      </label>
+                      {form.createCouponYampi && (
+                        <div className="space-y-2 pl-6">
+                          <Field label="Tipo de desconto" compact>
+                            <div className="flex gap-1">
+                              <button onClick={() => setField('discountType', 'percent')}
+                                className={`flex-1 px-2 py-1 text-xs rounded font-medium cursor-pointer ${form.discountType === 'percent' ? 'bg-brand-gold text-bg-base' : 'bg-bg-surface border border-border text-text-muted'}`}>
+                                Percentual %
+                              </button>
+                              <button onClick={() => setField('discountType', 'value')}
+                                className={`flex-1 px-2 py-1 text-xs rounded font-medium cursor-pointer ${form.discountType === 'value' ? 'bg-brand-gold text-bg-base' : 'bg-bg-surface border border-border text-text-muted'}`}>
+                                Valor fixo R$
+                              </button>
+                            </div>
+                          </Field>
+                          <div className="grid grid-cols-2 gap-2">
+                            <Field label="Valor do desconto" compact>
+                              <input type="number" value={form.discountValue} onChange={e => setField('discountValue', e.target.value)} placeholder={form.discountType === 'percent' ? '10' : '50'} className="w-full bg-bg-surface border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary outline-none focus:border-brand-gold" />
+                            </Field>
+                            <Field label="Uso maximo" compact>
+                              <input type="number" value={form.maxUses} onChange={e => setField('maxUses', e.target.value)} placeholder="Ilimitado" className="w-full bg-bg-surface border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary outline-none focus:border-brand-gold" />
+                            </Field>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
 
               {/* STEP 2: Contrato */}
               {modalStep === 2 && (
                 <>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Data de inicio *">
-                      <input type="date" value={form.startDate} onChange={e => setField('startDate', e.target.value)} className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold" />
+                  <Field label="Periodo do contrato">
+                    <div className="flex gap-1 mb-2">
+                      {([['month', 'Mês Fechado'], ['months', 'Meses'], ['custom', 'Personalizado']] as [ContractMode, string][]).map(([k, l]) => (
+                        <button key={k} onClick={() => {
+                          setField('contractMode', k)
+                          if (k === 'month' && form.contractMonth) applyContractDates(k, form.contractMonth, 1)
+                          if (k === 'months' && form.contractMonth) applyContractDates(k, form.contractMonth, form.contractDuration)
+                        }}
+                          className={`flex-1 px-2 py-1.5 text-xs rounded-lg font-medium transition-all cursor-pointer ${
+                            form.contractMode === k ? 'bg-brand-gold text-bg-base' : 'bg-bg-surface border border-border text-text-secondary hover:bg-bg-hover'
+                          }`}>{l}</button>
+                      ))}
+                    </div>
+                  </Field>
+
+                  {form.contractMode === 'month' && (
+                    <Field label="Mês/Ano">
+                      <input type="month" value={form.contractMonth || getCurrentMonth()}
+                        onChange={e => {
+                          const v = e.target.value
+                          setField('contractMonth', v)
+                          applyContractDates('month', v, 1)
+                        }}
+                        className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold" />
                     </Field>
-                    <Field label="Data de termino">
-                      <input type="date" value={form.endDate} onChange={e => setField('endDate', e.target.value)} className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold" />
-                    </Field>
-                  </div>
+                  )}
+
+                  {form.contractMode === 'months' && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Mês inicial">
+                        <input type="month" value={form.contractMonth || getCurrentMonth()}
+                          onChange={e => {
+                            const v = e.target.value
+                            setField('contractMonth', v)
+                            applyContractDates('months', v, form.contractDuration)
+                          }}
+                          className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold" />
+                      </Field>
+                      <Field label="Duracao">
+                        <select value={form.contractDuration} onChange={e => {
+                          const d = Number(e.target.value)
+                          setField('contractDuration', d)
+                          applyContractDates('months', form.contractMonth || getCurrentMonth(), d)
+                        }} className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold">
+                          {[1, 2, 3, 6].map(n => <option key={n} value={n}>{n} {n === 1 ? 'mês' : 'meses'}</option>)}
+                        </select>
+                      </Field>
+                    </div>
+                  )}
+
+                  {form.contractMode === 'custom' && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Data de inicio *">
+                        <input type="date" value={form.startDate} onChange={e => setField('startDate', e.target.value)} className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold" />
+                      </Field>
+                      <Field label="Data de termino">
+                        <input type="date" value={form.endDate} onChange={e => setField('endDate', e.target.value)} className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold" />
+                      </Field>
+                    </div>
+                  )}
+
+                  {form.startDate && (
+                    <p className="text-[11px] text-text-muted">
+                      {fmtDateBR(form.startDate)} → {form.endDate ? fmtDateBR(form.endDate) : '∞'}
+                    </p>
+                  )}
+
                   <Field label="Tipo de Pagamento">
                     <div className="flex gap-1.5">
                       {FEE_TYPES.map(ft => (
@@ -661,10 +938,15 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
                     </div>
                   </Field>
                   {showFixedFee && (
-                    <Field label="Valor Mensal">
+                    <Field label="Valor do Contrato (R$)">
                       <div className="flex items-center">
                         <span className="text-sm text-text-muted mr-1">R$</span>
-                        <input type="text" value={form.monthlyFee} onChange={e => setField('monthlyFee', e.target.value)} placeholder="0,00" className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold" />
+                        <input type="text" value={form.monthlyFee} onChange={e => {
+                          const v = e.target.value
+                          setField('monthlyFee', v)
+                          const fee = parseFloat(v.replace(/\./g, '').replace(',', '.')) || 0
+                          setForm(f => ({ ...f, monthlyFee: v, sequences: recalcSeqCosts(fee, f.totalSequences, f.sequences) }))
+                        }} placeholder="0,00" className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold" />
                       </div>
                     </Field>
                   )}
@@ -689,9 +971,25 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
               {/* STEP 3: Sequencias */}
               {modalStep === 3 && (
                 <>
+                  <Field label="Numero de sequencias">
+                    <div className="flex items-center gap-3">
+                      <input type="number" min={1} max={20} value={form.totalSequences}
+                        onChange={e => setTotalSequences(Number(e.target.value))}
+                        className="w-20 bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold" />
+                      {feeTotal > 0 && (
+                        <span className="text-[11px] text-text-muted">
+                          Custo por sequencia: {fmtBRL(form.totalSequences > 0 ? feeTotal / form.totalSequences : 0)}
+                        </span>
+                      )}
+                    </div>
+                  </Field>
+
                   {form.sequences.map((seq, i) => (
                     <div key={i} className="bg-bg-surface/50 border border-border rounded-lg p-3 space-y-2">
-                      <p className="text-xs font-semibold text-text-primary">Sequencia {i + 1}</p>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs font-semibold text-text-primary">Sequencia {i + 1}</p>
+                        {seq.cost > 0 && <span className="text-[10px] text-text-muted">{fmtBRL(seq.cost)}</span>}
+                      </div>
                       <div className="grid grid-cols-2 gap-2">
                         <Field label="Data programada *" compact>
                           <input type="date" value={seq.scheduled_date} onChange={e => setSeqField(i, 'scheduled_date', e.target.value)} className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold text-xs" />
@@ -733,11 +1031,18 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
                       </div>
                     </div>
                   ))}
+
+                  {/* Cost check */}
+                  {feeTotal > 0 && (
+                    <div className={`text-[11px] px-3 py-2 rounded-lg ${costMatch ? 'bg-emerald-500/10 text-emerald-400' : 'bg-yellow-500/10 text-yellow-400'}`}>
+                      Total sequencias: {fmtBRL(seqTotal)} = Valor contrato: {fmtBRL(feeTotal)} {costMatch ? '\u2713' : '\u26A0 Divergencia'}
+                    </div>
+                  )}
                 </>
               )}
             </div>
 
-            {/* ── Sticky footer ── */}
+            {/* Sticky footer */}
             <div className="sticky bottom-0 flex gap-3 px-5 py-4 border-t border-border bg-bg-card rounded-b-xl shrink-0">
               {modalStep > 1 ? (
                 <button onClick={() => setModalStep((modalStep - 1) as ModalStep)}
@@ -761,6 +1066,152 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
           </div>
         </div>
       )}
+
+      {/* ═══════ RENEWAL MODAL ═══════ */}
+      {showRenewalModal && renewTarget && (
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/60" onClick={() => setShowRenewalModal(false)}>
+          <div className="relative w-full max-w-md md:mx-4 max-h-[90vh] flex flex-col rounded-t-2xl md:rounded-xl bg-bg-card border border-border" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-border shrink-0">
+              <h3 className="text-lg font-semibold text-text-primary">Renovar Contrato — {renewTarget.name}</h3>
+              <p className="text-xs text-text-muted mt-0.5">Mesmo cupom, novas condições.</p>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+              {/* Previous contract info */}
+              {renewTarget.start_date && (
+                <div className="bg-bg-surface/50 border border-border rounded-lg p-3">
+                  <p className="text-[10px] text-text-muted uppercase mb-1">Contrato anterior</p>
+                  <p className="text-xs text-text-secondary">
+                    {fmtDateBR(renewTarget.start_date)} → {renewTarget.end_date ? fmtDateBR(renewTarget.end_date) : '∞'} — {fmtBRL(renewTarget.monthly_fee)}
+                  </p>
+                </div>
+              )}
+              {/* Renewal history */}
+              {renewTarget.renewals.length > 0 && (
+                <div className="bg-bg-surface/50 border border-border rounded-lg p-3">
+                  <p className="text-[10px] text-text-muted uppercase mb-1">Historico de renovacoes ({renewTarget.renewals.length})</p>
+                  {renewTarget.renewals.slice(-3).map((r, i) => (
+                    <p key={i} className="text-[10px] text-text-muted">
+                      #{r.renewal_number}: {fmtDateBR(r.start_date)} → {r.end_date ? fmtDateBR(r.end_date) : '∞'} — {fmtBRL(r.monthly_fee)}
+                    </p>
+                  ))}
+                </div>
+              )}
+
+              <Field label="Periodo">
+                <div className="flex gap-1 mb-2">
+                  {([['month', 'Mês Fechado'], ['months', 'Meses'], ['custom', 'Personalizado']] as [ContractMode, string][]).map(([k, l]) => (
+                    <button key={k} onClick={() => {
+                      setRenewForm(f => ({ ...f, contractMode: k }))
+                      if (k === 'month' && renewForm.contractMonth) {
+                        const [y, m] = renewForm.contractMonth.split('-').map(Number)
+                        const start = `${y}-${String(m).padStart(2, '0')}-01`
+                        const end = `${y}-${String(m).padStart(2, '0')}-${String(lastDayOfMonth(y, m)).padStart(2, '0')}`
+                        setRenewForm(f => ({ ...f, contractMode: k, startDate: start, endDate: end }))
+                      }
+                    }}
+                      className={`flex-1 px-2 py-1.5 text-xs rounded-lg font-medium transition-all cursor-pointer ${
+                        renewForm.contractMode === k ? 'bg-brand-gold text-bg-base' : 'bg-bg-surface border border-border text-text-secondary hover:bg-bg-hover'
+                      }`}>{l}</button>
+                  ))}
+                </div>
+              </Field>
+
+              {renewForm.contractMode === 'month' && (
+                <Field label="Mês/Ano">
+                  <input type="month" value={renewForm.contractMonth || getCurrentMonth()}
+                    onChange={e => {
+                      const v = e.target.value
+                      const [y, m] = v.split('-').map(Number)
+                      setRenewForm(f => ({
+                        ...f, contractMonth: v,
+                        startDate: `${y}-${String(m).padStart(2, '0')}-01`,
+                        endDate: `${y}-${String(m).padStart(2, '0')}-${String(lastDayOfMonth(y, m)).padStart(2, '0')}`,
+                      }))
+                    }}
+                    className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold" />
+                </Field>
+              )}
+              {renewForm.contractMode === 'months' && (
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Mês inicial">
+                    <input type="month" value={renewForm.contractMonth || getCurrentMonth()}
+                      onChange={e => {
+                        const v = e.target.value
+                        const [y, m] = v.split('-').map(Number)
+                        const dur = renewForm.contractDuration
+                        const endMonth = new Date(y, m - 1 + dur, 0)
+                        setRenewForm(f => ({
+                          ...f, contractMonth: v,
+                          startDate: `${y}-${String(m).padStart(2, '0')}-01`,
+                          endDate: toYMD(endMonth),
+                        }))
+                      }}
+                      className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold" />
+                  </Field>
+                  <Field label="Duracao">
+                    <select value={renewForm.contractDuration} onChange={e => {
+                      const d = Number(e.target.value)
+                      const mo = renewForm.contractMonth || getCurrentMonth()
+                      const [y, m] = mo.split('-').map(Number)
+                      const endMonth = new Date(y, m - 1 + d, 0)
+                      setRenewForm(f => ({
+                        ...f, contractDuration: d,
+                        startDate: `${y}-${String(m).padStart(2, '0')}-01`,
+                        endDate: toYMD(endMonth),
+                      }))
+                    }} className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold">
+                      {[1, 2, 3, 6].map(n => <option key={n} value={n}>{n} {n === 1 ? 'mês' : 'meses'}</option>)}
+                    </select>
+                  </Field>
+                </div>
+              )}
+              {renewForm.contractMode === 'custom' && (
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Data de inicio *">
+                    <input type="date" value={renewForm.startDate} onChange={e => setRenewForm(f => ({ ...f, startDate: e.target.value }))} className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold" />
+                  </Field>
+                  <Field label="Data de termino">
+                    <input type="date" value={renewForm.endDate} onChange={e => setRenewForm(f => ({ ...f, endDate: e.target.value }))} className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold" />
+                  </Field>
+                </div>
+              )}
+
+              {renewForm.startDate && (
+                <p className="text-[11px] text-text-muted">{fmtDateBR(renewForm.startDate)} → {renewForm.endDate ? fmtDateBR(renewForm.endDate) : '∞'}</p>
+              )}
+
+              <Field label="Tipo de Pagamento">
+                <div className="flex gap-1.5">
+                  {FEE_TYPES.map(ft => (
+                    <button key={ft.key} onClick={() => setRenewForm(f => ({ ...f, feeType: ft.key }))}
+                      className={`flex-1 px-2 py-1.5 text-xs rounded-lg font-medium transition-all cursor-pointer ${
+                        renewForm.feeType === ft.key ? 'bg-brand-gold text-bg-base' : 'bg-bg-surface border border-border text-text-secondary hover:bg-bg-hover'
+                      }`}>{ft.label}</button>
+                  ))}
+                </div>
+              </Field>
+              {(renewForm.feeType === 'fixed' || renewForm.feeType === 'fixed_commission') && (
+                <Field label="Valor do Contrato (R$)">
+                  <input type="text" value={renewForm.monthlyFee} onChange={e => setRenewForm(f => ({ ...f, monthlyFee: e.target.value }))} placeholder="0,00" className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold" />
+                </Field>
+              )}
+              {(renewForm.feeType === 'commission' || renewForm.feeType === 'fixed_commission') && (
+                <Field label="Comissao (%)">
+                  <input type="text" value={renewForm.commission} onChange={e => setRenewForm(f => ({ ...f, commission: e.target.value }))} placeholder="10" className="w-full bg-bg-surface border border-border rounded-lg px-3 py-2 text-sm text-text-primary outline-none focus:border-brand-gold" />
+                </Field>
+              )}
+            </div>
+            <div className="flex gap-3 px-5 py-4 border-t border-border shrink-0">
+              <button onClick={() => setShowRenewalModal(false)}
+                className="flex-1 px-4 py-2.5 text-sm rounded-lg border border-border text-text-secondary hover:bg-bg-hover cursor-pointer">Cancelar</button>
+              <button onClick={handleRenewalSave} disabled={!renewForm.startDate || renewSaving}
+                className="flex-1 px-4 py-2.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 disabled:opacity-40 cursor-pointer">
+                {renewSaving ? 'Salvando...' : 'Renovar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -769,141 +1220,29 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
    Sub-components
    ══════════════════════════════════════════════ */
 
-function InfluencerCard({ inf, expanded, expandLoading, expandedOrders, onExpand, onEdit, onRenew, onToggle }: {
-  inf: Performance; expanded: boolean; expandLoading: boolean; expandedOrders: any[]
-  onExpand: () => void; onEdit: () => void; onRenew: () => void; onToggle: () => void
-}) {
-  const dr = daysRemaining(inf.end_date)
-  const barColor = dr === null ? 'bg-text-muted/30' : dr > 30 ? 'bg-emerald-400' : dr > 7 ? 'bg-yellow-400' : 'bg-red-400'
-  const textColor = dr === null ? 'text-text-muted' : dr > 30 ? 'text-emerald-400' : dr > 7 ? 'text-yellow-400' : 'text-red-400'
-
-  // Contract progress percentage
-  const contractProgress = (() => {
-    if (!inf.start_date || !inf.end_date) return null
-    const start = new Date(inf.start_date + 'T00:00:00').getTime()
-    const end = new Date(inf.end_date + 'T00:00:00').getTime()
-    const now = Date.now()
-    const total = end - start
-    if (total <= 0) return 100
-    return Math.min(100, Math.max(0, ((now - start) / total) * 100))
-  })()
-
+function SeqPopover({ sequences, total, onClose }: { sequences: Sequence[]; total: number; onClose: () => void }) {
   return (
-    <div className="bg-bg-card border border-border rounded-xl p-4 space-y-3">
-      {/* Top: Name + badge + status dot */}
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-2 min-w-0">
-          <h4 className="text-sm font-semibold text-text-primary truncate">{inf.name}</h4>
-          <TierBadge tier={inf.tier} />
-        </div>
-        <span className={`w-2.5 h-2.5 rounded-full shrink-0 mt-0.5 ${inf.is_active ? 'bg-emerald-400' : 'bg-red-400'}`} title={inf.is_active ? 'Ativa' : 'Inativa'} />
+    <div className="absolute z-20 top-full mt-1 left-1/2 -translate-x-1/2 bg-bg-card border border-border rounded-lg shadow-xl p-3 min-w-[200px]" onClick={e => e.stopPropagation()}>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[10px] text-text-muted uppercase font-semibold">Sequencias</p>
+        <button onClick={onClose} className="text-text-muted hover:text-text-primary cursor-pointer">
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
       </div>
-
-      {/* Instagram */}
-      {inf.instagram && (
-        <p className="text-xs text-text-muted">@{inf.instagram.replace('@', '')}</p>
-      )}
-
-      {/* Coupon pill */}
-      <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-mono font-medium"
-        style={{ background: '#ECA20615', color: '#ECA206', border: '1px solid #ECA20630' }}>
-        {inf.coupon_code}
-      </span>
-
-      {/* Metrics row */}
-      <div className="flex items-center py-2.5 border-t border-b border-border/50">
-        <div className="text-center flex-1">
-          <p className="text-[10px] text-text-muted uppercase tracking-wide">Pedidos</p>
-          <p className="text-sm font-semibold text-text-primary mt-0.5">{fmtNum(inf.total_orders)}</p>
-        </div>
-        <div className="w-px h-8 bg-border/50" />
-        <div className="text-center flex-1">
-          <p className="text-[10px] text-text-muted uppercase tracking-wide">Receita</p>
-          <p className="text-sm font-semibold text-emerald-400 mt-0.5">{fmtBRL(inf.total_revenue)}</p>
-        </div>
-        <div className="w-px h-8 bg-border/50" />
-        <div className="text-center flex-1">
-          <p className="text-[10px] text-text-muted uppercase tracking-wide">ROAS</p>
-          <p className={`text-sm font-semibold mt-0.5 ${inf.roas !== null ? (inf.roas >= 3 ? 'text-emerald-400' : inf.roas >= 1 ? 'text-yellow-400' : 'text-red-400') : 'text-text-muted'}`}>
-            {inf.roas !== null ? `${inf.roas.toFixed(1)}x` : '--'}
-          </p>
-        </div>
-      </div>
-
-      {/* Contract bar */}
-      {inf.start_date && (
-        <div className="space-y-1">
-          <div className="flex items-center justify-between text-[10px]">
-            <span className="text-text-muted">{inf.start_date}</span>
-            <span className="text-text-muted">{inf.end_date || '\u221E'}</span>
-          </div>
-          {contractProgress !== null && (
-            <div className="h-1.5 bg-bg-surface rounded-full overflow-hidden">
-              <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${contractProgress}%` }} />
+      {Array.from({ length: total }, (_, i) => {
+        const seq = sequences.find(s => s.sequence_number === i + 1)
+        const statusColor = seq?.status === 'published' ? 'text-emerald-400' : seq?.status === 'delayed' ? 'text-red-400' : 'text-yellow-400'
+        const statusLabel = seq?.status === 'published' ? 'Publicado' : seq?.status === 'delayed' ? 'Atrasado' : 'Pendente'
+        return (
+          <div key={i} className="flex items-center justify-between text-[10px] py-1 border-b border-border/30 last:border-0">
+            <span className="text-text-secondary">#{i + 1} {seq?.content_type || ''}</span>
+            <div className="flex items-center gap-2">
+              <span className="text-text-muted">{seq?.scheduled_date ? fmtDateBR(seq.scheduled_date) : '--'}</span>
+              <span className={statusColor}>{seq ? statusLabel : '--'}</span>
             </div>
-          )}
-          {dr !== null && (
-            <p className={`text-[10px] ${textColor}`}>
-              {dr > 0 ? `${dr} dias restantes` : dr === 0 ? 'Expira hoje' : `Expirado ha ${Math.abs(dr)} dias`}
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Sequence dots */}
-      {inf.sequences.length > 0 && (
-        <div className="flex items-center gap-1.5">
-          <span className="text-[10px] text-text-muted mr-0.5">Seq:</span>
-          <SeqDots sequences={inf.sequences} />
-        </div>
-      )}
-
-      {/* Action buttons */}
-      <div className="flex items-center gap-2 pt-1">
-        <button onClick={onEdit} className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-lg bg-bg-surface border border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors cursor-pointer">
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-          <span>Editar</span>
-        </button>
-        <button onClick={onRenew} className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-lg bg-bg-surface border border-border text-text-secondary hover:bg-bg-hover hover:text-emerald-400 transition-colors cursor-pointer">
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-          <span>Renovar</span>
-        </button>
-        <button onClick={onExpand} className={`flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-lg border transition-colors cursor-pointer ${expanded ? 'bg-brand-gold/10 border-brand-gold/30 text-brand-gold' : 'bg-bg-surface border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary'}`}>
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-          <span>Ver pedidos</span>
-        </button>
-      </div>
-
-      {/* Expanded orders panel */}
-      {expanded && (
-        <div className="bg-bg-surface/50 rounded-lg p-3 space-y-2 border border-border/50 mt-1">
-          {expandLoading ? (
-            <p className="text-xs text-text-muted">Carregando pedidos...</p>
-          ) : expandedOrders.length > 0 ? (
-            <>
-              <p className="text-xs font-semibold text-text-primary mb-2">Ultimos Pedidos</p>
-              <div className="space-y-0.5">
-                {expandedOrders.slice(0, 10).map((o: any, j: number) => (
-                  <div key={j} className="flex items-center justify-between text-xs py-1.5 border-b border-border/30 last:border-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-text-muted">{o.date}</span>
-                      <span className="text-text-secondary font-mono">#{String(o.order_id).slice(-6)}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-emerald-400 font-medium">{fmtBRL(o.revenue)}</span>
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-                        o.status === 'delivered' ? 'bg-emerald-500/15 text-emerald-400' : o.status === 'shipped' ? 'bg-blue-500/15 text-blue-400' : 'bg-yellow-500/15 text-yellow-400'
-                      }`}>{o.status}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : (
-            <p className="text-xs text-text-muted">Nenhum pedido no periodo.</p>
-          )}
-        </div>
-      )}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -935,15 +1274,15 @@ function TierBadge({ tier }: { tier: Tier }) {
   )
 }
 
-function SeqDots({ sequences }: { sequences: Sequence[] }) {
-  const dots = [1, 2, 3].map(n => {
-    const seq = sequences.find(s => s.sequence_number === n)
+function SeqDots({ sequences, total }: { sequences: Sequence[]; total: number }) {
+  const dots = Array.from({ length: total }, (_, i) => {
+    const seq = sequences.find(s => s.sequence_number === i + 1)
     if (!seq) return 'bg-bg-surface'
     return seq.status === 'published' ? 'bg-emerald-400' : seq.status === 'delayed' ? 'bg-red-400' : 'bg-yellow-400'
   })
   return (
     <div className="flex gap-1">
-      {dots.map((cls, i) => <span key={i} className={`w-2.5 h-2.5 rounded-full ${cls}`} />)}
+      {dots.map((cls, i) => <span key={i} className={`w-2 h-2 rounded-full ${cls}`} />)}
     </div>
   )
 }

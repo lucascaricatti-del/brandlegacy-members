@@ -126,11 +126,21 @@ export async function GET(req: NextRequest) {
     const contract_start = currentRenewal?.start_date || inf.start_date
     const contract_end = currentRenewal?.end_date || inf.end_date
 
-    // Prorated cost: monthly_fee / contract_days * period_days
-    const contractDays = contract_end && contract_start
-      ? Math.max(daysBetween(contract_start, contract_end) + 1, 1)
-      : 30
-    const prorated_fee = monthly_fee / contractDays * periodDays
+    // Sequence-based cost: sum of sequence costs that fall within the period
+    const sequences = seqByInf.get(inf.id) || []
+    const seq_cost = sequences.reduce((sum: number, s: any) => {
+      const seqCost = Number(s.cost) || 0
+      if (seqCost <= 0) return sum
+      if (s.status === 'published' && s.published_at) {
+        const pubDate = s.published_at.slice(0, 10)
+        if (pubDate >= date_from && pubDate <= date_to) return sum + seqCost
+      } else if (s.scheduled_date) {
+        const schedDate = s.scheduled_date.slice(0, 10)
+        if (schedDate >= date_from && schedDate <= date_to) return sum + seqCost
+      }
+      return sum
+    }, 0)
+    const prorated_fee = seq_cost
 
     // Orders
     const code = (inf.coupon_code || '').toUpperCase()

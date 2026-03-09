@@ -49,6 +49,7 @@ export async function POST(req: NextRequest) {
       contract_status: contract_status || 'active',
       followers_count: followers_count || null,
       niche: niche || null,
+      total_sequences: body.total_sequences || 3,
     })
     .select()
     .single()
