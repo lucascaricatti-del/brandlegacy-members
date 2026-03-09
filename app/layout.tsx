@@ -34,8 +34,9 @@ export const metadata: Metadata = {
   title: 'BrandLegacy Members',
   description: 'Área exclusiva da mentoria BrandLegacy. Acesse seus módulos, aulas e materiais.',
   icons: {
-    icon: '/icon.jpg',
-    apple: '/icon.jpg',
+    icon: [{ url: '/icon.jpg', type: 'image/jpeg' }],
+    apple: [{ url: '/icon.jpg', type: 'image/jpeg' }],
+    shortcut: '/icon.jpg',
   },
 }
 
