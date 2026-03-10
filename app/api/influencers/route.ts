@@ -79,6 +79,7 @@ export async function PUT(req: NextRequest) {
     .from('influencers')
     .update(updates)
     .eq('id', id)
+    .eq('workspace_id', workspace_id)
     .select()
     .single()
 
@@ -97,6 +98,7 @@ export async function DELETE(req: NextRequest) {
     .from('influencers')
     .delete()
     .eq('id', id)
+    .eq('workspace_id', workspace_id)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ deleted: true })

@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
     .from('influencer_renewals')
     .select('*')
     .eq('influencer_id', influencer_id)
+    .eq('workspace_id', workspace_id)
     .order('renewal_number')
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -41,12 +42,14 @@ export async function POST(req: NextRequest) {
     .from('influencer_renewals')
     .update({ is_current: false })
     .eq('influencer_id', influencer_id)
+    .eq('workspace_id', workspace_id)
 
   // Count existing to set renewal_number
   const { data: existing } = await (adminSupabase as any)
     .from('influencer_renewals')
     .select('id')
     .eq('influencer_id', influencer_id)
+    .eq('workspace_id', workspace_id)
 
   const { data, error } = await (adminSupabase as any)
     .from('influencer_renewals')
@@ -80,6 +83,7 @@ export async function PUT(req: NextRequest) {
     .from('influencer_renewals')
     .update(updates)
     .eq('id', id)
+    .eq('workspace_id', workspace_id)
     .select()
     .single()
 

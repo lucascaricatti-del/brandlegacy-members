@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { resolveWorkspace } from '@/lib/resolve-workspace'
 import DeliveryTimeline from './DeliveryTimeline'
 
 export const metadata = { title: 'Controle de Entregas — BrandLegacy' }
@@ -9,21 +10,9 @@ export default async function EntregasPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // Busca o workspace ativo do usuário
-  const { data: memberships } = await supabase
-    .from('workspace_members')
-    .select('workspace_id, workspaces(id, name, plan_type)')
-    .eq('user_id', user.id)
-    .eq('is_active', true)
-
-  type WsMembership = {
-    workspace_id: string
-    workspaces: { id: string; name: string; plan_type: string } | null
-  }
-
-  const workspaces = ((memberships ?? []) as unknown as WsMembership[])
-    .map((m) => m.workspaces)
-    .filter(Boolean) as { id: string; name: string; plan_type: string }[]
+  // Busca o workspace ativo do usuário (com suporte a impersonação admin)
+  const resolvedWs = await resolveWorkspace(user.id)
+  const workspaces = resolvedWs ? [{ id: resolvedWs.id, name: resolvedWs.name, plan_type: resolvedWs.plan_type }] : []
 
   if (workspaces.length === 0) {
     return (

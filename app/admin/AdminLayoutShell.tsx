@@ -1,25 +1,32 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, createContext, useContext } from 'react'
 import Link from 'next/link'
-import { logout } from '@/app/actions/auth'
+import { usePathname, useRouter } from 'next/navigation'
+import { createBrowserClient } from '@supabase/ssr'
 
 type Profile = { name: string | null; admin_role: string | null } | null
 
-const ADMIN_ROLE_LABELS: Record<string, string> = {
-  admin: 'Admin',
-  mentor: 'Mentor',
-  lideranca: 'Liderança',
-  cx: 'CX',
-  financeiro: 'Financeiro',
+const NavCtx = createContext<(v: boolean) => void>(() => {})
+
+// ── Design tokens (same as StudentLayoutShell) ──
+const T = {
+  bg: '#050D07',
+  gold: '#C9971A',
+  goldHover: '#E5B82A',
+  surface: 'rgba(255,255,255,0.03)',
+  border: 'rgba(255,255,255,0.08)',
+  divider: 'rgba(255,255,255,0.06)',
+  textPrimary: '#FFFFFF',
+  textMuted: 'rgba(255,255,255,0.45)',
+  textNav: 'rgba(255,255,255,0.6)',
+  sectionLabel: 'rgba(255,255,255,0.3)',
+  hoverBg: 'rgba(255,255,255,0.05)',
+  activeBg: 'rgba(201,151,26,0.12)',
 }
 
-const ADMIN_ROLE_COLORS: Record<string, string> = {
-  admin: 'bg-brand-gold/15 text-brand-gold',
-  mentor: 'bg-info/15 text-info',
-  lideranca: 'bg-purple-400/15 text-purple-400',
-  cx: 'bg-green-400/15 text-green-400',
-  financeiro: 'bg-yellow-400/15 text-yellow-400',
+const ADMIN_ROLE_LABELS: Record<string, string> = {
+  admin: 'Admin', mentor: 'Mentor', lideranca: 'Lideranca', cx: 'CX', financeiro: 'Financeiro',
 }
 
 export default function AdminLayoutShell({
@@ -31,110 +38,150 @@ export default function AdminLayoutShell({
 }) {
   const [open, setOpen] = useState(false)
   const [crmOpen, setCrmOpen] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
+  const router = useRouter()
+  const pathname = usePathname()
+  const nav = () => setOpen(false)
+  const [navigating, setNavigating] = useState(false)
+  useEffect(() => { setNavigating(false) }, [pathname])
+
+  function isActive(href: string) {
+    return pathname === href || pathname.startsWith(href + '/')
+  }
+
+  async function handleLogout() {
+    try {
+      setLoggingOut(true)
+      const supabase = createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      )
+      await supabase.auth.signOut()
+      router.push('/login')
+    } catch {
+      router.push('/login')
+    }
+  }
 
   return (
-    <div className="flex min-h-screen bg-bg-base">
+    <div className="flex min-h-screen" style={{ background: T.bg }}>
+      {/* Progress bar */}
+      {navigating && (
+        <div className="fixed top-0 left-0 right-0 z-[100] h-0.5 overflow-hidden" style={{ background: 'rgba(201,151,26,0.15)' }}>
+          <div className="h-full" style={{ background: T.gold, animation: 'navProgress 1.5s ease-in-out infinite', width: '40%' }} />
+        </div>
+      )}
+      <style>{`@keyframes navProgress{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}@keyframes fadeIn{from{opacity:0}to{opacity:1}}`}</style>
+
       {/* Mobile backdrop */}
       {open && (
-        <div
-          className="fixed inset-0 z-40 bg-black/60 md:hidden"
-          onClick={() => setOpen(false)}
-        />
+        <div className="fixed inset-0 z-40 bg-black/60 md:hidden" onClick={nav} />
       )}
 
       {/* Sidebar */}
       <aside
         className={[
-          'fixed inset-y-0 left-0 z-50 w-60 flex flex-col bg-bg-card border-r border-border',
+          'fixed inset-y-0 left-0 z-50 flex flex-col',
           'transition-transform duration-200 ease-in-out',
           open ? 'translate-x-0' : '-translate-x-full',
           'md:relative md:translate-x-0 md:shrink-0',
         ].join(' ')}
+        style={{
+          width: 220,
+          background: T.bg,
+          borderRight: `1px solid ${T.border}`,
+        }}
       >
         {/* Logo */}
-        <div className="px-6 py-6 border-b border-border flex items-center justify-between">
-          <Link href="/admin" onClick={() => setOpen(false)}>
-            <img src="/logo.png" alt="BrandLegacy" className="h-8 w-auto" />
-            <p className="text-xs mt-1 text-brand-gold/70 font-medium">Painel Admin</p>
+        <div className="px-4 py-5 flex items-center justify-between" style={{ borderBottom: `1px solid ${T.border}` }}>
+          <Link href="/admin" onClick={nav}>
+            <img src="/logo.png" alt="BrandLegacy" className="h-7 w-auto" />
+            <p className="text-xs mt-0.5" style={{ color: T.gold, opacity: 0.7 }}>Painel Admin</p>
           </Link>
-          <button
-            className="md:hidden p-1.5 rounded-lg hover:bg-bg-hover text-text-muted"
-            onClick={() => setOpen(false)}
-            aria-label="Fechar menu"
-          >
+          <button className="md:hidden p-1.5 rounded-lg" onClick={nav} aria-label="Fechar menu" style={{ color: T.textMuted }}>
             <IconX />
           </button>
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 px-3 py-4 space-y-1">
-          <NavItem href="/admin/modulos" icon={<IconModulos />} label="Módulos" onNavigate={() => setOpen(false)} />
-          <NavItem href="/admin/workspaces" icon={<IconWorkspaces />} label="Empresas" onNavigate={() => setOpen(false)} />
-          <NavItem href="/admin/agentes" icon={<IconAgentes />} label="Agentes" onNavigate={() => setOpen(false)} />
-          <NavItem href="/admin/financeiro" icon={<IconFinanceiro />} label="Financeiro" onNavigate={() => setOpen(false)} />
-          <NavItem href="/admin/cx" icon={<IconCx />} label="CX" onNavigate={() => setOpen(false)} />
-          {/* CRM — submenu expansível */}
-          <div>
-            <button
-              onClick={() => setCrmOpen((v) => !v)}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors group"
-            >
-              <span className="text-text-muted group-hover:text-brand-gold transition-colors"><IconCrm /></span>
-              <span className="flex-1 text-left">CRM</span>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`text-text-muted transition-transform duration-200 ${crmOpen ? 'rotate-180' : ''}`}>
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-            </button>
-            <div className={`overflow-hidden transition-all duration-200 ${crmOpen ? 'max-h-36' : 'max-h-0'}`}>
-              <div className="ml-3 pl-3 border-l border-border space-y-0.5 py-1">
-                <Link href="/admin/crm" onClick={() => setOpen(false)} className="flex items-center px-3 py-2 rounded-lg text-xs text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors">Pipeline</Link>
-                <Link href="/admin/crm/funis" onClick={() => setOpen(false)} className="flex items-center px-3 py-2 rounded-lg text-xs text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors">Funis</Link>
-                <Link href="/admin/leads" onClick={() => setOpen(false)} className="flex items-center px-3 py-2 rounded-lg text-xs text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors">Leads</Link>
-              </div>
-            </div>
+        <NavCtx.Provider value={setNavigating}>
+        <nav className="flex-1 overflow-y-auto py-3" style={{ scrollbarWidth: 'none' } as React.CSSProperties}>
+          <div className="px-2 space-y-0.5">
+            <SidebarItem href="/admin" icon={<IconDashboard />} label="Dashboard" active={pathname === '/admin'} onClick={nav} />
           </div>
-          <NavItem href="/admin/equipe" icon={<IconEquipe />} label="Equipe" onNavigate={() => setOpen(false)} />
-          <div className="pt-3 mt-3 border-t border-border">
-            <NavItem href="/dashboard" icon={<IconArea />} label="Área do Mentorado" onNavigate={() => setOpen(false)} />
+
+          <Divider />
+          <SectionLabel>Gestao</SectionLabel>
+          <div className="px-2 space-y-0.5">
+            <SidebarItem href="/admin/workspaces" icon={<IconWorkspaces />} label="Empresas" active={isActive('/admin/workspaces')} onClick={nav} />
+            <SidebarItem href="/admin/modulos" icon={<IconModulos />} label="Modulos" active={isActive('/admin/modulos')} onClick={nav} />
+            <SidebarItem href="/admin/alunos" icon={<IconCx />} label="Usuarios" active={isActive('/admin/alunos')} onClick={nav} />
+          </div>
+
+          <Divider />
+          <SectionLabel>Operacoes</SectionLabel>
+          <div className="px-2 space-y-0.5">
+            <SidebarItem href="/admin/financeiro" icon={<IconFinanceiro />} label="Financeiro" active={isActive('/admin/financeiro')} onClick={nav} />
+            <SidebarItem href="/admin/agentes" icon={<IconAgentes />} label="Agentes" active={isActive('/admin/agentes')} onClick={nav} />
+          </div>
+
+          <Divider />
+          <SectionLabel>CRM</SectionLabel>
+          <div className="px-2 space-y-0.5">
+            <SidebarItem href="/admin/crm" icon={<IconCrm />} label="Pipeline" active={pathname === '/admin/crm'} onClick={nav} />
+            <SidebarSub href="/admin/crm/funis" label="Funis" active={isActive('/admin/crm/funis')} onClick={nav} />
+            <SidebarSub href="/admin/leads" label="Leads" active={isActive('/admin/leads')} onClick={nav} />
+          </div>
+
+          <Divider />
+          <div className="px-2 space-y-0.5">
+            <SidebarItem href="/admin/equipe" icon={<IconEquipe />} label="Equipe Interna" active={isActive('/admin/equipe')} onClick={nav} />
+          </div>
+
+          <Divider />
+          <div className="px-2 space-y-0.5">
+            <SidebarItem href="/dashboard" icon={<IconArea />} label="Area do Mentorado" active={false} onClick={nav} />
           </div>
         </nav>
+        </NavCtx.Provider>
 
         {/* Footer */}
-        <div className="px-3 py-4 border-t border-border">
-          <div className="flex items-center gap-3 px-3 py-2 rounded-lg mb-1">
-            <div className="w-8 h-8 rounded-full bg-brand-gold/20 flex items-center justify-center shrink-0">
-              <span className="text-brand-gold text-sm font-semibold">
+        <div className="px-3 py-3" style={{ borderTop: `1px solid ${T.border}` }}>
+          <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg mb-1">
+            <div className="w-7 h-7 rounded-full flex items-center justify-center shrink-0" style={{ background: T.activeBg }}>
+              <span className="text-xs font-semibold" style={{ color: T.gold }}>
                 {profile?.name?.[0]?.toUpperCase() ?? 'A'}
               </span>
             </div>
             <div className="min-w-0">
-              <p className="text-text-primary text-sm font-medium truncate">{profile?.name ?? 'Admin'}</p>
-              <span className={`inline-block text-[10px] px-1.5 py-0.5 rounded-full font-medium ${ADMIN_ROLE_COLORS[profile?.admin_role ?? 'admin'] ?? ADMIN_ROLE_COLORS.admin}`}>
+              <p className="text-xs font-medium truncate" style={{ color: T.textPrimary }}>{profile?.name ?? 'Admin'}</p>
+              <p className="capitalize" style={{ fontSize: 10, color: T.gold }}>
                 {ADMIN_ROLE_LABELS[profile?.admin_role ?? 'admin'] ?? 'Admin'}
-              </span>
+              </p>
             </div>
           </div>
-          <form action={logout}>
-            <button
-              type="submit"
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-text-muted hover:text-error hover:bg-error/10 transition-colors text-left"
-            >
-              <IconLogout />
-              Sair
-            </button>
-          </form>
+          <button
+            onClick={handleLogout}
+            disabled={loggingOut}
+            className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-left transition-colors disabled:opacity-50"
+            style={{ fontSize: 13, color: T.textMuted }}
+            onMouseOver={e => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.background = 'rgba(239,68,68,0.1)' }}
+            onMouseOut={e => { e.currentTarget.style.color = T.textMuted; e.currentTarget.style.background = 'transparent' }}
+          >
+            <IconLogout />
+            {loggingOut ? 'Saindo...' : 'Sair'}
+          </button>
         </div>
       </aside>
 
       {/* Right side */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Mobile top bar */}
-        <header className="flex md:hidden sticky top-0 z-30 items-center gap-3 px-4 h-14 bg-bg-card border-b border-border shrink-0">
-          <button
-            onClick={() => setOpen(true)}
-            className="p-2 -ml-1 rounded-lg hover:bg-bg-hover text-text-muted"
-            aria-label="Abrir menu"
-          >
+        <header
+          className="flex md:hidden sticky top-0 z-30 items-center gap-3 px-4 h-14 shrink-0"
+          style={{ background: T.bg, borderBottom: `1px solid ${T.border}` }}
+        >
+          <button onClick={() => setOpen(true)} className="p-2 -ml-1 rounded-lg" aria-label="Abrir menu" style={{ color: T.textMuted }}>
             <IconMenu />
           </button>
           <Link href="/admin">
@@ -143,7 +190,7 @@ export default function AdminLayoutShell({
         </header>
 
         <main className="flex-1 overflow-y-auto">
-          <div className="max-w-6xl mx-auto px-4 md:px-8 py-6 md:py-8">
+          <div key={pathname} className="max-w-6xl mx-auto px-4 md:px-8 py-6 md:py-8" style={{ animation: 'fadeIn 0.15s ease-out' }}>
             {children}
           </div>
         </main>
@@ -152,42 +199,88 @@ export default function AdminLayoutShell({
   )
 }
 
-function NavItem({
-  href,
-  icon,
-  label,
-  onNavigate,
-}: {
-  href: string
-  icon: React.ReactNode
-  label: string
-  onNavigate: () => void
+// ── Nav components (same pattern as StudentLayoutShell) ──
+
+function SidebarItem({ href, icon, label, active, onClick }: {
+  href: string; icon: React.ReactNode; label: string; active: boolean; onClick: () => void
 }) {
+  const setNav = useContext(NavCtx)
   return (
     <Link
       href={href}
-      onClick={onNavigate}
-      className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors group"
+      onClick={() => { onClick(); if (!active) setNav(true) }}
+      className="flex items-center rounded-lg transition-all"
+      style={{
+        height: 36,
+        padding: '0 12px 0 16px',
+        gap: 10,
+        fontSize: 13,
+        fontWeight: 500,
+        color: active ? T.gold : T.textNav,
+        background: active ? T.activeBg : 'transparent',
+      }}
+      onMouseOver={e => {
+        if (!active) { e.currentTarget.style.background = T.hoverBg; e.currentTarget.style.color = T.textPrimary }
+      }}
+      onMouseOut={e => {
+        if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = T.textNav }
+      }}
     >
-      <span className="text-text-muted group-hover:text-brand-gold transition-colors">{icon}</span>
+      <span style={{ opacity: active ? 1 : 0.6, color: active ? T.gold : 'inherit', display: 'flex' }}>{icon}</span>
       {label}
     </Link>
   )
 }
 
-function IconMenu() {
+function SidebarSub({ href, label, active, onClick }: {
+  href: string; label: string; active: boolean; onClick: () => void
+}) {
+  const setNav = useContext(NavCtx)
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
-    </svg>
+    <Link
+      href={href}
+      onClick={() => { onClick(); if (!active) setNav(true) }}
+      className="flex items-center rounded-lg transition-all"
+      style={{
+        height: 34,
+        paddingLeft: 42,
+        paddingRight: 12,
+        gap: 10,
+        fontSize: 12.5,
+        fontWeight: 500,
+        color: active ? T.gold : T.textNav,
+        background: active ? T.activeBg : 'transparent',
+      }}
+      onMouseOver={e => {
+        if (!active) { e.currentTarget.style.background = T.hoverBg; e.currentTarget.style.color = T.textPrimary }
+      }}
+      onMouseOut={e => {
+        if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = T.textNav }
+      }}
+    >
+      {label}
+    </Link>
   )
 }
-function IconX() {
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-    </svg>
+    <p className="uppercase select-none" style={{ fontSize: 9, letterSpacing: '0.18em', color: T.sectionLabel, padding: '16px 16px 4px' }}>
+      {children}
+    </p>
   )
+}
+
+function Divider() {
+  return <div style={{ height: 1, background: T.divider, margin: '8px 16px' }} />
+}
+
+// ── Icons ──
+function IconMenu() {
+  return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></svg>
+}
+function IconX() {
+  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
 }
 function IconDashboard() {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>
@@ -215,9 +308,6 @@ function IconEquipe() {
 }
 function IconCrm() {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>
-}
-function IconLeads() {
-  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /><line x1="12" y1="11" x2="12" y2="17" /><line x1="9" y1="14" x2="15" y2="14" /></svg>
 }
 function IconLogout() {
   return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>

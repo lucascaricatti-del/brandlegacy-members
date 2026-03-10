@@ -587,6 +587,7 @@ const ECOM_ROWS: ForecastRow[] = [
   { key: 'cmv_rs', label: 'CMV R$', section: 'cmv', editable: false, format: 'currency', resultColor: 'gold' },
   { key: 'investimento_midia', label: 'Investimento Midia', section: 'midia', editable: false, format: 'currency', resultColor: 'gold', imported: true },
   { key: 'roas', label: 'ROAS', section: 'midia', editable: false, format: 'roas', resultColor: 'gold' },
+  { key: 'logistica_rs', label: 'Logistica R$', section: 'logistica', editable: true, format: 'currency', field: 'logistica_rs' },
   { key: 'faturamento_liquido', label: 'Faturamento Liquido', section: 'resultado', editable: false, format: 'currency', resultColor: 'gold', highlight: true },
   { key: 'lucro_apos_aquisicao', label: 'Lucro Apos Aquisicao', section: 'resultado', editable: false, format: 'currency', resultColor: 'profit', highlight: true },
 ]
@@ -602,6 +603,7 @@ const MARKETPLACE_ROWS: ForecastRow[] = [
   { key: 'imposto_rs', label: 'Impostos R$', section: 'taxas', editable: false, format: 'currency', resultColor: 'gold' },
   { key: 'cmv_pct', label: 'CMV %', section: 'taxas', editable: true, format: 'percent', field: 'cmv_pct' },
   { key: 'cmv_rs', label: 'CMV R$', section: 'taxas', editable: false, format: 'currency', resultColor: 'gold' },
+  { key: 'logistica_rs', label: 'Logistica R$', section: 'logistica', editable: true, format: 'currency', field: 'logistica_rs' },
   { key: 'faturamento_liquido', label: 'Faturamento Liquido', section: 'resultado', editable: false, format: 'currency', resultColor: 'gold', highlight: true },
   { key: 'lucro_apos_aquisicao', label: 'Lucro Apos Aquisicao', section: 'resultado', editable: false, format: 'currency', resultColor: 'profit', highlight: true },
 ]
@@ -618,7 +620,7 @@ const CONSOLIDADO_ROWS: ForecastRow[] = [
   { key: 'cmv_pct', label: 'CMV %', section: 'cmv', editable: false, format: 'percent', resultColor: 'gold' },
   { key: 'cancelamento_pct', label: 'Cancelamentos %', section: 'cancelamento', editable: true, format: 'percent', field: 'cancelamento_pct', consolidadoOnly: true },
   { key: 'cancelamento_rs', label: 'Cancelamentos R$', section: 'cancelamento', editable: false, format: 'currency', resultColor: 'gold' },
-  { key: 'logistica_rs', label: 'Logistica R$', section: 'logistica', editable: true, format: 'currency', field: 'logistica_rs', consolidadoOnly: true },
+  { key: 'logistica_rs', label: 'Logistica R$', section: 'logistica', editable: false, format: 'currency', resultColor: 'gold' },
   { key: 'investimento_midia', label: 'Investimento Midia Total', section: 'midia', editable: false, format: 'currency', resultColor: 'gold' },
   { key: 'roas', label: 'ROAS Consolidado', section: 'midia', editable: false, format: 'roas', resultColor: 'gold' },
   { key: 'faturamento_liquido', label: 'Faturamento Liquido', section: 'resultado', editable: false, format: 'currency', resultColor: 'gold', highlight: true },
@@ -630,12 +632,14 @@ const ECOM_SECTIONS = [
   { key: 'taxas', label: 'TAXAS & COMISSOES', color: 'text-yellow-400' },
   { key: 'cmv', label: 'CMV', color: 'text-orange-400' },
   { key: 'midia', label: 'MIDIA', color: 'text-blue-400' },
+  { key: 'logistica', label: 'LOGISTICA', color: 'text-purple-400' },
   { key: 'resultado', label: 'RESULTADO', color: 'text-emerald-400' },
 ]
 
 const MARKETPLACE_SECTIONS = [
   { key: 'faturamento', label: 'FATURAMENTO', color: 'text-brand-gold' },
   { key: 'taxas', label: 'TAXAS & COMISSOES', color: 'text-yellow-400' },
+  { key: 'logistica', label: 'LOGISTICA', color: 'text-purple-400' },
   { key: 'resultado', label: 'RESULTADO', color: 'text-emerald-400' },
 ]
 
@@ -831,8 +835,8 @@ function SalesForecastTab({ workspaceId, year, isAdmin, showRealizado, onToggleR
         return Math.round(fb * (1 - imp/100 - comMkt/100) * 100) / 100
       }
       case 'lucro_apos_aquisicao': {
-        if (ch === 'ecommerce') return Math.round((fb * (1 - imp/100 - taxas/100 - cmv/100) - inv) * 100) / 100
-        return Math.round((fb * (1 - imp/100 - comMkt/100 - cmv/100)) * 100) / 100
+        if (ch === 'ecommerce') return Math.round((fb * (1 - imp/100 - taxas/100 - cmv/100) - inv - logist) * 100) / 100
+        return Math.round((fb * (1 - imp/100 - comMkt/100 - cmv/100) - logist) * 100) / 100
       }
       case 'roas': return inv > 0 ? Math.round(fb / inv * 100) / 100 : null
       default: return raw[field] ?? null
@@ -845,7 +849,15 @@ function SalesForecastTab({ workspaceId, year, isAdmin, showRealizado, onToggleR
 
     // Manual consolidado-only fields
     if (field === 'cancelamento_pct') return consolData?.cancelamento_pct ?? null
-    if (field === 'logistica_rs') return consolData?.logistica_rs ?? null
+    // Logistica is now sum of all channels
+    if (field === 'logistica_rs') {
+      let total = 0; let hasAny = false
+      for (const ch of otherChannels) {
+        const v = data[ch]?.[month]?.logistica_rs
+        if (v != null) { total += Number(v); hasAny = true }
+      }
+      return hasAny ? Math.round(total * 100) / 100 : null
+    }
 
     // Sum across all non-consolidado channels
     const sumField = (f: string) => {
@@ -914,7 +926,7 @@ function SalesForecastTab({ workspaceId, year, isAdmin, showRealizado, onToggleR
     if (field === 'lucro_apos_aquisicao') {
       const liquido = getConsolidadoValue(month, 'faturamento_liquido') ?? 0
       const cmv = sumField('cmv_rs') ?? 0
-      const logistica = consolData?.logistica_rs ?? 0
+      const logistica = getConsolidadoValue(month, 'logistica_rs') ?? 0
       const midia = sumField('investimento_midia') ?? 0
       return Math.round((liquido - cmv - logistica - midia) * 100) / 100
     }
@@ -1174,7 +1186,7 @@ function SalesForecastTab({ workspaceId, year, isAdmin, showRealizado, onToggleR
         <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-brand-gold" /> Editavel</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded text-emerald-400" style={{ fontSize: 10 }}>*</span> Verde = lucro positivo</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded text-red-400" style={{ fontSize: 10 }}>*</span> Vermelho = prejuizo</span>
-        {isConsolidado && <span>Consolidado = soma de todos os canais (somente leitura exceto cancelamento e logistica)</span>}
+        {isConsolidado && <span>Consolidado = soma de todos os canais (somente leitura exceto cancelamento)</span>}
       </div>
     </>
   )

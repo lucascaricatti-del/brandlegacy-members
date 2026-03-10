@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveWorkspace } from '@/lib/resolve-workspace'
 
 const PLAN_RANK: Record<string, number> = { free: 0, tracao: 1, club: 2 }
 
@@ -10,18 +11,10 @@ export default async function ModulosPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // Busca plano do workspace ativo do usuário via adminClient (bypass RLS em workspace_members)
+  // Busca plano do workspace ativo (com suporte a impersonação admin)
   const adminSupabase = createAdminClient()
-  type WsMembership = { workspaces: { plan_type: string } | null }
-  const { data: wsMembership, error: wsError } = await adminSupabase
-    .from('workspace_members')
-    .select('workspaces(plan_type)')
-    .eq('user_id', user.id)
-    .eq('is_active', true)
-    .limit(1)
-    .single()
-
-  const userPlan = (wsMembership as unknown as WsMembership)?.workspaces?.plan_type ?? 'club'
+  const resolvedWs = await resolveWorkspace(user.id)
+  const userPlan = resolvedWs?.plan_type ?? 'club'
   const userRank = PLAN_RANK[userPlan] ?? 2
 
   // Usa adminClient para buscar módulos — bypass RLS de plano

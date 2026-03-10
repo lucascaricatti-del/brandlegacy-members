@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
+import { cookies } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 const PLAN_LABELS = { free: 'Free', tracao: 'Tração', club: 'Club' }
 const PLAN_COLORS = {
@@ -18,24 +20,47 @@ export default async function WorkspacePage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // Workspaces em que o usuário é membro ativo
-  const { data: memberships } = await supabase
-    .from('workspace_members')
-    .select('role, workspace_id, workspaces(id, name, slug, plan_type, is_active, workspace_members(id, is_active, profiles(id, name, avatar_url)))')
-    .eq('user_id', user.id)
-    .eq('is_active', true)
+  // Check for admin impersonation
+  const cookieStore = await cookies()
+  const impersonateWsId = cookieStore.get('admin_viewing_workspace_id')?.value
 
-  const workspaces = (memberships ?? []).map((m) => ({
-    myRole: m.role,
-    ...(m.workspaces as {
-      id: string
-      name: string
-      slug: string
-      plan_type: string
-      is_active: boolean
-      workspace_members: { id: string; is_active: boolean; profiles: { id: string; name: string; avatar_url: string | null } | null }[]
-    }),
-  }))
+  let workspaces: {
+    myRole: string
+    id: string
+    name: string
+    slug: string
+    plan_type: string
+    is_active: boolean
+    workspace_members: { id: string; is_active: boolean; profiles: { id: string; name: string; avatar_url: string | null } | null }[]
+  }[]
+
+  if (impersonateWsId) {
+    const adminSupabase = createAdminClient()
+    const { data: wsData } = await adminSupabase
+      .from('workspaces')
+      .select('id, name, slug, plan_type, is_active, workspace_members(id, is_active, profiles(id, name, avatar_url))')
+      .eq('id', impersonateWsId)
+      .single()
+    workspaces = wsData ? [{ myRole: 'owner', ...wsData }] : []
+  } else {
+    const { data: memberships } = await supabase
+      .from('workspace_members')
+      .select('role, workspace_id, workspaces(id, name, slug, plan_type, is_active, workspace_members(id, is_active, profiles(id, name, avatar_url)))')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+
+    workspaces = (memberships ?? []).map((m) => ({
+      myRole: m.role,
+      ...(m.workspaces as {
+        id: string
+        name: string
+        slug: string
+        plan_type: string
+        is_active: boolean
+        workspace_members: { id: string; is_active: boolean; profiles: { id: string; name: string; avatar_url: string | null } | null }[]
+      }),
+    }))
+  }
 
   return (
     <div className="animate-fade-in">

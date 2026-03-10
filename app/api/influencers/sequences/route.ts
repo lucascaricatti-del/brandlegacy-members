@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
     .from('influencer_sequences')
     .select('*')
     .eq('influencer_id', influencer_id)
+    .eq('workspace_id', workspace_id)
     .order('sequence_number')
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -42,6 +43,7 @@ export async function POST(req: NextRequest) {
     .from('influencer_sequences')
     .delete()
     .eq('influencer_id', influencer_id)
+    .eq('workspace_id', workspace_id)
 
   const toInsert = (sequences as any[])
     .map((s, i) => ({
@@ -79,6 +81,7 @@ export async function PUT(req: NextRequest) {
     .from('influencer_sequences')
     .update(updates)
     .eq('id', id)
+    .eq('workspace_id', workspace_id)
     .select()
     .single()
 

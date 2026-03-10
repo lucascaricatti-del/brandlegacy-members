@@ -32,12 +32,14 @@ export default function StudentLayoutShell({
   workspaceName,
   memberRole,
   permissions,
+  adminImpersonating,
   children,
 }: {
   profile: Profile
   workspaceName?: string | null
   memberRole?: string | null
   permissions?: PermissionsMap | null
+  adminImpersonating?: string | null
   children: React.ReactNode
 }) {
   const [open, setOpen] = useState(false)
@@ -253,6 +255,36 @@ export default function StudentLayoutShell({
 
       {/* Right side */}
       <div className="flex-1 flex flex-col min-w-0">
+        {/* Admin impersonation banner */}
+        {adminImpersonating && (
+          <div
+            className="flex items-center justify-between px-4 py-2 shrink-0 z-30"
+            style={{ background: 'linear-gradient(90deg, #C9971A, #E5B82A)', color: '#050D07' }}
+          >
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
+              </svg>
+              Visualizando como: {adminImpersonating}
+            </div>
+            <button
+              onClick={async () => {
+                await fetch('/api/admin/impersonate', { method: 'DELETE' })
+                router.push('/admin/workspaces')
+              }}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-colors"
+              style={{ background: 'rgba(5,13,7,0.2)', color: '#050D07' }}
+              onMouseOver={e => { e.currentTarget.style.background = 'rgba(5,13,7,0.35)' }}
+              onMouseOut={e => { e.currentTarget.style.background = 'rgba(5,13,7,0.2)' }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
+              </svg>
+              Voltar ao Admin
+            </button>
+          </div>
+        )}
+
         {/* Mobile top bar */}
         <header
           className="flex md:hidden sticky top-0 z-30 items-center gap-3 px-4 h-14 shrink-0"

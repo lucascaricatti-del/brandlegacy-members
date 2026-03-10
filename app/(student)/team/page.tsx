@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation'
+import { cookies } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveWorkspace } from '@/lib/resolve-workspace'
 import TeamClient from './TeamClient'
 
 export const metadata = { title: 'Meu Time — BrandLegacy' }
@@ -12,68 +14,76 @@ export default async function TeamPage() {
 
   const adminSupabase = createAdminClient()
 
-  // Busca workspaces onde o usuário é owner ou manager
-  const { data: memberships } = await adminSupabase
-    .from('workspace_members')
-    .select('workspace_id, role, workspaces(id, name, plan_type)')
-    .eq('user_id', user.id)
-    .eq('is_active', true)
-    .in('role', ['owner', 'manager'])
+  // Check if admin is impersonating
+  const cookieStore = await cookies()
+  const impersonateWsId = cookieStore.get('admin_viewing_workspace_id')?.value
+  const resolvedWs = await resolveWorkspace(user.id)
 
-  type Membership = {
-    workspace_id: string
-    role: string
-    workspaces: { id: string; name: string; plan_type: string } | null
-  }
+  let ws: { id: string; name: string; plan_type: string } | null = null
 
-  const adminWorkspaces = ((memberships ?? []) as unknown as Membership[])
-    .map((m) => m.workspaces)
-    .filter(Boolean) as { id: string; name: string; plan_type: string }[]
-
-  // Se não for owner/manager de nenhum workspace, mostra mensagem
-  if (adminWorkspaces.length === 0) {
-    const { data: anyMembership } = await adminSupabase
+  if (impersonateWsId && resolvedWs) {
+    // Admin impersonating — full owner access
+    ws = { id: resolvedWs.id, name: resolvedWs.name, plan_type: resolvedWs.plan_type }
+  } else {
+    // Normal flow: check if user is owner or manager
+    const { data: memberships } = await adminSupabase
       .from('workspace_members')
-      .select('workspace_id, workspaces(name)')
+      .select('workspace_id, role, workspaces(id, name, plan_type)')
       .eq('user_id', user.id)
       .eq('is_active', true)
-      .limit(1)
-      .single()
+      .in('role', ['owner', 'manager'])
 
-    type AnyMembership = {
+    type Membership = {
       workspace_id: string
-      workspaces: { name: string } | null
+      role: string
+      workspaces: { id: string; name: string; plan_type: string } | null
     }
 
-    const ws = (anyMembership as unknown as AnyMembership | null)?.workspaces
+    const adminWorkspaces = ((memberships ?? []) as unknown as Membership[])
+      .map((m) => m.workspaces)
+      .filter(Boolean) as { id: string; name: string; plan_type: string }[]
 
+    if (adminWorkspaces.length === 0) {
+      const wsName = resolvedWs?.name
+
+      return (
+        <div className="animate-fade-in">
+          <div className="mb-8">
+            <h1 className="text-2xl font-bold text-text-primary">Meu Time</h1>
+            <p className="text-text-secondary mt-1">Gerencie os membros do seu workspace.</p>
+          </div>
+          <div className="bg-bg-card border border-border rounded-xl p-12 text-center">
+            <div className="text-4xl mb-4">👥</div>
+            {wsName ? (
+              <>
+                <p className="text-text-primary font-medium mb-1">Você é membro de {wsName}</p>
+                <p className="text-text-muted text-sm">
+                  Apenas o <strong className="text-text-secondary">owner</strong> ou <strong className="text-text-secondary">manager</strong> pode gerenciar o time.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-text-muted mb-1">Você não está em nenhum workspace.</p>
+                <p className="text-text-muted text-sm">Entre em contato com seu mentor para ser adicionado.</p>
+              </>
+            )}
+          </div>
+        </div>
+      )
+    }
+
+    ws = adminWorkspaces[0]
+  }
+
+  if (!ws) {
     return (
       <div className="animate-fade-in">
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-text-primary">Meu Time</h1>
-          <p className="text-text-secondary mt-1">Gerencie os membros do seu workspace.</p>
-        </div>
         <div className="bg-bg-card border border-border rounded-xl p-12 text-center">
-          <div className="text-4xl mb-4">👥</div>
-          {ws ? (
-            <>
-              <p className="text-text-primary font-medium mb-1">Você é membro de {ws.name}</p>
-              <p className="text-text-muted text-sm">
-                Apenas o <strong className="text-text-secondary">owner</strong> ou <strong className="text-text-secondary">manager</strong> pode gerenciar o time.
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="text-text-muted mb-1">Você não está em nenhum workspace.</p>
-              <p className="text-text-muted text-sm">Entre em contato com seu mentor para ser adicionado.</p>
-            </>
-          )}
+          <p className="text-text-muted">Nenhum workspace encontrado.</p>
         </div>
       </div>
     )
   }
-
-  const ws = adminWorkspaces[0]
 
   // Fetch members with profiles
   const { data: rawMembers } = await adminSupabase

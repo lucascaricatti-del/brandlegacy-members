@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveWorkspace } from '@/lib/resolve-workspace'
 import FinancialPlannerClient from '../FinancialPlannerClient'
 
 interface Props {
@@ -18,15 +19,9 @@ export default async function PlanejamentoFinanceiroYearPage({ params }: Props) 
 
   const adminSupabase = createAdminClient()
 
-  const { data: membership } = await adminSupabase
-    .from('workspace_members')
-    .select('workspace_id')
-    .eq('user_id', user.id)
-    .eq('is_active', true)
-    .limit(1)
-    .single()
+  const resolvedWs = await resolveWorkspace(user.id)
 
-  if (!membership) {
+  if (!resolvedWs) {
     return (
       <div className="bg-bg-card border border-border rounded-xl p-16 text-center">
         <p className="text-text-muted">Nenhum workspace ativo encontrado.</p>
@@ -34,7 +29,7 @@ export default async function PlanejamentoFinanceiroYearPage({ params }: Props) 
     )
   }
 
-  const workspaceId = membership.workspace_id
+  const workspaceId = resolvedWs.id
 
   // Get or create FINANCIAL plan
   const { data: existing } = await adminSupabase

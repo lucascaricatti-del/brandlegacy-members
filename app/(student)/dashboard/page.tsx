@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveWorkspace } from '@/lib/resolve-workspace'
 import type { TaskPriority } from '@/lib/types/database'
 
 const PRIORITY_COLORS: Record<TaskPriority, string> = {
@@ -33,16 +34,9 @@ export default async function DashboardPage() {
     .eq('id', user.id)
     .single()
 
-  // Busca workspace ativo do usuário
-  const { data: membership } = await adminSupabase
-    .from('workspace_members')
-    .select('workspace_id')
-    .eq('user_id', user.id)
-    .eq('is_active', true)
-    .limit(1)
-    .single()
-
-  const workspaceId = membership?.workspace_id
+  // Busca workspace ativo do usuário (com suporte a impersonação admin)
+  const resolvedWs = await resolveWorkspace(user.id)
+  const workspaceId = resolvedWs?.id
 
   // Busca entregas do workspace
   let deliveries: { id: string; status: string }[] = []

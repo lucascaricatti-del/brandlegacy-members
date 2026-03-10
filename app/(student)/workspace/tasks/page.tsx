@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveWorkspace } from '@/lib/resolve-workspace'
 import TaskFlowClient from './TaskFlowClient'
 
 export const metadata = { title: 'Tarefas — BrandLegacy' }
@@ -12,21 +13,8 @@ export default async function TasksPage() {
 
   const adminSupabase = createAdminClient()
 
-  const { data: memberships } = await adminSupabase
-    .from('workspace_members')
-    .select('workspace_id, workspaces(id, name)')
-    .eq('user_id', user.id)
-    .eq('is_active', true)
-    .order('created_at', { ascending: true })
-
-  type WsMembership = {
-    workspace_id: string
-    workspaces: { id: string; name: string } | null
-  }
-
-  const workspaces = ((memberships ?? []) as unknown as WsMembership[])
-    .map((m) => m.workspaces)
-    .filter(Boolean) as { id: string; name: string }[]
+  const resolvedWs = await resolveWorkspace(user.id)
+  const workspaces = resolvedWs ? [{ id: resolvedWs.id, name: resolvedWs.name }] : []
 
   if (workspaces.length === 0) {
     return (

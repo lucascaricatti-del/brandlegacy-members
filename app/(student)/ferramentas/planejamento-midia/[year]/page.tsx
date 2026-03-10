@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveWorkspace } from '@/lib/resolve-workspace'
 import { getOrCreateMediaPlan, getMediaPlanMetrics } from '@/app/actions/media-plan'
 import PlannerClient from '../PlannerClient'
 
@@ -19,16 +20,10 @@ export default async function PlanejamentoMidiaYearPage({ params }: Props) {
 
   const adminSupabase = createAdminClient()
 
-  // Get active workspace
-  const { data: membership } = await adminSupabase
-    .from('workspace_members')
-    .select('workspace_id')
-    .eq('user_id', user.id)
-    .eq('is_active', true)
-    .limit(1)
-    .single()
+  // Get active workspace (com suporte a impersonação admin)
+  const resolvedWs = await resolveWorkspace(user.id)
 
-  if (!membership) {
+  if (!resolvedWs) {
     return (
       <div className="bg-bg-card border border-border rounded-xl p-16 text-center">
         <p className="text-text-muted">Nenhum workspace ativo encontrado.</p>
@@ -36,7 +31,7 @@ export default async function PlanejamentoMidiaYearPage({ params }: Props) {
     )
   }
 
-  const workspaceId = membership.workspace_id
+  const workspaceId = resolvedWs.id
 
   // Get or create plan for this year
   const planResult = await getOrCreateMediaPlan(workspaceId, year)

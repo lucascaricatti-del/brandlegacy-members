@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveWorkspace } from '@/lib/resolve-workspace'
 import AcademyClient from './AcademyClient'
 
 const PLAN_RANK: Record<string, number> = { free: 0, tracao: 1, club: 2 }
@@ -12,17 +13,9 @@ export default async function AcademyPage() {
 
   const adminSupabase = createAdminClient()
 
-  // Busca plano do workspace ativo
-  type WsMembership = { workspaces: { plan_type: string } | null }
-  const { data: wsMembership } = await adminSupabase
-    .from('workspace_members')
-    .select('workspaces(plan_type)')
-    .eq('user_id', user.id)
-    .eq('is_active', true)
-    .limit(1)
-    .single()
-
-  const userPlan = (wsMembership as unknown as WsMembership)?.workspaces?.plan_type ?? 'free'
+  // Busca plano do workspace ativo (com suporte a impersonação admin)
+  const resolvedWs = await resolveWorkspace(user.id)
+  const userPlan = resolvedWs?.plan_type ?? 'free'
   const userRank = PLAN_RANK[userPlan] ?? 0
   const hasActivePlan = userRank > 0
 

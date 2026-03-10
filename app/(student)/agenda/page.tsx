@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { resolveWorkspace } from '@/lib/resolve-workspace'
 import AgendaClient from './AgendaClient'
 
 export const metadata = { title: 'Agenda — BrandLegacy' }
@@ -12,16 +13,10 @@ export default async function AgendaPage() {
 
   const adminSupabase = createAdminClient()
 
-  // Encontra workspace ativo do usuário
-  const { data: membership } = await adminSupabase
-    .from('workspace_members')
-    .select('workspace_id')
-    .eq('user_id', user.id)
-    .eq('is_active', true)
-    .limit(1)
-    .single()
+  // Encontra workspace ativo do usuário (com suporte a impersonação admin)
+  const resolvedWs = await resolveWorkspace(user.id)
 
-  if (!membership) {
+  if (!resolvedWs) {
     return (
       <div className="animate-fade-in">
         <div className="mb-8">
@@ -39,7 +34,7 @@ export default async function AgendaPage() {
   const { data: rawDeliveries } = await adminSupabase
     .from('deliveries')
     .select('id, title, status, scheduled_date, link_call, order_index')
-    .eq('workspace_id', membership.workspace_id)
+    .eq('workspace_id', resolvedWs.id)
     .order('order_index', { ascending: true })
 
   const deliveries = (rawDeliveries ?? []) as {

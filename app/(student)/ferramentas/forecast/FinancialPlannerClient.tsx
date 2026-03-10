@@ -283,6 +283,99 @@ export default function FinancialPlannerClient({ planId, workspaceId, year, init
     URL.revokeObjectURL(url)
   }, [getCellValue, annualSummary, year])
 
+  // Sales Forecast import
+  const [sfImporting, setSfImporting] = useState(false)
+  const [sfImportMsg, setSfImportMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
+
+  const importFromSalesForecast = useCallback(async () => {
+    setSfImporting(true)
+    setSfImportMsg(null)
+    try {
+      const res = await fetch(`/api/sales-forecast?workspace_id=${workspaceId}&year=${year}`)
+      const json = await res.json()
+      const forecasts = json.forecasts || []
+
+      if (forecasts.length === 0) {
+        setSfImportMsg({ type: 'err', text: 'Configure o Sales Forecast primeiro →' })
+        setSfImporting(false)
+        return
+      }
+
+      // Build data per channel per month (previsto only)
+      const byChannel: Record<string, Record<number, Record<string, number | null>>> = {}
+      for (const f of forecasts) {
+        if (f.is_realizado) continue
+        if (!byChannel[f.channel]) byChannel[f.channel] = {}
+        byChannel[f.channel][f.month] = {
+          faturamento_bruto: f.faturamento_bruto != null ? Number(f.faturamento_bruto) : null,
+          pedidos: f.pedidos != null ? Number(f.pedidos) : null,
+          investimento_midia: f.investimento_midia != null ? Number(f.investimento_midia) : null,
+          imposto_pct: f.imposto_pct != null ? Number(f.imposto_pct) : null,
+          cmv_pct: f.cmv_pct != null ? Number(f.cmv_pct) : null,
+          taxas_pct: f.taxas_pct != null ? Number(f.taxas_pct) : null,
+          cancelamento_pct: f.cancelamento_pct != null ? Number(f.cancelamento_pct) : null,
+          logistica_rs: f.logistica_rs != null ? Number(f.logistica_rs) : null,
+          comissao_marketplace_pct: f.comissao_marketplace_pct != null ? Number(f.comissao_marketplace_pct) : null,
+        }
+      }
+
+      const allChannels = Object.keys(byChannel).filter(c => c !== 'consolidado')
+      let imported = 0
+
+      for (const month of MONTHS) {
+        // Aggregate consolidado
+        let totalFat = 0
+        let totalInvMidia = 0
+        let totalLogistica = 0
+        for (const ch of allChannels) {
+          const d = byChannel[ch]?.[month]
+          if (d) {
+            totalFat += d.faturamento_bruto ?? 0
+            totalInvMidia += d.investimento_midia ?? 0
+            totalLogistica += d.logistica_rs ?? 0
+          }
+        }
+
+        if (totalFat <= 0) continue
+
+        // Get ecommerce channel data for pct fields
+        const ecom = byChannel['ecommerce']?.[month]
+        const consolData = byChannel['consolidado']?.[month]
+
+        // Map to DRE keys
+        updateCell('FATURAMENTO', month, Math.round(totalFat * 100) / 100, 'value')
+        if (ecom?.imposto_pct != null) updateCell('IMPOSTOS_PCT', month, ecom.imposto_pct, 'value')
+        if (consolData?.cancelamento_pct != null) updateCell('CANCELAMENTOS_PCT', month, consolData.cancelamento_pct, 'value')
+        if (ecom?.cmv_pct != null) updateCell('CMV_PCT', month, ecom.cmv_pct, 'value')
+
+        // Logistica as % of faturamento
+        if (totalLogistica > 0 && totalFat > 0) {
+          updateCell('LOGISTICA_PCT', month, Math.round(totalLogistica / totalFat * 100 * 10) / 10, 'value')
+        }
+
+        // Midia as % of faturamento
+        if (totalInvMidia > 0 && totalFat > 0) {
+          updateCell('MIDIA_PCT', month, Math.round(totalInvMidia / totalFat * 100 * 10) / 10, 'value')
+        }
+
+        // Taxa checkout from ecommerce taxas_pct
+        if (ecom?.taxas_pct != null) updateCell('TAXA_CHECKOUT_PCT', month, ecom.taxas_pct, 'value')
+
+        imported++
+      }
+
+      if (imported > 0) {
+        setSfImportMsg({ type: 'ok', text: `${imported} meses importados do Sales Forecast` })
+      } else {
+        setSfImportMsg({ type: 'err', text: 'Nenhum dado encontrado no Sales Forecast para este ano' })
+      }
+    } catch {
+      setSfImportMsg({ type: 'err', text: 'Erro ao importar do Sales Forecast' })
+    }
+    setSfImporting(false)
+    setTimeout(() => setSfImportMsg(null), 5000)
+  }, [workspaceId, year, updateCell])
+
   // Set of metric keys that are locked (synced from Midia Plan)
   const lockedKeys = useMemo(() => {
     const set = new Set<string>()
@@ -377,6 +470,18 @@ export default function FinancialPlannerClient({ planId, workspaceId, year, init
 
           <RealizadoToggle show={showRealizado} onToggle={() => setShowRealizado(v => !v)} />
 
+          {!isAdmin && (
+            <button
+              onClick={importFromSalesForecast}
+              disabled={sfImporting}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-brand-gold/10 border border-brand-gold/30 text-sm text-brand-gold hover:bg-brand-gold/20 transition-colors disabled:opacity-60"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+              {sfImporting ? 'Importando...' : 'Importar do Sales Forecast'}
+            </button>
+          )}
           <button
             onClick={exportCSV}
             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-bg-card border border-border text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
@@ -389,6 +494,18 @@ export default function FinancialPlannerClient({ planId, workspaceId, year, init
 
         </div>
       </div>
+
+      {/* Sales Forecast import message */}
+      {sfImportMsg && (
+        <div className={`mb-4 px-4 py-3 rounded-lg border flex items-center justify-between ${
+          sfImportMsg.type === 'ok'
+            ? 'border-success/30 bg-success/10 text-success'
+            : 'border-error/30 bg-error/10 text-error'
+        }`}>
+          <span className="text-sm">{sfImportMsg.text}</span>
+          <button onClick={() => setSfImportMsg(null)} className="text-xs px-2 opacity-70 hover:opacity-100">&#x2715;</button>
+        </div>
+      )}
 
       {/* Realizado info banner */}
       {showRealizado && showRealizadoBanner && (

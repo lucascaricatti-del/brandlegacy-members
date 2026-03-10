@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import EditWorkspaceForm from './EditWorkspaceForm'
 import MentoradoAccessManager from './MentoradoAccessManager'
 import FinancialInfoForm from './FinancialInfoForm'
+import ImpersonateButton from './ImpersonateButton'
 
 interface Props {
   params: Promise<{ id: string }>
@@ -104,15 +105,7 @@ export default async function AdminWorkspacePage({ params }: Props) {
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0 flex-wrap">
-          <Link
-            href={`/admin/workspaces/${id}/view`}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-gold text-bg-base text-sm font-medium hover:bg-brand-gold-light transition-colors"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
-            </svg>
-            Visualizar como Mentorado
-          </Link>
+          <ImpersonateButton workspaceId={id} />
           <Link
             href={`/admin/agentes/config/${id}`}
             className="flex items-center gap-2 px-4 py-2 rounded-lg bg-bg-surface text-text-secondary border border-border hover:bg-bg-hover hover:text-text-primary text-sm font-medium transition-colors"
