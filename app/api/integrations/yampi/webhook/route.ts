@@ -5,19 +5,28 @@ import { parseYampiOrder, aggregateOrdersToMetrics, PAID_STATUSES } from '@/lib/
 
 export async function POST(request: Request) {
   try {
+    console.log('[yampi/webhook] received request, headers:', JSON.stringify(Object.fromEntries(request.headers)))
+
     // ── HMAC signature validation ──
     const webhookSecret = process.env.YAMPI_WEBHOOK_SECRET
+    console.log('[yampi/webhook] YAMPI_WEBHOOK_SECRET set:', !!webhookSecret)
+
     if (webhookSecret) {
       const signature = request.headers.get('x-yampi-hmac-sha256')
         ?? request.headers.get('x-yampi-signature')
       const rawBody = await request.clone().text()
 
+      console.log('[yampi/webhook] signature header:', signature)
+
       if (!signature) {
-        console.warn('[yampi/webhook] missing signature header')
+        console.warn('[yampi/webhook] missing signature header — returning 401')
         return NextResponse.json({ error: 'Missing signature' }, { status: 401 })
       }
 
       const expected = createHmac('sha256', webhookSecret).update(rawBody).digest('base64')
+      console.log('[yampi/webhook] expected:', expected)
+      console.log('[yampi/webhook] match:', signature === expected)
+
       const a = Buffer.from(signature, 'utf8')
       const b = Buffer.from(expected, 'utf8')
 
