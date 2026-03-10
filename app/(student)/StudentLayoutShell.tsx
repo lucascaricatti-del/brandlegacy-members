@@ -116,7 +116,6 @@ export default function StudentLayoutShell({
         >
           {/* Top items */}
           <div className="px-2 space-y-0.5">
-            <SidebarItem href="/ferramentas/forecast" icon={<IcoFileText />} label="DRE" active={isActive('/ferramentas/forecast')} onClick={nav} />
             <SidebarItem href="/academy" icon={<IcoGraduationCap />} label="Academy" active={isActive('/academy')} onClick={nav} />
             <SidebarItem href="/dashboard" icon={<IcoDashboard />} label="Dashboard" active={isActive('/dashboard')} onClick={nav} />
           </div>
@@ -147,9 +146,10 @@ export default function StudentLayoutShell({
           {/* BUSINESS PLAN */}
           <SectionLabel>Business Plan</SectionLabel>
           <div className="px-2 space-y-0.5">
-            <SidebarItem href="/ferramentas/planejamento-midia" icon={<IcoBarChart />} label="Mídia Plan" active={isActive('/ferramentas/planejamento-midia')} onClick={nav} />
-            <SidebarItem href="/ferramentas/planejamento-midia?tab=sales_forecast" icon={<IcoDollarSign />} label="Sales Forecast" active={isActive('/ferramentas/planejamento-midia?tab=sales_forecast')} onClick={nav} />
             <SidebarItem href="/ferramentas/calculadora-cenarios" icon={<IcoCalculator />} label="ROAS/CAC Planner" active={isActive('/ferramentas/calculadora-cenarios')} onClick={nav} />
+            <SidebarItem href="/ferramentas/planejamento-midia" icon={<IcoBarChart />} label="Midia Plan" active={isActive('/ferramentas/planejamento-midia')} onClick={nav} />
+            <SidebarItem href="/ferramentas/planejamento-midia?tab=sales_forecast" icon={<IcoDollarSign />} label="Sales Forecast" active={isActive('/ferramentas/planejamento-midia?tab=sales_forecast')} onClick={nav} />
+            <SidebarItem href="/ferramentas/forecast" icon={<IcoFileText />} label="Forecast" active={isActive('/ferramentas/forecast')} onClick={nav} />
           </div>
 
           <Divider />

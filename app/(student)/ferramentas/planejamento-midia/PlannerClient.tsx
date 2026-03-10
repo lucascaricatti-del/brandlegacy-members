@@ -35,13 +35,15 @@ interface CellData {
   mode: 'value' | 'delta_pct'
 }
 
-interface MinInvestMeta {
-  enabled?: boolean
-  pct?: number // % of RECEITA_META to use as min investment
-  meta_pct?: number
-  google_pct?: number
-  influencer_pct?: number
+// Per-month minimum investment config
+interface MinInvestMonth {
+  enabled: boolean
+  pct: number        // % of RECEITA_META
+  meta_pct: number   // distribution %
+  google_pct: number
+  influencer_pct: number
 }
+type MinInvestData = Record<string, MinInvestMonth> // key = "1".."12" (month number)
 
 interface Props {
   planId: string
@@ -79,26 +81,51 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
     return map
   })
 
-  // Min investment state
-  const [minInvest, setMinInvest] = useState<MinInvestMeta>(() => {
-    const mi = initialMetadata?.min_invest
-    return {
-      enabled: mi?.enabled ?? false,
-      pct: mi?.pct ?? 10,
-      meta_pct: mi?.meta_pct ?? 50,
-      google_pct: mi?.google_pct ?? 30,
-      influencer_pct: mi?.influencer_pct ?? 20,
+  // Min investment state — per month
+  const defaultMinMonth: MinInvestMonth = { enabled: false, pct: 10, meta_pct: 50, google_pct: 30, influencer_pct: 20 }
+  const [minInvestData, setMinInvestData] = useState<MinInvestData>(() => {
+    const stored = initialMetadata?.minimo_investimento as MinInvestData | undefined
+    const data: MinInvestData = {}
+    for (let m = 1; m <= 12; m++) {
+      const s = stored?.[String(m)]
+      data[String(m)] = {
+        enabled: s?.enabled ?? false,
+        pct: s?.pct ?? 10,
+        meta_pct: s?.meta_pct ?? 50,
+        google_pct: s?.google_pct ?? 30,
+        influencer_pct: s?.influencer_pct ?? 20,
+      }
     }
+    return data
   })
   const minInvestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const saveMinInvest = useCallback((next: MinInvestMeta) => {
-    setMinInvest(next)
-    if (minInvestTimerRef.current) clearTimeout(minInvestTimerRef.current)
-    minInvestTimerRef.current = setTimeout(async () => {
-      await updateMediaPlanMetadata(workspaceId, planId, { min_invest: next })
-    }, 800)
+  const saveMinInvestMonth = useCallback((month: number, patch: Partial<MinInvestMonth>) => {
+    setMinInvestData(prev => {
+      const next = { ...prev }
+      next[String(month)] = { ...next[String(month)], ...patch }
+      // Debounced save
+      if (minInvestTimerRef.current) clearTimeout(minInvestTimerRef.current)
+      minInvestTimerRef.current = setTimeout(async () => {
+        await updateMediaPlanMetadata(workspaceId, planId, { minimo_investimento: next })
+      }, 500)
+      return next
+    })
   }, [workspaceId, planId])
+
+  // Compute effective min invest R$ for a month
+  const getMinInvestForMonth = useCallback((month: number): { total: number; meta: number; google: number; influencer: number } | null => {
+    const cfg = minInvestData[String(month)]
+    if (!cfg?.enabled) return null
+    const receita = resolveValue('RECEITA_META', month, cells)
+    const total = receita * cfg.pct / 100
+    return {
+      total: Math.round(total),
+      meta: Math.round(total * cfg.meta_pct / 100),
+      google: Math.round(total * cfg.google_pct / 100),
+      influencer: Math.round(total * cfg.influencer_pct / 100),
+    }
+  }, [minInvestData, cells])
 
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
   const [viewMode, setViewMode] = useState<ViewMode>('completo')
@@ -108,27 +135,37 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
   const pendingRef = useRef<Array<{ metric_key: string; month: number; value_numeric: number | null; delta_pct: number | null; input_mode: 'value' | 'delta_pct' }>>([])
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Resolve key values for calculations
+  // Resolve key values for calculations — with min invest propagation
   const keyValues = useMemo<KeyValues>(() => {
     const kv: KeyValues = {}
     for (const key of KEY_METRICS) {
       kv[key] = {}
       for (const month of MONTHS) {
-        kv[key][month] = resolveValue(key, month, cells)
+        let val = resolveValue(key, month, cells)
+        // Propagation: if min invest is enabled, use max(entered, minimo)
+        const cfg = minInvestData[String(month)]
+        if (cfg?.enabled) {
+          const receita = resolveValue('RECEITA_META', month, cells)
+          const totalMin = receita * cfg.pct / 100
+          if (key === 'SPEND_META') val = Math.max(val, Math.round(totalMin * cfg.meta_pct / 100))
+          if (key === 'SPEND_GOOGLE') val = Math.max(val, Math.round(totalMin * cfg.google_pct / 100))
+          if (key === 'SPEND_INFLUENCER') val = Math.max(val, Math.round(totalMin * cfg.influencer_pct / 100))
+        }
+        kv[key][month] = val
       }
     }
     return kv
-  }, [cells])
+  }, [cells, minInvestData])
 
   const resultsByMonth = useMemo(() => calcAllMonths(keyValues), [keyValues])
   const annualSummary = useMemo(() => calcAnnualSummary(keyValues, resultsByMonth), [keyValues, resultsByMonth])
 
   const getCellValue = useCallback((metricKey: string, month: number): number => {
     if (isKeyMetric(metricKey)) {
-      return resolveValue(metricKey, month, cells)
+      return keyValues[metricKey]?.[month] ?? 0
     }
     return resultsByMonth[month]?.[metricKey as ResultMetric] ?? 0
-  }, [cells, resultsByMonth])
+  }, [keyValues, resultsByMonth])
 
   // View columns
   const columns = useMemo<ViewColumn[]>(() => {
@@ -413,10 +450,12 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
                     {/* Min Investment toggle after INVESTIMENTOS section */}
                     {section.key === 'investimentos' && !isCollapsed && (
                       <MinInvestSection
-                        minInvest={minInvest}
-                        onUpdate={saveMinInvest}
+                        minInvestData={minInvestData}
+                        onUpdateMonth={saveMinInvestMonth}
+                        getMinInvestForMonth={getMinInvestForMonth}
                         columns={columns}
                         getCellValue={getCellValue}
+                        cells={cells}
                       />
                     )}
                   </SectionGroup>
@@ -1249,195 +1288,180 @@ function SFEditableCell({ value, format, isSaving, onSave }: {
 }
 
 // ============================================================
-// Min Investment Section (inside INVESTIMENTOS)
+// Min Investment Section (inside INVESTIMENTOS) — per-month
 // ============================================================
 
-function MinInvestSection({ minInvest, onUpdate, columns, getCellValue }: {
-  minInvest: MinInvestMeta
-  onUpdate: (v: MinInvestMeta) => void
+function MinInvestSection({ minInvestData, onUpdateMonth, getMinInvestForMonth, columns, getCellValue, cells }: {
+  minInvestData: MinInvestData
+  onUpdateMonth: (month: number, patch: Partial<MinInvestMonth>) => void
+  getMinInvestForMonth: (month: number) => { total: number; meta: number; google: number; influencer: number } | null
   columns: ViewColumn[]
   getCellValue: (key: string, month: number) => number
+  cells: Record<string, Record<number, CellData>>
 }) {
-  const enabled = minInvest.enabled ?? false
-  const pct = minInvest.pct ?? 10
-  const metaPct = minInvest.meta_pct ?? 50
-  const googlePct = minInvest.google_pct ?? 30
-  const influencerPct = minInvest.influencer_pct ?? 20
-  const totalPct = metaPct + googlePct + influencerPct
-
-  const [editField, setEditField] = useState<string | null>(null)
-  const [editValue, setEditValue] = useState('')
-  const editRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    if (editField) editRef.current?.focus()
-  }, [editField])
-
-  function startEdit(field: string, val: number) {
-    setEditField(field)
-    setEditValue(String(val).replace('.', ','))
-  }
-
-  function commitEdit(field: string) {
-    setEditField(null)
-    const num = parseFloat(editValue.replace(',', '.'))
-    if (isNaN(num)) return
-    onUpdate({ ...minInvest, [field]: num })
-  }
-
-  // For each month/column, compute values
-  function getMinInvestForMonths(months: number[]): number {
-    const receita = months.reduce((s, m) => s + getCellValue('RECEITA_META', m), 0)
-    return Math.round(receita * pct / 100)
-  }
-
+  const anyEnabled = MONTHS.some(m => minInvestData[String(m)]?.enabled)
   const subRowStyle = { background: 'rgba(201,151,26,0.03)', borderLeft: '3px solid rgba(201,151,26,0.2)' }
-  const labelStyle = { fontSize: 12, color: 'rgba(201,151,26,0.7)' }
 
-  // Editable % cell inline
-  function PctCell({ field, value }: { field: string; value: number }) {
-    if (editField === field) {
-      return (
-        <div className="relative flex items-center">
-          <input ref={editRef} type="text" value={editValue}
-            onChange={e => setEditValue(e.target.value.replace(/[^0-9,.\-]/g, ''))}
-            onBlur={() => commitEdit(field)}
-            onKeyDown={e => { if (e.key === 'Enter') commitEdit(field); if (e.key === 'Escape') setEditField(null) }}
-            className="w-full border rounded py-1 text-center outline-none tabular-nums"
-            style={{ fontSize: 12, background: 'rgba(201,168,76,0.08)', borderColor: 'rgba(201,168,76,0.4)', color: '#e8e0d0', paddingRight: 16 }} />
-          <span className="absolute right-1.5 text-brand-gold/60" style={{ fontSize: 10 }}>%</span>
-        </div>
-      )
-    }
-    return (
-      <button onClick={() => startEdit(field, value)}
-        className="w-full tabular-nums px-2 py-1.5 rounded hover:bg-bg-hover transition-colors text-text-primary cursor-text text-center block"
-        style={{ fontSize: 12 }}>
-        {value}%
-      </button>
-    )
+  function fmtCurrency(v: number) {
+    return v > 0 ? v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '-'
   }
+
+  // Helper for column aggregation (quarters/annual)
+  function sumMonths(months: number[], fn: (m: number) => number): number {
+    return months.reduce((s, m) => s + fn(m), 0)
+  }
+
+  // Rows definition
+  const pctRows: { field: keyof MinInvestMonth; label: string }[] = [
+    { field: 'pct', label: '% Investimento Minimo' },
+    { field: 'meta_pct', label: '% Meta Ads (min)' },
+    { field: 'google_pct', label: '% Google Ads (min)' },
+    { field: 'influencer_pct', label: '% Influencers (min)' },
+  ]
+
+  const rsRows: { label: string; getValue: (m: number) => number }[] = [
+    { label: 'Investimento Minimo R$', getValue: m => getMinInvestForMonth(m)?.total ?? 0 },
+    { label: 'Minimo Meta Ads R$', getValue: m => getMinInvestForMonth(m)?.meta ?? 0 },
+    { label: 'Minimo Google Ads R$', getValue: m => getMinInvestForMonth(m)?.google ?? 0 },
+    { label: 'Minimo Influencers R$', getValue: m => getMinInvestForMonth(m)?.influencer ?? 0 },
+  ]
 
   return (
     <>
-      {/* Toggle row */}
+      {/* Toggle row with per-month switches */}
       <tr className="border-t border-border/40">
-        <td colSpan={columns.length + 2} className="sticky left-0 z-10 px-4 py-2 border-r border-border" style={{ background: '#0a1a0f' }}>
-          <div className="flex items-center gap-3">
+        <td className="sticky left-0 z-10 px-4 py-2 border-r border-border" style={{ background: '#0a1a0f' }}>
+          <div className="flex items-center gap-2">
             <span style={{ fontSize: 14 }}>🎯</span>
             <span className="text-sm font-medium" style={{ color: '#c9a84c' }}>Minimo de Investimento</span>
-            <button
-              onClick={() => onUpdate({ ...minInvest, enabled: !enabled })}
-              className="relative w-9 h-5 rounded-full transition-colors"
-              style={{ background: enabled ? '#c9971a' : 'rgba(255,255,255,0.15)' }}
-            >
-              <span className="absolute top-0.5 transition-all rounded-full bg-white w-4 h-4"
-                style={{ left: enabled ? 18 : 2 }} />
-            </button>
           </div>
+        </td>
+        {columns.map(col => {
+          if (col.months.length === 1) {
+            const m = col.months[0]
+            const on = minInvestData[String(m)]?.enabled ?? false
+            return (
+              <td key={col.key} className="px-1 py-1 text-center">
+                <button
+                  onClick={() => onUpdateMonth(m, { enabled: !on })}
+                  className="relative w-8 h-4 rounded-full transition-colors mx-auto block"
+                  style={{ background: on ? '#c9971a' : 'rgba(255,255,255,0.15)' }}
+                >
+                  <span className="absolute top-0.5 transition-all rounded-full bg-white w-3 h-3"
+                    style={{ left: on ? 16 : 2 }} />
+                </button>
+              </td>
+            )
+          }
+          // Quarter: show count
+          const onCount = col.months.filter(m => minInvestData[String(m)]?.enabled).length
+          return (
+            <td key={col.key} className="px-1 py-1 text-center">
+              <span style={{ fontSize: 10, color: onCount > 0 ? '#c9a84c' : '#6b7c6f' }}>{onCount}/{col.months.length}</span>
+            </td>
+          )
+        })}
+        <td className="px-3 py-1 text-center border-l border-border">
+          <span style={{ fontSize: 10, color: anyEnabled ? '#c9a84c' : '#6b7c6f' }}>
+            {MONTHS.filter(m => minInvestData[String(m)]?.enabled).length}/12
+          </span>
         </td>
       </tr>
 
-      {enabled && (
+      {anyEnabled && (
         <>
-          {/* % Investimento Minimo (global) */}
-          <tr className="border-t border-border/30" style={subRowStyle}>
-            <td className="sticky left-0 z-10 px-4 py-0 border-r border-border" style={{ ...subRowStyle, paddingLeft: 32 }}>
-              <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-brand-gold shrink-0" />
-                <span style={labelStyle}>% Investimento Minimo</span>
-              </div>
-            </td>
-            {columns.map(col => (
-              <td key={col.key} className="px-1 py-0 text-center">
-                <PctCell field="pct" value={pct} />
-              </td>
-            ))}
-            <td className="px-3 py-1 text-center border-l border-border">
-              <span className="tabular-nums font-semibold" style={{ fontSize: 12, color: '#c9a84c' }}>{pct}%</span>
-            </td>
-          </tr>
-
-          {/* Investimento Minimo R$ (calculated) */}
-          <tr className="border-t border-border/30" style={subRowStyle}>
-            <td className="sticky left-0 z-10 px-4 py-0 border-r border-border" style={{ ...subRowStyle, paddingLeft: 32 }}>
-              <span style={{ ...labelStyle, fontWeight: 600 }}>Investimento Minimo R$</span>
-            </td>
-            {columns.map(col => {
-              const val = getMinInvestForMonths(col.months)
-              return (
-                <td key={col.key} className="px-1 py-0 text-center">
-                  <span className="tabular-nums px-2 py-1.5 block font-semibold" style={{ fontSize: 12, color: '#c9a84c' }}>
-                    {val > 0 ? val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '-'}
-                  </span>
-                </td>
-              )
-            })}
-            <td className="px-3 py-1 text-center border-l border-border">
-              <span className="tabular-nums font-bold" style={{ fontSize: 13, color: '#c9a84c' }}>
-                {(() => { const t = MONTHS.reduce((s, m) => s + getCellValue('RECEITA_META', m), 0) * pct / 100; return t > 0 ? Math.round(t).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '-' })()}
-              </span>
-            </td>
-          </tr>
-
-          {/* Distribution % rows */}
-          {([
-            ['meta_pct', '% Meta Ads', metaPct],
-            ['google_pct', '% Google Ads', googlePct],
-            ['influencer_pct', '% Influencers', influencerPct],
-          ] as [string, string, number][]).map(([field, label, val]) => (
+          {/* Editable % rows */}
+          {pctRows.map(({ field, label }) => (
             <tr key={field} className="border-t border-border/30" style={subRowStyle}>
-              <td className="sticky left-0 z-10 px-4 py-0 border-r border-border" style={{ ...subRowStyle, paddingLeft: 44 }}>
+              <td className="sticky left-0 z-10 px-4 py-0 border-r border-border" style={{ ...subRowStyle, paddingLeft: field === 'pct' ? 32 : 44 }}>
                 <div className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-brand-gold/50 shrink-0" />
-                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>{label}</span>
+                  <span style={{ fontSize: 11, color: 'rgba(201,151,26,0.7)' }}>{label}</span>
                 </div>
               </td>
-              {columns.map(col => (
-                <td key={col.key} className="px-1 py-0 text-center">
-                  <PctCell field={field} value={val} />
-                </td>
-              ))}
-              <td className="px-3 py-1 text-center border-l border-border">
-                <span className="tabular-nums" style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>{val}%</span>
-              </td>
-            </tr>
-          ))}
-
-          {/* Sum check */}
-          <tr className="border-t border-border/30" style={subRowStyle}>
-            <td className="sticky left-0 z-10 px-4 py-1.5 border-r border-border" style={{ ...subRowStyle, paddingLeft: 44 }}>
-              <span style={{ fontSize: 11, color: totalPct === 100 ? '#4ade80' : '#ef4444', fontWeight: 600 }}>
-                {totalPct === 100 ? '✓ 100%' : `⚠ ${totalPct}%`}
-              </span>
-            </td>
-            <td colSpan={columns.length + 1} />
-          </tr>
-
-          {/* Calculated R$ per channel */}
-          {([
-            ['Minimo Meta Ads', metaPct],
-            ['Minimo Google Ads', googlePct],
-            ['Minimo Influencers', influencerPct],
-          ] as [string, number][]).map(([label, distPct]) => (
-            <tr key={label} className="border-t border-border/30" style={subRowStyle}>
-              <td className="sticky left-0 z-10 px-4 py-0 border-r border-border" style={{ ...subRowStyle, paddingLeft: 44 }}>
-                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>{label}</span>
-              </td>
               {columns.map(col => {
-                const minTotal = getMinInvestForMonths(col.months)
-                const val = Math.round(minTotal * distPct / 100)
+                if (col.months.length === 1) {
+                  const m = col.months[0]
+                  const cfg = minInvestData[String(m)]
+                  if (!cfg?.enabled) return <td key={col.key} className="px-1 py-0 text-center"><span style={{ fontSize: 11, color: '#4a5a4f' }}>-</span></td>
+                  return (
+                    <td key={col.key} className="px-1 py-0 text-center">
+                      <MinPctCell month={m} field={field} value={cfg[field] as number} onUpdateMonth={onUpdateMonth} />
+                    </td>
+                  )
+                }
+                // Quarter avg
+                const enabled = col.months.filter(m => minInvestData[String(m)]?.enabled)
+                if (enabled.length === 0) return <td key={col.key} className="px-1 py-0 text-center"><span style={{ fontSize: 11, color: '#4a5a4f' }}>-</span></td>
+                const avg = enabled.reduce((s, m) => s + ((minInvestData[String(m)]?.[field] as number) ?? 0), 0) / enabled.length
                 return (
                   <td key={col.key} className="px-1 py-0 text-center">
-                    <span className="tabular-nums px-2 py-1.5 block" style={{ fontSize: 11, color: 'rgba(201,168,76,0.6)' }}>
-                      {val > 0 ? val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '-'}
-                    </span>
+                    <span className="tabular-nums px-2 py-1 block" style={{ fontSize: 11, color: 'rgba(201,168,76,0.6)' }}>{avg.toFixed(0)}%</span>
                   </td>
                 )
               })}
               <td className="px-3 py-1 text-center border-l border-border">
-                <span className="tabular-nums" style={{ fontSize: 12, color: 'rgba(201,168,76,0.6)' }}>
-                  {(() => { const t = MONTHS.reduce((s, m) => s + getCellValue('RECEITA_META', m), 0) * pct / 100 * distPct / 100; return t > 0 ? Math.round(t).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '-' })()}
+                {(() => {
+                  const enabled = MONTHS.filter(m => minInvestData[String(m)]?.enabled)
+                  if (enabled.length === 0) return <span style={{ fontSize: 11, color: '#4a5a4f' }}>-</span>
+                  const avg = enabled.reduce((s, m) => s + ((minInvestData[String(m)]?.[field] as number) ?? 0), 0) / enabled.length
+                  return <span className="tabular-nums" style={{ fontSize: 11, color: 'rgba(201,168,76,0.6)' }}>{avg.toFixed(0)}%</span>
+                })()}
+              </td>
+            </tr>
+          ))}
+
+          {/* Sum % check row */}
+          <tr className="border-t border-border/30" style={subRowStyle}>
+            <td className="sticky left-0 z-10 px-4 py-1 border-r border-border" style={{ ...subRowStyle, paddingLeft: 44 }}>
+              <span style={{ fontSize: 10, color: '#6b7c6f' }}>Soma %</span>
+            </td>
+            {columns.map(col => {
+              if (col.months.length === 1) {
+                const m = col.months[0]
+                const cfg = minInvestData[String(m)]
+                if (!cfg?.enabled) return <td key={col.key} className="px-1 py-0" />
+                const total = cfg.meta_pct + cfg.google_pct + cfg.influencer_pct
+                return (
+                  <td key={col.key} className="px-1 py-0 text-center">
+                    <span style={{ fontSize: 10, fontWeight: 600, color: total === 100 ? '#4ade80' : '#ef4444' }}>
+                      {total === 100 ? '✓ 100%' : `⚠ ${total}%`}
+                    </span>
+                  </td>
+                )
+              }
+              return <td key={col.key} className="px-1 py-0" />
+            })}
+            <td className="px-3 py-1 border-l border-border" />
+          </tr>
+
+          {/* Calculated R$ rows */}
+          {rsRows.map(({ label, getValue }) => (
+            <tr key={label} className="border-t border-border/30" style={subRowStyle}>
+              <td className="sticky left-0 z-10 px-4 py-0 border-r border-border" style={{ ...subRowStyle, paddingLeft: label.startsWith('Investimento') ? 32 : 44 }}>
+                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', fontWeight: label.startsWith('Investimento') ? 600 : 400 }}>{label}</span>
+              </td>
+              {columns.map(col => {
+                if (col.months.length === 1) {
+                  const m = col.months[0]
+                  if (!minInvestData[String(m)]?.enabled) return <td key={col.key} className="px-1 py-0 text-center"><span style={{ fontSize: 11, color: '#4a5a4f' }}>-</span></td>
+                  const val = getValue(m)
+                  return (
+                    <td key={col.key} className="px-1 py-0 text-center">
+                      <span className="tabular-nums px-2 py-1 block" style={{ fontSize: 11, color: 'rgba(201,168,76,0.6)' }}>{fmtCurrency(val)}</span>
+                    </td>
+                  )
+                }
+                const val = sumMonths(col.months.filter(m => minInvestData[String(m)]?.enabled), getValue)
+                return (
+                  <td key={col.key} className="px-1 py-0 text-center">
+                    <span className="tabular-nums px-2 py-1 block" style={{ fontSize: 11, color: val > 0 ? 'rgba(201,168,76,0.6)' : '#4a5a4f' }}>{fmtCurrency(val)}</span>
+                  </td>
+                )
+              })}
+              <td className="px-3 py-1 text-center border-l border-border">
+                <span className="tabular-nums" style={{ fontSize: 11, color: 'rgba(201,168,76,0.6)' }}>
+                  {fmtCurrency(sumMonths(MONTHS.filter(m => minInvestData[String(m)]?.enabled), getValue))}
                 </span>
               </td>
             </tr>
@@ -1445,6 +1469,52 @@ function MinInvestSection({ minInvest, onUpdate, columns, getCellValue }: {
         </>
       )}
     </>
+  )
+}
+
+// Per-month % editable cell for MinInvest
+function MinPctCell({ month, field, value, onUpdateMonth }: {
+  month: number; field: string; value: number
+  onUpdateMonth: (month: number, patch: Partial<MinInvestMonth>) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [inputValue, setInputValue] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { if (editing) inputRef.current?.focus() }, [editing])
+
+  function startEdit() {
+    setInputValue(String(value).replace('.', ','))
+    setEditing(true)
+  }
+
+  function commit() {
+    setEditing(false)
+    const num = parseFloat(inputValue.replace(',', '.'))
+    if (isNaN(num)) return
+    onUpdateMonth(month, { [field]: num })
+  }
+
+  if (editing) {
+    return (
+      <div className="relative flex items-center">
+        <input ref={inputRef} type="text" value={inputValue}
+          onChange={e => setInputValue(e.target.value.replace(/[^0-9,.\-]/g, ''))}
+          onBlur={commit}
+          onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false) }}
+          className="w-full border rounded py-1 text-center outline-none tabular-nums"
+          style={{ fontSize: 11, background: 'rgba(201,168,76,0.08)', borderColor: 'rgba(201,168,76,0.4)', color: '#e8e0d0', paddingRight: 16 }} />
+        <span className="absolute right-1.5 text-brand-gold/60" style={{ fontSize: 9 }}>%</span>
+      </div>
+    )
+  }
+
+  return (
+    <button onClick={startEdit}
+      className="w-full tabular-nums px-1 py-1 rounded hover:bg-bg-hover transition-colors text-text-primary cursor-text text-center block"
+      style={{ fontSize: 11 }}>
+      {value}%
+    </button>
   )
 }
 
