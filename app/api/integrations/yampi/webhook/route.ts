@@ -17,11 +17,11 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Missing signature' }, { status: 401 })
       }
 
-      const expected = createHmac('sha256', webhookSecret).update(rawBody).digest('hex')
-      const sigBuffer = Buffer.from(signature, 'hex')
-      const expectedBuffer = Buffer.from(expected, 'hex')
+      const expected = createHmac('sha256', webhookSecret).update(rawBody).digest('base64')
+      const a = Buffer.from(signature, 'utf8')
+      const b = Buffer.from(expected, 'utf8')
 
-      if (sigBuffer.length !== expectedBuffer.length || !timingSafeEqual(sigBuffer, expectedBuffer)) {
+      if (a.length !== b.length || !timingSafeEqual(a, b)) {
         console.warn('[yampi/webhook] invalid signature')
         return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
       }
