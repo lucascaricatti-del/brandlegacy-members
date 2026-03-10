@@ -157,12 +157,38 @@ export default function PerformanceDashboardClient(props: Props) {
   const [goals, setGoals] = useState<Goals>(null)
 
   const [showSyncModal, setShowSyncModal] = useState(false)
+  const [showGoalsModal, setShowGoalsModal] = useState(false)
   const [isStale, setIsStale] = useState(false)
   const [showInsights, setShowInsights] = useState(false)
+  const [planGoals, setPlanGoals] = useState<Goals>(null) // from Mídia Plan API (for import suggestion)
 
   const fetchIdRef = useRef(0)
 
+  // Current month key for localStorage
+  const brNowInit = new Date(Date.now() - 3 * 60 * 60 * 1000)
+  const goalsYear = brNowInit.getUTCFullYear()
+  const goalsMonth = brNowInit.getUTCMonth() + 1
+  const goalsLsKey = `goals_${workspaceId}_${goalsYear}_${goalsMonth}`
+
+  // Load goals from localStorage on mount
   useEffect(() => {
+    const saved = localStorage.getItem(goalsLsKey)
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved)
+        setGoals({
+          meta_receita: Number(parsed.meta_receita) || 0,
+          meta_investimento: Number(parsed.meta_investimento) || 0,
+          meta_cps: Number(parsed.meta_cps) || 0,
+          meta_conversao: Number(parsed.meta_conversao) || 0,
+          meta_ticket: Number(parsed.meta_ticket) || 0,
+          meta_roas: Number(parsed.meta_roas) || 0,
+          days_in_month: daysInMonth,
+          current_day: currentDay,
+        })
+      } catch { /* ignore */ }
+    }
+
     const lastSync = localStorage.getItem(`bl_perf_last_sync_${workspaceId}`)
     if (lastSync) {
       const elapsed = Date.now() - Number(lastSync)
@@ -170,7 +196,7 @@ export default function PerformanceDashboardClient(props: Props) {
     } else {
       setIsStale(true)
     }
-  }, [workspaceId])
+  }, [workspaceId, goalsLsKey, daysInMonth, currentDay])
 
   const fetchMetrics = useCallback(async () => {
     const id = ++fetchIdRef.current
@@ -209,7 +235,8 @@ export default function PerformanceDashboardClient(props: Props) {
       setPrevious(deriveMetrics(compData.metrics ?? EMPTY_RAW))
       setMtdMetrics(deriveMetrics(mtdData.metrics ?? EMPTY_RAW))
       setIntegrations(currentData.integrations ?? [])
-      setGoals(currentData.goals ?? null)
+      // Store API goals for import suggestion only — don't overwrite localStorage goals
+      if (currentData.goals) setPlanGoals(currentData.goals)
     } catch {
       // Keep previous state on error
     } finally {
@@ -386,6 +413,15 @@ export default function PerformanceDashboardClient(props: Props) {
               Sincronizar
             </span>
           </button>
+          <button
+            onClick={() => setShowGoalsModal(true)}
+            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-bg-card border border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors cursor-pointer"
+          >
+            <span className="flex items-center gap-1.5">
+              <TargetIcon />
+              Metas
+            </span>
+          </button>
         </div>
       </div>
 
@@ -401,9 +437,14 @@ export default function PerformanceDashboardClient(props: Props) {
 
       {/* No goals banner */}
       {!loading && !goals && (
-        <div className="px-4 py-3 rounded-lg bg-brand-gold/5 border border-brand-gold/20 text-brand-gold text-xs flex items-center gap-2">
-          <TargetIcon />
-          <span>Configure suas metas no <a href="/ferramentas/planejamento-midia" className="underline hover:no-underline font-medium">Planejamento de Mídia</a> para ver insights e pace diário.</span>
+        <div className="px-4 py-3 rounded-lg bg-brand-gold/5 border border-brand-gold/20 text-brand-gold text-xs flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <TargetIcon />
+            Defina suas metas mensais para ver insights, pace diário e projeções.
+          </span>
+          <button onClick={() => setShowGoalsModal(true)} className="underline hover:no-underline font-medium cursor-pointer flex-shrink-0 ml-2">
+            Definir metas
+          </button>
         </div>
       )}
 
@@ -573,6 +614,22 @@ export default function PerformanceDashboardClient(props: Props) {
             setIsStale(false)
             fetchMetrics()
           }}
+        />
+      )}
+
+      {/* Goals Modal */}
+      {showGoalsModal && (
+        <GoalsModal
+          currentGoals={goals}
+          planGoals={planGoals}
+          daysInMonth={daysInMonth}
+          currentDay={currentDay}
+          onSave={(g) => {
+            setGoals(g)
+            localStorage.setItem(goalsLsKey, JSON.stringify(g))
+            setShowGoalsModal(false)
+          }}
+          onClose={() => setShowGoalsModal(false)}
         />
       )}
     </div>
@@ -808,6 +865,117 @@ function SyncModal({
             className="flex-1 px-4 py-2 text-sm rounded-lg bg-brand-gold text-bg-base font-semibold hover:opacity-90 transition-opacity cursor-pointer disabled:opacity-40"
           >
             {anySyncing ? 'Sincronizando...' : 'Sincronizar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ---------- Goals Modal ---------- */
+
+function GoalsModal({
+  currentGoals, planGoals, daysInMonth, currentDay, onSave, onClose,
+}: {
+  currentGoals: Goals; planGoals: Goals
+  daysInMonth: number; currentDay: number
+  onSave: (g: Goals) => void; onClose: () => void
+}) {
+  const [receita, setReceita] = useState(currentGoals?.meta_receita ? String(currentGoals.meta_receita) : '')
+  const [investimento, setInvestimento] = useState(currentGoals?.meta_investimento ? String(currentGoals.meta_investimento) : '')
+  const [roas, setRoas] = useState(currentGoals?.meta_roas ? String(currentGoals.meta_roas) : '')
+  const [ticket, setTicket] = useState(currentGoals?.meta_ticket ? String(currentGoals.meta_ticket) : '')
+  const [conversao, setConversao] = useState(currentGoals?.meta_conversao ? String(currentGoals.meta_conversao) : '')
+  const [cps, setCps] = useState(currentGoals?.meta_cps ? String(currentGoals.meta_cps) : '')
+  const [imported, setImported] = useState(false)
+
+  const hasPlan = planGoals && (planGoals.meta_receita > 0 || planGoals.meta_investimento > 0)
+
+  function importFromPlan() {
+    if (!planGoals) return
+    if (planGoals.meta_receita > 0) setReceita(String(planGoals.meta_receita))
+    if (planGoals.meta_investimento > 0) setInvestimento(String(planGoals.meta_investimento))
+    if (planGoals.meta_roas > 0) setRoas(String(planGoals.meta_roas))
+    if (planGoals.meta_ticket > 0) setTicket(String(planGoals.meta_ticket))
+    if (planGoals.meta_conversao > 0) setConversao(String(planGoals.meta_conversao))
+    if (planGoals.meta_cps > 0) setCps(String(planGoals.meta_cps))
+    setImported(true)
+  }
+
+  function handleSave() {
+    onSave({
+      meta_receita: Number(receita) || 0,
+      meta_investimento: Number(investimento) || 0,
+      meta_roas: Number(roas) || 0,
+      meta_ticket: Number(ticket) || 0,
+      meta_conversao: Number(conversao) || 0,
+      meta_cps: Number(cps) || 0,
+      days_in_month: daysInMonth,
+      current_day: currentDay,
+    })
+  }
+
+  const fields: { label: string; value: string; setter: (v: string) => void; placeholder: string; suffix?: string; planKey: keyof NonNullable<Goals> }[] = [
+    { label: 'Meta Receita', value: receita, setter: setReceita, placeholder: 'Ex: 500000', suffix: 'R$', planKey: 'meta_receita' },
+    { label: 'Meta Investimento', value: investimento, setter: setInvestimento, placeholder: 'Ex: 50000', suffix: 'R$', planKey: 'meta_investimento' },
+    { label: 'Meta ROAS', value: roas, setter: setRoas, placeholder: 'Ex: 3.5', planKey: 'meta_roas' },
+    { label: 'Meta Ticket Médio', value: ticket, setter: setTicket, placeholder: 'Ex: 250', suffix: 'R$', planKey: 'meta_ticket' },
+    { label: 'Meta Taxa Conversão', value: conversao, setter: setConversao, placeholder: 'Ex: 1.5', suffix: '%', planKey: 'meta_conversao' },
+    { label: 'Meta CPS', value: cps, setter: setCps, placeholder: 'Ex: 2.50', suffix: 'R$', planKey: 'meta_cps' },
+  ]
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="relative bg-bg-card border border-border-gold rounded-xl p-6 w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto">
+        <h3 className="font-sans text-text-primary font-semibold text-lg mb-1">Definir Metas Mensais</h3>
+        <p className="text-text-muted text-xs mb-4">As metas são salvas localmente no seu navegador, por mês.</p>
+
+        {hasPlan && (
+          <button
+            onClick={importFromPlan}
+            className="w-full px-3 py-2.5 text-xs rounded-lg border border-brand-gold/30 text-brand-gold hover:bg-brand-gold/10 transition-colors mb-4 cursor-pointer flex items-center justify-center gap-2"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            Importar do Planejamento de Mídia
+          </button>
+        )}
+
+        <div className="space-y-3">
+          {fields.map(f => (
+            <div key={f.label}>
+              <label className="flex items-center gap-2 text-text-secondary text-xs font-medium mb-1.5">
+                {f.label} {f.suffix && <span className="text-text-muted/50">({f.suffix})</span>}
+                {imported && planGoals && Number(planGoals[f.planKey]) > 0 && f.value === String(planGoals[f.planKey]) && (
+                  <span className="text-brand-gold/60 text-[10px]">(do Mídia Plan)</span>
+                )}
+              </label>
+              <input
+                type="number"
+                step="any"
+                value={f.value}
+                onChange={e => f.setter(e.target.value)}
+                placeholder={f.placeholder}
+                className="w-full bg-bg-base border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-muted/50 focus:outline-none focus:border-brand-gold/50"
+              />
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-3 mt-6">
+          <button
+            onClick={onClose}
+            className="flex-1 px-4 py-2 text-sm rounded-lg border border-border text-text-secondary hover:bg-bg-hover transition-colors cursor-pointer"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={handleSave}
+            className="flex-1 px-4 py-2 text-sm rounded-lg bg-brand-gold text-bg-base font-semibold hover:opacity-90 transition-opacity cursor-pointer"
+          >
+            Salvar
           </button>
         </div>
       </div>
