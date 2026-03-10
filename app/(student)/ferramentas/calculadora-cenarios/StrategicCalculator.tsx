@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { maskBRL, unmaskBRL, numberToBRL, maskPct, unmaskPct, numberToPct } from '@/lib/masks'
 
 // ============================================================
@@ -78,7 +78,7 @@ function makeProduct(name: string, price: number, cost: number, salesPct: number
 // Main Component
 // ============================================================
 
-export default function StrategicCalculator() {
+export default function StrategicCalculator({ workspaceId }: { workspaceId: string | null }) {
   // --- Curva A ---
   const [useCurvaA, setUseCurvaA] = useState(true)
   const [products, setProducts] = useState<Product[]>([
@@ -141,6 +141,94 @@ export default function StrategicCalculator() {
   const toggleSection = useCallback((key: string) => {
     setOpenSections(prev => ({ ...prev, [key]: !prev[key] }))
   }, [])
+
+  // --- Persistence ---
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const [showClearConfirm, setShowClearConfirm] = useState(false)
+  const loadedRef = useRef(false)
+  const saveTimerRef = useRef<NodeJS.Timeout>(null)
+
+  // Collect all state for saving
+  function collectState() {
+    return {
+      useCurvaA,
+      products: products.map(p => ({ name: p.name, price: p.price, cost: p.cost, salesPct: p.salesPct })),
+      manualTicket, manualCmv,
+      freteDisplay, taxasDisplay, descontoDisplay,
+      impostosPctDisplay, lucroDesejadoPctDisplay,
+    }
+  }
+
+  // Restore state from saved data
+  function restoreState(saved: any) {
+    if (!saved) return
+    if (saved.useCurvaA !== undefined) setUseCurvaA(saved.useCurvaA)
+    if (saved.products?.length) {
+      setProducts(saved.products.map((p: any) => makeProduct(p.name, p.price, p.cost, p.salesPct)))
+    }
+    if (saved.manualTicket !== undefined) setManualTicket(saved.manualTicket)
+    if (saved.manualCmv !== undefined) setManualCmv(saved.manualCmv)
+    if (saved.freteDisplay) setFreteDisplay(saved.freteDisplay)
+    if (saved.taxasDisplay) setTaxasDisplay(saved.taxasDisplay)
+    if (saved.descontoDisplay) setDescontoDisplay(saved.descontoDisplay)
+    if (saved.impostosPctDisplay !== undefined) setImpostosPctDisplay(saved.impostosPctDisplay)
+    if (saved.lucroDesejadoPctDisplay !== undefined) setLucroDesejadoPctDisplay(saved.lucroDesejadoPctDisplay)
+  }
+
+  // Load on mount
+  useEffect(() => {
+    if (!workspaceId) return
+    fetch(`/api/calculadora?workspace_id=${workspaceId}`)
+      .then(r => r.json())
+      .then(json => {
+        if (json.data) restoreState(json.data)
+        loadedRef.current = true
+      })
+      .catch(() => { loadedRef.current = true })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId])
+
+  // Auto-save (debounced 2s) after any field change
+  useEffect(() => {
+    if (!workspaceId || !loadedRef.current) return
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    setSaveStatus('idle')
+    saveTimerRef.current = setTimeout(() => {
+      setSaveStatus('saving')
+      fetch('/api/calculadora', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: workspaceId, data: collectState() }),
+      })
+        .then(() => {
+          setSaveStatus('saved')
+          setTimeout(() => setSaveStatus(s => s === 'saved' ? 'idle' : s), 2000)
+        })
+        .catch(() => setSaveStatus('idle'))
+    }, 2000)
+    return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [useCurvaA, products, manualTicket, manualCmv, freteDisplay, taxasDisplay, descontoDisplay, impostosPctDisplay, lucroDesejadoPctDisplay, workspaceId])
+
+  function handleClearAll() {
+    setUseCurvaA(true)
+    setProducts([makeProduct('Produto Principal', 0, 0, 100)])
+    setManualTicket('')
+    setManualCmv('')
+    setFreteDisplay({ custoTransporte: '', insumos: '', picking: '', freteGratisPct: '', devolucao: '' })
+    setTaxasDisplay({ pixPct: '', taxaPix: '', taxaCartao: '', taxaAntecipacao: '', mediaParcelas: '' })
+    setDescontoDisplay({ totalFaturado: '', totalCupons: '' })
+    setImpostosPctDisplay('')
+    setLucroDesejadoPctDisplay('')
+    setShowClearConfirm(false)
+    if (workspaceId) {
+      fetch('/api/calculadora', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: workspaceId }),
+      }).catch(() => {})
+    }
+  }
 
   // ============================================================
   // Calculations
@@ -260,13 +348,43 @@ export default function StrategicCalculator() {
 
   return (
     <div className="space-y-6 tabular-nums">
+      {/* Clear confirmation modal */}
+      {showClearConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowClearConfirm(false)}>
+          <div className="bg-bg-card border border-border rounded-xl p-6 max-w-sm mx-4 space-y-4" onClick={e => e.stopPropagation()}>
+            <p className="text-text-primary font-semibold">Limpar tudo?</p>
+            <p className="text-text-muted text-sm">Tem certeza? Todos os dados ser&#227;o apagados.</p>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setShowClearConfirm(false)} className="px-4 py-2 text-sm rounded-lg bg-bg-surface border border-border text-text-secondary hover:bg-bg-hover transition-colors">Cancelar</button>
+              <button onClick={handleClearAll} className="px-4 py-2 text-sm rounded-lg bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25 transition-colors font-medium">Limpar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 1. Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-text-primary">Calculadora Estratégica</h1>
-        <p className="text-sm text-text-muted mt-1">
-          Descubra seu ROAS Mínimo, CPA Máximo e quanto do ticket está disponível para
-          investir em marketing.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-text-primary">Calculadora Estrat&#233;gica</h1>
+          <p className="text-sm text-text-muted mt-1">
+            Descubra seu ROAS M&#237;nimo, CPA M&#225;ximo e quanto do ticket est&#225; dispon&#237;vel para
+            investir em marketing.
+          </p>
+        </div>
+        <div className="flex items-center gap-3 shrink-0 mt-1">
+          {saveStatus === 'saving' && (
+            <span className="text-xs text-text-muted animate-pulse">Salvando...</span>
+          )}
+          {saveStatus === 'saved' && (
+            <span className="text-xs text-emerald-400">&#128190; Salvo</span>
+          )}
+          <button
+            onClick={() => setShowClearConfirm(true)}
+            className="text-xs px-3 py-1.5 rounded-lg text-text-muted border border-border hover:bg-bg-hover hover:text-red-400 transition-colors"
+          >
+            &#128465;&#65039; Limpar tudo
+          </button>
+        </div>
       </div>
 
       {/* 2. RESULTADO — 3 cards + barra */}

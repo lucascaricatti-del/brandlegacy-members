@@ -495,15 +495,6 @@ export default function MetricsClient({
         </div>
       )}
 
-      {/* ═══ Not connected — Influenciadores needs Yampi ═══ */}
-      {!isConnected && isInfluencersTab && (
-        <div className="bg-bg-card border border-border rounded-xl p-16 text-center">
-          <p className="font-sans text-text-primary font-semibold text-lg mb-2">Yampi não conectado</p>
-          <p className="text-text-muted mb-4">Conecte a Yampi para rastrear pedidos por cupom de influenciadoras.</p>
-          <Link href="/integracoes" className="inline-block px-5 py-2.5 bg-brand-gold text-bg-base rounded-lg font-semibold hover:opacity-90 transition-opacity cursor-pointer">Conectar Yampi</Link>
-        </div>
-      )}
-
       {/* ═══ Connected — Ads tabs (Meta/Google) ═══ */}
       {isConnected && isAdsTab && (
         <>
@@ -888,9 +879,9 @@ export default function MetricsClient({
         </>
       )}
 
-      {/* ═══ Connected — Influenciadores tab ═══ */}
-      {isConnected && isInfluencersTab && (
-        <InfluencersTab key={searchParams.get('view') || 'consolidado'} workspaceId={workspaceId} initialView={(searchParams.get('view') as 'consolidado' | 'macro' | 'micro' | 'ranking') || 'consolidado'} />
+      {/* ═══ Influenciadores tab (works with or without Yampi) ═══ */}
+      {isInfluencersTab && (
+        <InfluencersTab key={searchParams.get('view') || 'consolidado'} workspaceId={workspaceId} yampiConnected={isYampiConnected} initialView={(searchParams.get('view') as 'consolidado' | 'macro' | 'micro' | 'ranking') || 'consolidado'} />
       )}
 
     </div>

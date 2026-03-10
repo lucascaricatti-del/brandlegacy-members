@@ -128,7 +128,7 @@ function getCurrentMonth() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
 
-export default function InfluencersTab({ workspaceId, initialView = 'consolidado' }: { workspaceId: string; initialView?: ViewType }) {
+export default function InfluencersTab({ workspaceId, yampiConnected = true, initialView = 'consolidado' }: { workspaceId: string; yampiConnected?: boolean; initialView?: ViewType }) {
   const searchParams = useSearchParams()
   const urlView = searchParams.get('view') as ViewType | null
   const [view, setView] = useState<ViewType>(urlView || initialView)
@@ -155,6 +155,8 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
   const [renewSaving, setRenewSaving] = useState(false)
   // Seq popover
   const [seqPopoverId, setSeqPopoverId] = useState<string | null>(null)
+  // Yampi banner
+  const [yampiDismissed, setYampiDismissed] = useState(false)
   // GA4 attribution
   const [ga4Data, setGa4Data] = useState<Map<string, { sessions: number; conversions: number; conversion_rate: number }>>(new Map())
 
@@ -502,6 +504,20 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
         <div className="fixed top-4 right-4 z-[60] bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-medium shadow-lg">{toast}</div>
       )}
 
+      {/* Yampi not connected banner */}
+      {!yampiConnected && !yampiDismissed && (
+        <div className="flex items-center justify-between gap-3 bg-brand-gold/10 border border-brand-gold/20 rounded-xl px-4 py-3">
+          <p className="text-sm text-text-secondary">
+            <span className="mr-1.5">&#128161;</span>
+            Conecte a Yampi para rastrear pedidos por cupom{' '}
+            <a href="/integracoes" className="text-brand-gold hover:underline font-medium">Conectar &rarr;</a>
+          </p>
+          <button onClick={() => setYampiDismissed(true)} className="text-text-muted hover:text-text-primary p-1 shrink-0" aria-label="Fechar">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
+        </div>
+      )}
+
       {/* Period filters + Add button */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex flex-wrap gap-1.5 md:gap-2 flex-1">
@@ -570,18 +586,18 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
             <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: '#7C3AED' }}>Macro</p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <KpiCard label="Macros Ativas" value={String(macroStats.count)} />
-              <KpiCard label="Receita Macros" value={fmtBRL(macroStats.revenue)} color="gold" />
+              <KpiCard label="Receita Macros" value={yampiConnected ? fmtBRL(macroStats.revenue) : '--'} color="gold" />
               <KpiCard label="Custo Macros" value={fmtBRL(macroStats.cost)} color="red" />
-              <KpiCard label="ROAS Medio" value={macroStats.avgRoas !== null ? `${macroStats.avgRoas.toFixed(1)}x` : '--'} roasValue={macroStats.avgRoas} />
+              <KpiCard label="ROAS Medio" value={!yampiConnected ? '--' : macroStats.avgRoas !== null ? `${macroStats.avgRoas.toFixed(1)}x` : '--'} roasValue={yampiConnected ? macroStats.avgRoas : null} />
             </div>
           </div>
           <div>
             <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: '#2563EB' }}>Micro</p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <KpiCard label="Micros Ativas" value={String(microStats.count)} />
-              <KpiCard label="Receita Micros" value={fmtBRL(microStats.revenue)} color="gold" />
+              <KpiCard label="Receita Micros" value={yampiConnected ? fmtBRL(microStats.revenue) : '--'} color="gold" />
               <KpiCard label="Custo Micros" value={fmtBRL(microStats.cost)} color="red" />
-              <KpiCard label="ROAS Medio" value={microStats.avgRoas !== null ? `${microStats.avgRoas.toFixed(1)}x` : '--'} roasValue={microStats.avgRoas} />
+              <KpiCard label="ROAS Medio" value={!yampiConnected ? '--' : microStats.avgRoas !== null ? `${microStats.avgRoas.toFixed(1)}x` : '--'} roasValue={yampiConnected ? microStats.avgRoas : null} />
             </div>
           </div>
           <div className="bg-bg-card border border-border rounded-xl p-6">
@@ -670,10 +686,10 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
                               <SeqPopover sequences={inf.sequences} total={inf.total_sequences || 3} onClose={() => setSeqPopoverId(null)} />
                             )}
                           </td>
-                          <td className="px-3 py-2.5 text-right text-text-secondary">{fmtNum(inf.total_orders)}</td>
-                          <td className="px-3 py-2.5 text-right font-medium text-emerald-400">{fmtBRL(inf.total_revenue)}</td>
+                          <td className="px-3 py-2.5 text-right text-text-secondary">{yampiConnected ? fmtNum(inf.total_orders) : <span className="text-text-muted">&mdash;</span>}</td>
+                          <td className="px-3 py-2.5 text-right font-medium text-emerald-400">{yampiConnected ? fmtBRL(inf.total_revenue) : <span className="text-text-muted">&mdash;</span>}</td>
                           <td className="px-3 py-2.5 text-right">
-                            {inf.roas !== null ? (
+                            {!yampiConnected ? <span className="text-text-muted">&mdash;</span> : inf.roas !== null ? (
                               <span className={`font-medium ${inf.roas >= 3 ? 'text-emerald-400' : inf.roas >= 1 ? 'text-yellow-400' : 'text-red-400'}`}>
                                 {inf.roas.toFixed(1)}x
                               </span>
@@ -772,11 +788,11 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
                           <td className="py-2.5 pr-2">
                             <span className="px-2 py-0.5 rounded bg-bg-surface text-text-secondary text-xs font-mono border border-border">{inf.coupon_code}</span>
                           </td>
-                          <td className="py-2.5 pr-2 text-right text-text-secondary">{fmtNum(inf.total_orders)}</td>
-                          <td className="py-2.5 pr-2 text-right font-medium text-emerald-400">{fmtBRL(inf.total_revenue)}</td>
+                          <td className="py-2.5 pr-2 text-right text-text-secondary">{yampiConnected ? fmtNum(inf.total_orders) : <span className="text-text-muted">&mdash;</span>}</td>
+                          <td className="py-2.5 pr-2 text-right font-medium text-emerald-400">{yampiConnected ? fmtBRL(inf.total_revenue) : <span className="text-text-muted">&mdash;</span>}</td>
                           <td className="py-2.5 pr-2 text-right text-red-400">{inf.total_cost > 0 ? fmtBRL(inf.total_cost) : '--'}</td>
                           <td className="py-2.5 pr-2 text-right">
-                            {inf.roas !== null ? (
+                            {!yampiConnected ? <span className="text-text-muted">&mdash;</span> : inf.roas !== null ? (
                               <span className={`font-medium ${inf.roas >= 3 ? 'text-emerald-400' : inf.roas >= 1 ? 'text-yellow-400' : 'text-red-400'}`}>
                                 {inf.roas.toFixed(1)}x
                               </span>
