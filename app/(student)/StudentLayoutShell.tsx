@@ -1,11 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, createContext, useContext } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
 
 type Profile = { name: string | null; role: string | null } | null
+
+const NavCtx = createContext<(v: boolean) => void>(() => {})
 
 // ── Design tokens ──
 const T = {
@@ -38,6 +40,8 @@ export default function StudentLayoutShell({
   const router = useRouter()
   const pathname = usePathname()
   const nav = () => setOpen(false)
+  const [navigating, setNavigating] = useState(false)
+  useEffect(() => { setNavigating(false) }, [pathname])
 
   function isActive(href: string) {
     if (href.includes('?')) {
@@ -63,6 +67,14 @@ export default function StudentLayoutShell({
 
   return (
     <div className="flex min-h-screen" style={{ background: T.bg }}>
+      {/* Progress bar */}
+      {navigating && (
+        <div className="fixed top-0 left-0 right-0 z-[100] h-0.5 overflow-hidden" style={{ background: 'rgba(201,151,26,0.15)' }}>
+          <div className="h-full" style={{ background: T.gold, animation: 'navProgress 1.5s ease-in-out infinite', width: '40%' }} />
+        </div>
+      )}
+      <style>{`@keyframes navProgress{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}@keyframes fadeIn{from{opacity:0}to{opacity:1}}`}</style>
+
       {/* Mobile backdrop */}
       {open && (
         <div
@@ -110,6 +122,7 @@ export default function StudentLayoutShell({
         )}
 
         {/* Nav */}
+        <NavCtx.Provider value={setNavigating}>
         <nav
           className="flex-1 overflow-y-auto py-3"
           style={{ scrollbarWidth: 'none' } as React.CSSProperties}
@@ -186,6 +199,7 @@ export default function StudentLayoutShell({
             </>
           )}
         </nav>
+        </NavCtx.Provider>
 
         {/* Footer */}
         <div className="px-3 py-3" style={{ borderTop: `1px solid ${T.border}` }}>
@@ -238,7 +252,7 @@ export default function StudentLayoutShell({
         </header>
 
         <main className="flex-1 overflow-y-auto">
-          <div className="max-w-5xl mx-auto px-4 md:px-8 py-6 md:py-8">
+          <div key={pathname} className="max-w-5xl mx-auto px-4 md:px-8 py-6 md:py-8" style={{ animation: 'fadeIn 0.15s ease-out' }}>
             {children}
           </div>
         </main>
@@ -252,10 +266,11 @@ export default function StudentLayoutShell({
 function SidebarItem({ href, icon, label, active, onClick }: {
   href: string; icon: React.ReactNode; label: string; active: boolean; onClick: () => void
 }) {
+  const setNav = useContext(NavCtx)
   return (
     <Link
       href={href}
-      onClick={onClick}
+      onClick={() => { onClick(); if (!active) setNav(true) }}
       className="flex items-center rounded-lg transition-all"
       style={{
         height: 36,
@@ -288,10 +303,11 @@ function SidebarItem({ href, icon, label, active, onClick }: {
 function SidebarSub({ href, icon, label, active, onClick }: {
   href: string; icon: React.ReactNode; label: string; active: boolean; onClick: () => void
 }) {
+  const setNav = useContext(NavCtx)
   return (
     <Link
       href={href}
-      onClick={onClick}
+      onClick={() => { onClick(); if (!active) setNav(true) }}
       className="flex items-center rounded-lg transition-all"
       style={{
         height: 34,

@@ -542,17 +542,24 @@ export default function InfluencersTab({ workspaceId, initialView = 'consolidado
       </div>
 
       {/* Loading skeleton */}
-      {loading && (view === 'macro' || view === 'micro') && (
-        <div className="bg-bg-card border border-border rounded-xl overflow-hidden">
-          {[0, 1, 2].map(i => (
-            <div key={i} className="flex items-center gap-4 p-4 border-b border-border/50 last:border-0 animate-pulse">
-              <div className="h-4 w-24 bg-bg-hover rounded" />
-              <div className="h-4 w-16 bg-bg-hover rounded" />
-              <div className="h-4 w-20 bg-bg-hover rounded" />
-              <div className="flex-1" />
-              <div className="h-4 w-16 bg-bg-hover rounded" />
-            </div>
-          ))}
+      {loading && (
+        <div className="space-y-4 animate-pulse">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="h-20 rounded-xl" style={{ background: 'rgba(255,255,255,0.04)' }} />
+            ))}
+          </div>
+          <div className="bg-bg-card border border-border rounded-xl overflow-hidden">
+            {[0, 1, 2, 3].map(i => (
+              <div key={i} className="flex items-center gap-4 p-4 border-b border-border/50 last:border-0">
+                <div className="h-4 w-24 bg-bg-hover rounded" />
+                <div className="h-4 w-16 bg-bg-hover rounded" />
+                <div className="h-4 w-20 bg-bg-hover rounded" />
+                <div className="flex-1" />
+                <div className="h-4 w-16 bg-bg-hover rounded" />
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
