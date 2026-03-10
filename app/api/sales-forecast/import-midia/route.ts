@@ -74,13 +74,18 @@ export async function POST(req: NextRequest) {
   // Calculate all result metrics
   const results = calcAllMonths(keyValues)
 
-  // Map to Sales Forecast format
+  // Map to Sales Forecast format — permissive: import any month with any data
   const byMonth: Record<number, { faturamento_bruto: number; pedidos: number; investimento_midia: number }> = {}
   for (const month of MONTHS) {
     const r = results[month]
     if (!r) continue
-    // Only import months that have some data
-    if (r.REV_BILLED === 0 && r.ORD_BILLED === 0 && r.SPEND_TOTAL === 0) continue
+
+    // Check if this month has ANY key metric filled (not just computed results)
+    const hasKeyData = KEY_METRICS.some(k => (keyValues[k]?.[month] ?? 0) !== 0)
+    const hasResultData = r.REV_BILLED !== 0 || r.ORD_BILLED !== 0 || r.SPEND_TOTAL !== 0
+
+    if (!hasKeyData && !hasResultData) continue
+
     byMonth[month] = {
       faturamento_bruto: r.REV_BILLED,
       pedidos: Math.round(r.ORD_BILLED),
@@ -89,7 +94,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (Object.keys(byMonth).length === 0) {
-    return NextResponse.json({ error: 'Midia Plan não tem dados calculados (preencha métricas primeiro)' }, { status: 404 })
+    return NextResponse.json({ error: 'Midia Plan não tem dados preenchidos (preencha métricas primeiro)' }, { status: 404 })
   }
 
   // Upsert each month into sales_forecast (ecommerce channel)
