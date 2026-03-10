@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { createBrowserClient } from '@supabase/ssr'
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 
 const ROLE_LABELS: Record<string, string> = {
   manager: 'Manager',
@@ -14,49 +14,68 @@ export default function AcceptInviteClient({
   workspaceName,
   email,
   role,
+  isAuthenticated,
 }: {
   token: string
   workspaceName: string
   email: string
   role: string
+  isAuthenticated: boolean
 }) {
-  const [formEmail] = useState(email)
-  const [loading, setLoading] = useState(false)
-  const [sent, setSent] = useState(false)
+  const router = useRouter()
+  const [status, setStatus] = useState<'idle' | 'accepting' | 'accepted' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [resending, setResending] = useState(false)
+  const [resent, setResent] = useState(false)
 
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-  )
+  // If authenticated, auto-accept the invite
+  useEffect(() => {
+    if (!isAuthenticated) return
 
-  async function handleSendLink(e: React.FormEvent) {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
+    async function acceptInvite() {
+      setStatus('accepting')
+      try {
+        const res = await fetch('/api/team/invite/accept', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token }),
+        })
+        const data = await res.json()
 
-    try {
-      const redirectUrl = `${window.location.origin}/aceitar-convite?token=${token}`
+        if (!res.ok) {
+          setError(data.error || 'Erro ao aceitar convite')
+          setStatus('error')
+          return
+        }
 
-      const { error: otpError } = await supabase.auth.signInWithOtp({
-        email: formEmail,
-        options: {
-          emailRedirectTo: redirectUrl,
-          shouldCreateUser: true,
-        },
-      })
-
-      if (otpError) {
-        setError(otpError.message)
-        setLoading(false)
-        return
+        setStatus('accepted')
+        // Redirect to dashboard after short delay
+        setTimeout(() => router.push('/dashboard'), 1500)
+      } catch {
+        setError('Erro inesperado. Tente novamente.')
+        setStatus('error')
       }
+    }
 
-      setSent(true)
-      setLoading(false)
+    acceptInvite()
+  }, [isAuthenticated, token, router])
+
+  async function handleResend() {
+    setResending(true)
+    setResent(false)
+    try {
+      const res = await fetch('/api/team/invite/resend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      })
+      if (res.ok) {
+        setResent(true)
+      }
     } catch {
-      setError('Erro inesperado. Tente novamente.')
-      setLoading(false)
+      // silently fail
+    } finally {
+      setResending(false)
     }
   }
 
@@ -76,55 +95,71 @@ export default function AcceptInviteClient({
         </p>
       </div>
 
-      {sent ? (
-        /* Success state */
+      {/* Authenticated → auto-accepting */}
+      {isAuthenticated && (
         <div className="p-8 text-center space-y-3">
+          {status === 'accepting' && (
+            <>
+              <div className="w-8 h-8 border-2 border-brand-gold border-t-transparent rounded-full animate-spin mx-auto" />
+              <p className="text-text-primary font-medium">Aceitando convite...</p>
+            </>
+          )}
+          {status === 'accepted' && (
+            <>
+              <div className="text-4xl">&#10003;</div>
+              <p className="text-text-primary font-medium">Convite aceito!</p>
+              <p className="text-text-secondary text-sm">Redirecionando para o dashboard...</p>
+            </>
+          )}
+          {status === 'error' && (
+            <>
+              <p className="text-error font-medium">{error}</p>
+              <button
+                onClick={() => window.location.reload()}
+                className="mt-2 px-4 py-2 bg-brand-gold text-bg-base rounded-lg text-sm font-medium hover:bg-brand-gold-light transition-colors"
+              >
+                Tentar novamente
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Not authenticated → prompt to use email link */}
+      {!isAuthenticated && (
+        <div className="p-8 text-center space-y-4">
           <div className="text-4xl">&#9993;&#65039;</div>
-          <p className="text-text-primary font-medium">Link enviado!</p>
+          <p className="text-text-primary font-medium">Use o link enviado para seu email</p>
           <p className="text-text-secondary text-sm">
             Enviamos um link de acesso para{' '}
-            <strong className="text-brand-gold">{formEmail}</strong>.
+            <strong className="text-brand-gold">{email}</strong>.
             <br />
-            Clique no link no seu email para acessar.
-          </p>
-          <p className="text-text-muted text-xs mt-4">
-            N&#227;o recebeu?{' '}
-            <button
-              type="button"
-              onClick={() => { setSent(false); setError(null) }}
-              className="text-brand-gold hover:underline"
-            >
-              Enviar novamente
-            </button>
-          </p>
-        </div>
-      ) : (
-        /* Email form */
-        <form onSubmit={handleSendLink} className="p-6 space-y-4">
-          <p className="text-text-muted text-xs text-center">
-            Enviaremos um link de acesso para o seu email
+            Clique no link no seu email para aceitar o convite.
           </p>
 
-          <div>
-            <label className="block text-xs font-medium text-text-secondary mb-1.5">Email</label>
-            <input
-              type="email"
-              value={formEmail}
-              readOnly
-              className="w-full px-3 py-2.5 rounded-lg bg-bg-surface border border-border text-text-primary text-sm focus:outline-none opacity-70 cursor-not-allowed"
-            />
+          <div className="pt-2">
+            {resent ? (
+              <p className="text-emerald-400 text-sm">Convite reenviado!</p>
+            ) : (
+              <button
+                onClick={handleResend}
+                disabled={resending}
+                className="text-brand-gold hover:underline text-sm disabled:opacity-50"
+              >
+                {resending ? 'Reenviando...' : 'Reenviar convite'}
+              </button>
+            )}
           </div>
 
-          {error && <p className="text-error text-xs">{error}</p>}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-2.5 rounded-lg bg-brand-gold text-bg-base text-sm font-semibold hover:bg-brand-gold-light transition-colors disabled:opacity-60"
-          >
-            {loading ? 'Enviando...' : 'Enviar link de acesso \u2192'}
-          </button>
-        </form>
+          <div className="pt-2 border-t border-border">
+            <a
+              href="/login"
+              className="text-text-muted text-xs hover:text-text-secondary transition-colors"
+            >
+              Já tem uma conta? Fazer login
+            </a>
+          </div>
+        </div>
       )}
     </div>
   )

@@ -1,7 +1,5 @@
-import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import type { WorkspaceRole } from '@/lib/types/database'
 import AcceptInviteClient from './AcceptInviteClient'
 
 export const metadata = { title: 'Aceitar Convite — BrandLegacy' }
@@ -59,7 +57,6 @@ export default async function AcceptInvitePage({ searchParams }: Props) {
   }
 
   if (new Date(invite.expires_at) < new Date()) {
-    // Mark as expired
     await adminSupabase
       .from('workspace_invites')
       .update({ status: 'expired' })
@@ -79,57 +76,13 @@ export default async function AcceptInvitePage({ searchParams }: Props) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
-  if (user) {
-    // Authenticated — accept invite immediately
-    // Check if already a member
-    const { data: existingMember } = await adminSupabase
-      .from('workspace_members')
-      .select('id, is_active')
-      .eq('workspace_id', invite.workspace_id)
-      .eq('user_id', user.id)
-      .single()
-
-    if (existingMember) {
-      if (!existingMember.is_active) {
-        await adminSupabase
-          .from('workspace_members')
-          .update({
-            is_active: true,
-            role: invite.role as WorkspaceRole,
-            permissions: invite.permissions,
-            accepted_at: new Date().toISOString(),
-          })
-          .eq('id', existingMember.id)
-      }
-    } else {
-      await adminSupabase.from('workspace_members').insert({
-        workspace_id: invite.workspace_id,
-        user_id: user.id,
-        role: invite.role as WorkspaceRole,
-        permissions: invite.permissions,
-        invited_at: invite.created_at,
-        accepted_at: new Date().toISOString(),
-        is_active: true,
-      })
-    }
-
-    // Mark invite as accepted
-    await adminSupabase
-      .from('workspace_invites')
-      .update({ status: 'accepted', accepted_at: new Date().toISOString() })
-      .eq('id', invite.id)
-
-    // Clear permissions cookie so it's re-fetched
-    redirect('/dashboard')
-  }
-
-  // Not authenticated — show login/signup form
   return (
     <AcceptInviteClient
       token={token}
       workspaceName={workspaceName}
       email={invite.email}
       role={invite.role}
+      isAuthenticated={!!user}
     />
   )
 }

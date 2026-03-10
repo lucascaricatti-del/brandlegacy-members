@@ -3,6 +3,8 @@ import { Resend } from 'resend'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 
+const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://membros.brandlegacy.com.br'
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient()
@@ -36,7 +38,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Sem permissão para convidar membros' }, { status: 403 })
     }
 
-    // Get workspace name
+    // Get workspace name + inviter name
     const { data: workspace } = await adminSupabase
       .from('workspaces')
       .select('name')
@@ -45,12 +47,21 @@ export async function POST(request: NextRequest) {
 
     const workspaceName = workspace?.name ?? 'Workspace'
 
+    const { data: inviterProfile } = await adminSupabase
+      .from('profiles')
+      .select('name')
+      .eq('id', user.id)
+      .single()
+
+    const inviterName = inviterProfile?.name ?? 'Um membro'
+
     // Check for existing pending invite
+    const normalizedEmail = email.trim().toLowerCase()
     const { data: existingInvite } = await adminSupabase
       .from('workspace_invites')
       .select('id')
       .eq('workspace_id', workspace_id)
-      .eq('email', email.trim().toLowerCase())
+      .eq('email', normalizedEmail)
       .eq('status', 'pending')
       .single()
 
@@ -58,7 +69,6 @@ export async function POST(request: NextRequest) {
     let token: string
 
     if (existingInvite) {
-      // Update existing invite
       const newToken = generateToken()
       const { data: updated, error } = await adminSupabase
         .from('workspace_invites')
@@ -77,12 +87,11 @@ export async function POST(request: NextRequest) {
       inviteId = updated!.id
       token = updated!.token
     } else {
-      // Create new invite
       const { data: invite, error } = await adminSupabase
         .from('workspace_invites')
         .insert({
           workspace_id,
-          email: email.trim().toLowerCase(),
+          email: normalizedEmail,
           role,
           permissions: permissions ?? {},
           invited_by: user.id,
@@ -95,54 +104,40 @@ export async function POST(request: NextRequest) {
       token = invite!.token
     }
 
-    // Check if user already exists in auth
-    const { data: existingProfile } = await adminSupabase
-      .from('profiles')
-      .select('id')
-      .eq('email', email.trim().toLowerCase())
-      .single()
+    const ROLE_LABELS: Record<string, string> = {
+      manager: 'Manager',
+      collaborator: 'Colaborador',
+      mentee: 'Mentorado',
+    }
+    const roleLabel = ROLE_LABELS[role] ?? role
 
-    // Build invite URL
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin
-    const inviteUrl = `${baseUrl}/aceitar-convite?token=${token}`
+    // Generate magic link server-side (works for existing and new users)
+    const acceptUrl = `${baseUrl}/aceitar-convite?token=${token}`
+    let ctaUrl = acceptUrl
 
-    // Send email via Resend
+    const { data: linkData, error: linkError } = await adminSupabase.auth.admin.generateLink({
+      type: 'magiclink',
+      email: normalizedEmail,
+      options: {
+        redirectTo: acceptUrl,
+      },
+    })
+
+    if (!linkError && linkData?.properties?.action_link) {
+      // Magic link auto-authenticates, then redirects to acceptUrl
+      ctaUrl = linkData.properties.action_link
+    }
+
+    // Send ONE branded email via Resend
     if (process.env.RESEND_API_KEY) {
       const resend = new Resend(process.env.RESEND_API_KEY)
 
-      const ROLE_LABELS: Record<string, string> = {
-        manager: 'Manager',
-        collaborator: 'Colaborador',
-        mentee: 'Mentorado',
-      }
-
-      if (existingProfile) {
-        // Existing user — simple invite email
-        await resend.emails.send({
-          from: 'BrandLegacy <noreply@brandlegacy.com.br>',
-          to: email.trim().toLowerCase(),
-          subject: `Convite para ${workspaceName} — BrandLegacy`,
-          html: buildInviteEmail(workspaceName, ROLE_LABELS[role] ?? role, inviteUrl),
-        })
-      } else {
-        // New user — magic link + invite token
-        const { data: linkData } = await adminSupabase.auth.admin.generateLink({
-          type: 'magiclink',
-          email: email.trim().toLowerCase(),
-        })
-
-        const magicLink = linkData?.properties?.action_link
-        const finalUrl = magicLink
-          ? `${magicLink}&redirect_to=${encodeURIComponent(inviteUrl)}`
-          : inviteUrl
-
-        await resend.emails.send({
-          from: 'BrandLegacy <noreply@brandlegacy.com.br>',
-          to: email.trim().toLowerCase(),
-          subject: `Convite para ${workspaceName} — BrandLegacy`,
-          html: buildInviteEmail(workspaceName, ROLE_LABELS[role] ?? role, finalUrl),
-        })
-      }
+      await resend.emails.send({
+        from: 'BrandLegacy <noreply@brandlegacy.com.br>',
+        to: normalizedEmail,
+        subject: `Você foi convidado para ${workspaceName} no BrandLegacy Members`,
+        html: buildInviteEmail(workspaceName, inviterName, roleLabel, ctaUrl),
+      })
     }
 
     return NextResponse.json({ success: true, invite_id: inviteId })
@@ -163,32 +158,36 @@ function generateToken(): string {
   return result
 }
 
-function buildInviteEmail(workspaceName: string, roleLabel: string, inviteUrl: string): string {
+function buildInviteEmail(workspaceName: string, inviterName: string, roleLabel: string, ctaUrl: string): string {
   return `
 <!DOCTYPE html>
 <html>
 <body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background-color:#050D07;">
   <div style="max-width:520px;margin:40px auto;background:#0F1911;border-radius:16px;border:1px solid rgba(255,255,255,0.08);overflow:hidden;">
     <div style="padding:32px 32px 24px;text-align:center;border-bottom:1px solid rgba(255,255,255,0.06);">
-      <img src="https://brandlegacy.com.br/logo.png" alt="BrandLegacy" style="height:36px;margin-bottom:8px;" />
+      <p style="color:#C9971A;font-size:22px;font-weight:700;margin:0 0 4px;letter-spacing:0.5px;">BrandLegacy</p>
       <p style="color:rgba(255,255,255,0.45);font-size:12px;margin:0;">Área de Membros</p>
     </div>
     <div style="padding:32px;">
       <h2 style="color:#FFFFFF;font-size:20px;margin:0 0 16px;">Você foi convidado!</h2>
       <p style="color:rgba(255,255,255,0.7);font-size:14px;line-height:1.6;margin:0 0 8px;">
-        Você recebeu um convite para participar do workspace <strong style="color:#C9971A;">${workspaceName}</strong> como <strong style="color:#FFFFFF;">${roleLabel}</strong>.
+        Olá! <strong style="color:#FFFFFF;">${inviterName}</strong> convidou você para acessar
+        <strong style="color:#C9971A;">${workspaceName}</strong> como <strong style="color:#FFFFFF;">${roleLabel}</strong>.
       </p>
       <p style="color:rgba(255,255,255,0.5);font-size:13px;line-height:1.5;margin:0 0 24px;">
         Clique no botão abaixo para aceitar o convite e acessar a plataforma.
       </p>
       <div style="text-align:center;margin:24px 0;">
-        <a href="${inviteUrl}" style="display:inline-block;padding:12px 32px;background:#C9971A;color:#050D07;font-size:14px;font-weight:600;border-radius:8px;text-decoration:none;">
-          Aceitar Convite
+        <a href="${ctaUrl}" style="display:inline-block;padding:14px 36px;background:#C9971A;color:#050D07;font-size:15px;font-weight:700;border-radius:8px;text-decoration:none;">
+          Aceitar Convite &rarr;
         </a>
       </div>
       <p style="color:rgba(255,255,255,0.3);font-size:11px;text-align:center;margin:24px 0 0;">
-        Este convite expira em 7 dias. Se você não esperava este email, pode ignorá-lo.
+        Este link expira em 7 dias. Se você não esperava este email, pode ignorá-lo.
       </p>
+    </div>
+    <div style="padding:16px 32px;border-top:1px solid rgba(255,255,255,0.06);text-align:center;">
+      <p style="color:rgba(255,255,255,0.25);font-size:11px;margin:0;">BrandLegacy Members &middot; membros.brandlegacy.com.br</p>
     </div>
   </div>
 </body>
