@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getMediaPlanGoals } from '@/app/actions/media-plan'
 
 type Props = {
   workspaceId: string
@@ -33,6 +32,17 @@ type RawMetrics = {
   shopify_sessions: number; influencer_spend: number; influencer_commission: number
   recurrence: number
 }
+
+type Goals = {
+  meta_receita: number
+  meta_investimento: number
+  meta_cps: number
+  meta_conversao: number
+  meta_ticket: number
+  meta_roas: number
+  days_in_month: number
+  current_day: number
+} | null
 
 type Integration = {
   provider: string; is_active: boolean; has_ga4: boolean; last_sync: string | null
@@ -73,7 +83,6 @@ function getComparisonRange(period: Period, range: { date_from: string; date_to:
   const spanDays = Math.round(spanMs / 86400000) + 1
 
   if (period === 'mes_atual') {
-    // Compare same N days of previous month
     const now = new Date()
     const brNow = new Date(now.getTime() - 3 * 60 * 60 * 1000)
     const currentDay = brNow.getUTCDate()
@@ -85,7 +94,6 @@ function getComparisonRange(period: Period, range: { date_from: string; date_to:
     return { date_from: compFrom, date_to: compTo }
   }
 
-  // For all other periods: previous period of same length
   const prevTo = new Date(from.getTime() - 86400000)
   const prevFrom = new Date(prevTo.getTime() - (spanDays - 1) * 86400000)
   return { date_from: prevFrom.toISOString().slice(0, 10), date_to: prevTo.toISOString().slice(0, 10) }
@@ -108,16 +116,13 @@ function deriveMetrics(raw: RawMetrics) {
     cac: n(r.orders_faturados) > 0 ? investimento_total / n(r.orders_faturados) : 0,
     cpm: n(r.meta_impressions) > 0 ? (n(r.meta_spend) / n(r.meta_impressions)) * 1000 : 0,
     pix_approval: n(r.pix_total) > 0 ? (n(r.pix_paid) / n(r.pix_total)) * 100 : 0,
-    checkout_conversion: n(r.orders_captados) > 0 ? (n(r.orders_faturados) / n(r.orders_captados)) * 100 : 0,
-    cancellation_rate: n(r.orders_captados) > 0 ? (n(r.orders_cancelled) / n(r.orders_captados)) * 100 : 0,
     total_sessions: totalSessions,
     ga4_organic: n(r.organic_sessions),
-    ga4_paid: n(r.paid_sessions),
     conversion_rate: totalSessions > 0 ? (n(r.orders_faturados) / totalSessions) * 100 : 0,
     coupon_orders: n(r.coupon_orders),
-    total_conversions: n(r.total_conversions),
+    coupon_pct: n(r.orders_faturados) > 0 ? (n(r.coupon_orders) / n(r.orders_faturados)) * 100 : 0,
+    cps: totalSessions > 0 ? investimento_total / totalSessions : 0,
     has_ga4: r.has_ga4,
-    recurrence: n(r.recurrence),
   }
 }
 
@@ -149,30 +154,15 @@ export default function PerformanceDashboardClient(props: Props) {
   const [previous, setPrevious] = useState<DerivedMetrics>(() => deriveMetrics(EMPTY_RAW))
   const [mtdMetrics, setMtdMetrics] = useState<DerivedMetrics>(() => deriveMetrics(EMPTY_RAW))
   const [integrations, setIntegrations] = useState<Integration[]>([])
-
-  const [revenueGoal, setRevenueGoal] = useState(0)
-  const [investmentGoal, setInvestmentGoal] = useState(0)
-  const [showGoalsModal, setShowGoalsModal] = useState(false)
-  const [tempRevenue, setTempRevenue] = useState('')
-  const [tempInvestment, setTempInvestment] = useState('')
-  const [loadingPlan, setLoadingPlan] = useState(false)
-  const [planError, setPlanError] = useState('')
+  const [goals, setGoals] = useState<Goals>(null)
 
   const [showSyncModal, setShowSyncModal] = useState(false)
   const [isStale, setIsStale] = useState(false)
+  const [showInsights, setShowInsights] = useState(false)
 
   const fetchIdRef = useRef(0)
 
   useEffect(() => {
-    const saved = localStorage.getItem('bl_performance_goals')
-    if (saved) {
-      try {
-        const { revenue, investment } = JSON.parse(saved)
-        setRevenueGoal(Number(revenue) || 0)
-        setInvestmentGoal(Number(investment) || 0)
-      } catch { /* ignore */ }
-    }
-    // Check stale
     const lastSync = localStorage.getItem(`bl_perf_last_sync_${workspaceId}`)
     if (lastSync) {
       const elapsed = Date.now() - Number(lastSync)
@@ -190,18 +180,16 @@ export default function PerformanceDashboardClient(props: Props) {
     const compRange = getComparisonRange(period, range)
 
     const headers = { 'Content-Type': 'application/json' }
-    const body = (r: { date_from: string; date_to: string }) =>
-      JSON.stringify({ workspace_id: workspaceId, ...r })
+    const body = (r: { date_from: string; date_to: string }, extra?: Record<string, any>) =>
+      JSON.stringify({ workspace_id: workspaceId, ...r, ...extra })
 
     try {
-      // Always fetch current + comparison in parallel
-      // If period is not mes_atual, also fetch MTD separately
       const isMtd = period === 'mes_atual'
       const today = toDateStr(new Date())
       const mtdRange = { date_from: today.slice(0, 7) + '-01', date_to: today }
 
       const fetches: Promise<Response>[] = [
-        fetch('/api/performance/metrics', { method: 'POST', headers, body: body(range) }),
+        fetch('/api/performance/metrics', { method: 'POST', headers, body: body(range, { include_goals: true }) }),
         fetch('/api/performance/metrics', { method: 'POST', headers, body: body(compRange) }),
       ]
       if (!isMtd) {
@@ -211,7 +199,7 @@ export default function PerformanceDashboardClient(props: Props) {
       const responses = await Promise.all(fetches)
       const results = await Promise.all(responses.map(r => r.json()))
 
-      if (id !== fetchIdRef.current) return // stale
+      if (id !== fetchIdRef.current) return
 
       const currentData = results[0]
       const compData = results[1]
@@ -221,6 +209,7 @@ export default function PerformanceDashboardClient(props: Props) {
       setPrevious(deriveMetrics(compData.metrics ?? EMPTY_RAW))
       setMtdMetrics(deriveMetrics(mtdData.metrics ?? EMPTY_RAW))
       setIntegrations(currentData.integrations ?? [])
+      setGoals(currentData.goals ?? null)
     } catch {
       // Keep previous state on error
     } finally {
@@ -238,34 +227,9 @@ export default function PerformanceDashboardClient(props: Props) {
   const prevMonthDate = new Date(Date.UTC(brNow.getUTCFullYear(), brNow.getUTCMonth() - 1, 1))
   const prevMonthLabel = prevMonthDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' })
 
-  const openGoalsModal = () => {
-    setTempRevenue(revenueGoal > 0 ? String(revenueGoal) : '')
-    setTempInvestment(investmentGoal > 0 ? String(investmentGoal) : '')
-    setPlanError('')
-    setShowGoalsModal(true)
-  }
-
-  const saveGoals = () => {
-    const r = Number(tempRevenue) || 0
-    const i = Number(tempInvestment) || 0
-    setRevenueGoal(r)
-    setInvestmentGoal(i)
-    localStorage.setItem('bl_performance_goals', JSON.stringify({ revenue: r, investment: i }))
-    setShowGoalsModal(false)
-  }
-
-  async function fetchFromMediaPlan() {
-    setLoadingPlan(true)
-    setPlanError('')
-    const now2 = new Date()
-    const result = await getMediaPlanGoals(workspaceId, now2.getFullYear(), now2.getMonth() + 1)
-    setLoadingPlan(false)
-    if ('error' in result && result.error) { setPlanError(result.error); return }
-    if ('revenueGoal' in result && result.revenueGoal) setTempRevenue(String(result.revenueGoal))
-    if ('investmentGoal' in result && result.investmentGoal) setTempInvestment(String(result.investmentGoal))
-  }
-
   // Gauges (always based on MTD)
+  const revenueGoal = goals?.meta_receita ?? 0
+  const investmentGoal = goals?.meta_investimento ?? 0
   const dailyRevenueTarget = revenueGoal > 0 ? revenueGoal / daysInMonth : 0
   const dailyInvestmentTarget = investmentGoal > 0 ? investmentGoal / daysInMonth : 0
   const dailyRevenueAvg = currentDay > 0 ? mtdMetrics.receita_faturada / currentDay : 0
@@ -273,33 +237,129 @@ export default function PerformanceDashboardClient(props: Props) {
   const projectedRevenue = dailyRevenueAvg * daysInMonth
   const projectedInvestment = dailyInvestmentAvg * daysInMonth
 
-  // KPI rows
-  const kpiRows: { label: string; value: string; curr: number; prev: number; invertColor?: boolean; source?: string }[][] = [
+  // Pace indicators for KPI cards
+  function getPace(currentVal: number, goalVal: number, isAccum: boolean): { emoji: string; label: string; color: string } | null {
+    if (!goals || goalVal <= 0) return null
+    let ratio: number
+    if (isAccum) {
+      // Daily pace: (current/day) vs (goal/days_in_month)
+      const dailyCurrent = currentDay > 0 ? currentVal / currentDay : 0
+      const dailyGoal = goalVal / daysInMonth
+      ratio = dailyGoal > 0 ? dailyCurrent / dailyGoal : 0
+    } else {
+      // Average metric: direct comparison
+      ratio = goalVal > 0 ? currentVal / goalVal : 0
+    }
+    if (ratio >= 1) return { emoji: '\u{1F7E2}', label: `+${((ratio - 1) * 100).toFixed(0)}% acima`, color: 'text-green-400' }
+    if (ratio >= 0.8) return { emoji: '\u{1F7E1}', label: `${((1 - ratio) * 100).toFixed(0)}% abaixo`, color: 'text-yellow-400' }
+    return { emoji: '\u{1F534}', label: `${((1 - ratio) * 100).toFixed(0)}% abaixo`, color: 'text-red-400' }
+  }
+
+  // Pace for cost metrics (inverted: lower is better)
+  function getPaceInverted(currentVal: number, goalVal: number): { emoji: string; label: string; color: string } | null {
+    if (!goals || goalVal <= 0 || currentVal <= 0) return null
+    const ratio = currentVal / goalVal
+    if (ratio <= 1) return { emoji: '\u{1F7E2}', label: `${((1 - ratio) * 100).toFixed(0)}% abaixo`, color: 'text-green-400' }
+    if (ratio <= 1.2) return { emoji: '\u{1F7E1}', label: `+${((ratio - 1) * 100).toFixed(0)}% acima`, color: 'text-yellow-400' }
+    return { emoji: '\u{1F534}', label: `+${((ratio - 1) * 100).toFixed(0)}% acima`, color: 'text-red-400' }
+  }
+
+  // Use MTD metrics for pace when period is mes_atual, otherwise use current
+  const paceMetrics = period === 'mes_atual' ? current : mtdMetrics
+
+  type KpiDef = {
+    label: string; value: string; curr: number; prev: number
+    invertColor?: boolean; source?: string
+    goalLabel?: string; pace?: { emoji: string; label: string; color: string } | null
+  }
+
+  // KPI cards — 3 rows x 5
+  const kpiRows: KpiDef[][] = [
+    // Row 1: Revenue + efficiency
     [
-      { label: 'Receita Captada', value: fmtCurrency(current.receita_captada, 0), curr: current.receita_captada, prev: previous.receita_captada, source: 'Yampi' },
-      { label: 'Receita Faturada', value: fmtCurrency(current.receita_faturada, 0), curr: current.receita_faturada, prev: previous.receita_faturada, source: 'Yampi' },
-      { label: 'Taxa Aprovação', value: `${current.approval_rate.toFixed(1)}%`, curr: current.approval_rate, prev: previous.approval_rate, source: 'Calculado' },
-      { label: 'Investimento', value: fmtCurrency(current.investimento_total, 0), curr: current.investimento_total, prev: previous.investimento_total, source: 'Meta+Google', invertColor: true },
-      { label: 'ROAS', value: `${current.roas.toFixed(2)}x`, curr: current.roas, prev: previous.roas, source: 'Calculado' },
-      { label: 'Ticket Médio', value: fmtCurrency(current.avg_ticket), curr: current.avg_ticket, prev: previous.avg_ticket, source: 'Calculado' },
+      {
+        label: 'Receita Captada', value: fmtCurrency(current.receita_captada, 0),
+        curr: current.receita_captada, prev: previous.receita_captada, source: 'Yampi',
+      },
+      {
+        label: 'Receita Faturada', value: fmtCurrency(current.receita_faturada, 0),
+        curr: current.receita_faturada, prev: previous.receita_faturada, source: 'Yampi',
+        goalLabel: goals && goals.meta_receita > 0 ? `Meta: ${fmtCompact(goals.meta_receita)}/mês` : undefined,
+        pace: getPace(paceMetrics.receita_faturada, revenueGoal, true),
+      },
+      {
+        label: 'Taxa Aprovação', value: `${current.approval_rate.toFixed(1)}%`,
+        curr: current.approval_rate, prev: previous.approval_rate, source: 'Calculado',
+      },
+      {
+        label: 'Investimento', value: fmtCurrency(current.investimento_total, 0),
+        curr: current.investimento_total, prev: previous.investimento_total, source: 'Meta+Google', invertColor: true,
+        goalLabel: goals && goals.meta_investimento > 0 ? `Meta: ${fmtCompact(goals.meta_investimento)}/mês` : undefined,
+        pace: getPaceInverted(paceMetrics.investimento_total, investmentGoal),
+      },
+      {
+        label: 'ROAS', value: `${current.roas.toFixed(2)}x`,
+        curr: current.roas, prev: previous.roas, source: 'Calculado',
+        goalLabel: goals && goals.meta_roas > 0 ? `Meta: ${goals.meta_roas.toFixed(2)}x` : undefined,
+        pace: getPace(paceMetrics.roas, goals?.meta_roas ?? 0, false),
+      },
     ],
+    // Row 2: Orders
     [
-      { label: 'Pedidos Captados', value: fmtNumber(current.orders_captados), curr: current.orders_captados, prev: previous.orders_captados, source: 'Yampi' },
-      { label: 'Pedidos Faturados', value: fmtNumber(current.orders_faturados), curr: current.orders_faturados, prev: previous.orders_faturados, source: 'Yampi' },
-      { label: 'Aprovação PIX', value: `${current.pix_approval.toFixed(1)}%`, curr: current.pix_approval, prev: previous.pix_approval, source: 'Yampi' },
-      { label: 'Conv. Checkout', value: `${current.checkout_conversion.toFixed(1)}%`, curr: current.checkout_conversion, prev: previous.checkout_conversion, source: 'Calculado' },
-      { label: 'Pedidos c/ Cupom', value: fmtNumber(current.coupon_orders), curr: current.coupon_orders, prev: previous.coupon_orders, source: 'Yampi' },
-      { label: 'Cancelamento', value: `${current.cancellation_rate.toFixed(1)}%`, curr: current.cancellation_rate, prev: previous.cancellation_rate, invertColor: true, source: 'Yampi' },
+      {
+        label: 'Pedidos Captados', value: fmtNumber(current.orders_captados),
+        curr: current.orders_captados, prev: previous.orders_captados, source: 'Yampi',
+      },
+      {
+        label: 'Pedidos Faturados', value: fmtNumber(current.orders_faturados),
+        curr: current.orders_faturados, prev: previous.orders_faturados, source: 'Yampi',
+      },
+      {
+        label: 'Ticket Médio', value: fmtCurrency(current.avg_ticket),
+        curr: current.avg_ticket, prev: previous.avg_ticket, source: 'Calculado',
+        goalLabel: goals && goals.meta_ticket > 0 ? `Meta: ${fmtCurrency(goals.meta_ticket, 0)}` : undefined,
+        pace: getPace(paceMetrics.avg_ticket, goals?.meta_ticket ?? 0, false),
+      },
+      {
+        label: 'CAC', value: fmtCurrency(current.cac),
+        curr: current.cac, prev: previous.cac, invertColor: true, source: 'Calculado',
+      },
+      {
+        label: 'Pedidos c/ Cupom', value: `${current.coupon_pct.toFixed(1)}%`,
+        curr: current.coupon_pct, prev: previous.coupon_pct, source: 'Yampi',
+      },
     ],
+    // Row 3: Traffic + conversion
     [
-      { label: current.has_ga4 ? 'Sessões (GA4)' : 'Sessões', value: fmtNumber(current.total_sessions), curr: current.total_sessions, prev: previous.total_sessions, source: current.has_ga4 ? 'GA4' : 'Shopify' },
-      { label: 'Sessões Orgânicas', value: current.has_ga4 ? fmtNumber(current.ga4_organic) : '—', curr: current.ga4_organic, prev: previous.ga4_organic, source: 'GA4' },
-      { label: 'Sessões Pagas', value: current.has_ga4 ? fmtNumber(current.ga4_paid) : '—', curr: current.ga4_paid, prev: previous.ga4_paid, source: 'GA4' },
-      { label: 'Taxa Conversão', value: `${current.conversion_rate.toFixed(2)}%`, curr: current.conversion_rate, prev: previous.conversion_rate, source: 'Calculado' },
-      { label: 'Recorrência', value: `${current.recurrence.toFixed(1)}%`, curr: current.recurrence, prev: previous.recurrence, source: 'Yampi' },
-      { label: 'CAC', value: fmtCurrency(current.cac), curr: current.cac, prev: previous.cac, invertColor: true, source: 'Calculado' },
+      {
+        label: current.has_ga4 ? 'Sessões GA4' : 'Sessões', value: fmtNumber(current.total_sessions),
+        curr: current.total_sessions, prev: previous.total_sessions, source: current.has_ga4 ? 'GA4' : 'Shopify',
+      },
+      {
+        label: 'Sessões Orgânicas', value: current.has_ga4 ? fmtNumber(current.ga4_organic) : '\u2014',
+        curr: current.ga4_organic, prev: previous.ga4_organic, source: 'GA4',
+      },
+      {
+        label: 'Taxa Conversão', value: `${current.conversion_rate.toFixed(2)}%`,
+        curr: current.conversion_rate, prev: previous.conversion_rate, source: 'Calculado',
+        goalLabel: goals && goals.meta_conversao > 0 ? `Meta: ${goals.meta_conversao.toFixed(2)}%` : undefined,
+        pace: getPace(paceMetrics.conversion_rate, goals?.meta_conversao ?? 0, false),
+      },
+      {
+        label: 'CPS', value: fmtCurrency(current.cps),
+        curr: current.cps, prev: previous.cps, invertColor: true, source: 'Calculado',
+        goalLabel: goals && goals.meta_cps > 0 ? `Meta: ${fmtCurrency(goals.meta_cps, 2)}` : undefined,
+        pace: getPaceInverted(paceMetrics.cps, goals?.meta_cps ?? 0),
+      },
+      {
+        label: 'Aprovação PIX', value: `${current.pix_approval.toFixed(1)}%`,
+        curr: current.pix_approval, prev: previous.pix_approval, source: 'Yampi',
+      },
     ],
   ]
+
+  // Smart insights
+  const insights = generateInsights(paceMetrics, goals)
 
   return (
     <div className="space-y-6">
@@ -326,15 +386,6 @@ export default function PerformanceDashboardClient(props: Props) {
               Sincronizar
             </span>
           </button>
-          <button
-            onClick={openGoalsModal}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-bg-card border border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary transition-colors cursor-pointer"
-          >
-            <span className="flex items-center gap-1.5">
-              <TargetIcon />
-              Metas
-            </span>
-          </button>
         </div>
       </div>
 
@@ -345,6 +396,14 @@ export default function PerformanceDashboardClient(props: Props) {
           <button onClick={() => setShowSyncModal(true)} className="underline hover:no-underline cursor-pointer">
             Sincronizar agora
           </button>
+        </div>
+      )}
+
+      {/* No goals banner */}
+      {!loading && !goals && (
+        <div className="px-4 py-3 rounded-lg bg-brand-gold/5 border border-brand-gold/20 text-brand-gold text-xs flex items-center gap-2">
+          <TargetIcon />
+          <span>Configure suas metas no <a href="/ferramentas/planejamento-midia" className="underline hover:no-underline font-medium">Planejamento de Mídia</a> para ver insights e pace diário.</span>
         </div>
       )}
 
@@ -382,8 +441,8 @@ export default function PerformanceDashboardClient(props: Props) {
 
       {/* Loading skeleton */}
       {loading && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {Array.from({ length: 6 }).map((_, i) => (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="kpi-card animate-pulse">
               <div className="h-3 w-16 bg-bg-hover rounded mb-2" />
               <div className="h-5 w-20 bg-bg-hover rounded mb-1" />
@@ -393,7 +452,7 @@ export default function PerformanceDashboardClient(props: Props) {
         </div>
       )}
 
-      {/* Gauge charts */}
+      {/* Gauge charts — Revenue + Investment side by side */}
       {!loading && (revenueGoal > 0 || investmentGoal > 0) && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {revenueGoal > 0 && (
@@ -416,16 +475,17 @@ export default function PerformanceDashboardClient(props: Props) {
               totalTarget={investmentGoal}
               projected={projectedInvestment}
               unit="R$"
+              invertProjection
             />
           )}
         </div>
       )}
 
-      {/* KPI Grid */}
+      {/* KPI Grid — 3 rows x 5 columns */}
       {!loading && kpiRows.map((row, rowIdx) => (
-        <div key={rowIdx} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div key={rowIdx} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           {row.map((kpi, i) => (
-            <KpiCardMtd
+            <KpiCard
               key={i}
               label={kpi.label}
               value={kpi.value}
@@ -433,10 +493,58 @@ export default function PerformanceDashboardClient(props: Props) {
               previous={kpi.prev}
               invertColor={kpi.invertColor}
               source={kpi.source}
+              goalLabel={kpi.goalLabel}
+              pace={kpi.pace}
             />
           ))}
         </div>
       ))}
+
+      {/* Smart Insights */}
+      {!loading && insights.length > 0 && (
+        <div className="bg-bg-card border border-border rounded-xl overflow-hidden">
+          <button
+            onClick={() => setShowInsights(!showInsights)}
+            className="w-full px-5 py-3.5 flex items-center justify-between hover:bg-bg-hover/50 transition-colors cursor-pointer"
+          >
+            <span className="text-text-primary font-semibold text-sm flex items-center gap-2">
+              <InsightIcon />
+              Insights
+              <span className="px-1.5 py-0.5 rounded-full bg-brand-gold/15 text-brand-gold text-[10px] font-bold">
+                {insights.length}
+              </span>
+            </span>
+            <svg
+              width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+              className={`text-text-muted transition-transform duration-200 ${showInsights ? 'rotate-180' : ''}`}
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+          {showInsights && (
+            <div className="px-5 pb-5 space-y-3">
+              {insights.map((insight, idx) => (
+                <div key={idx} className={`p-4 rounded-lg border ${
+                  insight.type === 'success' ? 'bg-green-500/5 border-green-500/20' : 'bg-yellow-500/5 border-yellow-500/20'
+                }`}>
+                  <p className="font-semibold text-sm text-text-primary mb-1">{insight.title}</p>
+                  <p className="text-text-secondary text-xs mb-2">{insight.body}</p>
+                  {insight.bullets.length > 0 && (
+                    <ul className="space-y-1">
+                      {insight.bullets.map((b, bi) => (
+                        <li key={bi} className="text-text-muted text-xs flex items-start gap-1.5">
+                          <span className="mt-1 w-1 h-1 rounded-full bg-text-muted/50 flex-shrink-0" />
+                          {b}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Projected summary */}
       {!loading && (revenueGoal > 0 || mtdMetrics.receita_faturada > 0) && (
@@ -448,7 +556,7 @@ export default function PerformanceDashboardClient(props: Props) {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <MiniStat label="Receita Projetada" value={fmtCurrency(projectedRevenue, 0)} />
             <MiniStat label="Investimento Projetado" value={fmtCurrency(projectedInvestment, 0)} />
-            <MiniStat label="ROAS Projetado" value={projectedInvestment > 0 ? `${(projectedRevenue / projectedInvestment).toFixed(2)}x` : '—'} />
+            <MiniStat label="ROAS Projetado" value={projectedInvestment > 0 ? `${(projectedRevenue / projectedInvestment).toFixed(2)}x` : '\u2014'} />
             <MiniStat label="Pedidos Projetados" value={fmtNumber(Math.round((mtdMetrics.orders_faturados / Math.max(currentDay, 1)) * daysInMonth))} />
           </div>
         </div>
@@ -467,66 +575,87 @@ export default function PerformanceDashboardClient(props: Props) {
           }}
         />
       )}
-
-      {/* Goals Modal */}
-      {showGoalsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/60" onClick={() => setShowGoalsModal(false)} />
-          <div className="relative bg-bg-card border border-border-gold rounded-xl p-6 w-full max-w-md shadow-2xl">
-            <h3 className="font-sans text-text-primary font-semibold text-lg mb-1">Definir Metas Mensais</h3>
-            <p className="text-text-muted text-xs mb-4">As metas são salvas localmente no seu navegador.</p>
-
-            <button
-              onClick={fetchFromMediaPlan}
-              disabled={loadingPlan}
-              className="w-full px-3 py-2 text-xs rounded-lg border border-brand-gold/30 text-brand-gold hover:bg-brand-gold/10 transition-colors disabled:opacity-50 mb-4 cursor-pointer"
-            >
-              {loadingPlan ? 'Buscando...' : 'Buscar do Planejamento de Mídia'}
-            </button>
-            {planError && <p className="text-red-400 text-xs mb-3">{planError}</p>}
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-text-secondary text-xs font-medium mb-1.5">Meta de Receita Mensal (R$)</label>
-                <input
-                  type="number"
-                  value={tempRevenue}
-                  onChange={e => setTempRevenue(e.target.value)}
-                  placeholder="Ex: 500000"
-                  className="w-full bg-bg-base border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-muted/50 focus:outline-none focus:border-brand-gold/50"
-                />
-              </div>
-              <div>
-                <label className="block text-text-secondary text-xs font-medium mb-1.5">Meta de Investimento Mensal (R$)</label>
-                <input
-                  type="number"
-                  value={tempInvestment}
-                  onChange={e => setTempInvestment(e.target.value)}
-                  placeholder="Ex: 50000"
-                  className="w-full bg-bg-base border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-muted/50 focus:outline-none focus:border-brand-gold/50"
-                />
-              </div>
-            </div>
-
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => setShowGoalsModal(false)}
-                className="flex-1 px-4 py-2 text-sm rounded-lg border border-border text-text-secondary hover:bg-bg-hover transition-colors cursor-pointer"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={saveGoals}
-                className="flex-1 px-4 py-2 text-sm rounded-lg bg-brand-gold text-bg-base font-semibold hover:opacity-90 transition-opacity cursor-pointer"
-              >
-                Salvar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
+}
+
+/* ---------- Insight generation ---------- */
+
+type Insight = {
+  title: string; body: string; bullets: string[]; type: 'warning' | 'success'; priority: number
+}
+
+function generateInsights(metrics: DerivedMetrics, goals: Goals): Insight[] {
+  if (!goals) return []
+  const all: Insight[] = []
+
+  // Insight: CPS alto
+  if (goals.meta_cps > 0 && metrics.cps > goals.meta_cps * 1.15) {
+    const pct = ((metrics.cps / goals.meta_cps - 1) * 100).toFixed(0)
+    all.push({
+      title: `CPS ${pct}% acima da meta`,
+      body: `Custo por sessão de ${fmtCurrency(metrics.cps)} vs meta de ${fmtCurrency(goals.meta_cps)}. Considere:`,
+      bullets: ['Reequilibrar investimento entre canais', 'Testar novos criativos', 'Focar em produtos âncora com maior volume'],
+      type: 'warning', priority: 2,
+    })
+  }
+
+  // Insight: Taxa conversão baixa
+  if (goals.meta_conversao > 0 && metrics.conversion_rate < goals.meta_conversao * 0.85) {
+    const pct = ((1 - metrics.conversion_rate / goals.meta_conversao) * 100).toFixed(0)
+    all.push({
+      title: `Taxa de conversão ${pct}% abaixo da meta`,
+      body: `Conversão de ${metrics.conversion_rate.toFixed(2)}% vs meta de ${goals.meta_conversao.toFixed(2)}%. Verifique:`,
+      bullets: ['Páginas de produto e checkout', 'Funil de abandono de carrinho', 'Oferta e urgência', 'Connect rate dos anúncios'],
+      type: 'warning', priority: 1,
+    })
+  }
+
+  // Insight: Ticket médio baixo
+  if (goals.meta_ticket > 0 && metrics.avg_ticket < goals.meta_ticket * 0.9) {
+    const pct = ((1 - metrics.avg_ticket / goals.meta_ticket) * 100).toFixed(0)
+    all.push({
+      title: `Ticket médio ${pct}% abaixo da meta`,
+      body: `Ticket de ${fmtCurrency(metrics.avg_ticket)} vs meta de ${fmtCurrency(goals.meta_ticket)}. Possíveis causas:`,
+      bullets: ['Excesso de cupons de desconto', 'Mix de produtos inadequado', 'Oportunidade de order bump / upsell', 'Revisar kits e combos'],
+      type: 'warning', priority: 3,
+    })
+  }
+
+  // Insight: ROAS abaixo
+  if (goals.meta_roas > 0 && metrics.roas < goals.meta_roas * 0.9) {
+    const pct = ((1 - metrics.roas / goals.meta_roas) * 100).toFixed(0)
+    all.push({
+      title: `ROAS ${pct}% abaixo da meta`,
+      body: 'CPS x Taxa de Conversão x Ticket Médio = Receita Faturada. Com ROAS baixo, o problema está em:',
+      bullets: ['CPS muito alto \u2192 criativos ou segmentação', 'Conversão baixa \u2192 página ou oferta', 'Ticket baixo \u2192 mix de produtos'],
+      type: 'warning', priority: 0,
+    })
+  }
+
+  // Insight: Cupom excessivo
+  if (metrics.coupon_pct > 40) {
+    all.push({
+      title: `Alto uso de cupons (${metrics.coupon_pct.toFixed(1)}%)`,
+      body: 'Mais de 40% dos pedidos usam cupom. Avalie impacto no ticket médio e margem.',
+      bullets: [],
+      type: 'warning', priority: 4,
+    })
+  }
+
+  // Insight: Tudo no ritmo
+  if (all.length === 0 && goals.meta_receita > 0) {
+    all.push({
+      title: 'Operação no ritmo',
+      body: 'Receita e investimento no pace diário. Continue monitorando conversão e ticket.',
+      bullets: [],
+      type: 'success', priority: 10,
+    })
+  }
+
+  // Sort by priority (lower = more important), limit to 3
+  all.sort((a, b) => a.priority - b.priority)
+  return all.slice(0, 3)
 }
 
 /* ---------- Sync Modal ---------- */
@@ -688,50 +817,63 @@ function SyncModal({
 
 /* ---------- Sub-components ---------- */
 
-function KpiCardMtd({
-  label, value, current, previous, invertColor, source,
+function KpiCard({
+  label, value, current, previous, invertColor, source, goalLabel, pace,
 }: {
-  label: string; value: string; current: number; previous: number; invertColor?: boolean; source?: string
+  label: string; value: string; current: number; previous: number
+  invertColor?: boolean; source?: string
+  goalLabel?: string; pace?: { emoji: string; label: string; color: string } | null
 }) {
-  const hasVariation = previous > 0 || current > 0
+  // Fix: don't show "↑ 100%" when comparison period has 0 data
+  const bothHaveData = current > 0 && previous > 0
   let pct = 0
   let direction: 'up' | 'down' | 'neutral' = 'neutral'
 
-  if (hasVariation) {
-    if (previous === 0 && current > 0) {
-      pct = 100; direction = 'up'
-    } else if (previous > 0) {
-      pct = ((current - previous) / previous) * 100
-      direction = pct > 0 ? 'up' : pct < 0 ? 'down' : 'neutral'
-    }
+  if (bothHaveData) {
+    pct = ((current - previous) / previous) * 100
+    direction = pct > 0 ? 'up' : pct < 0 ? 'down' : 'neutral'
   }
 
   const isPositive = invertColor ? direction === 'down' : direction === 'up'
   const isNegative = invertColor ? direction === 'up' : direction === 'down'
+  const hasPace = pace && goalLabel
 
   return (
-    <div className="kpi-card">
-      <p className="text-text-muted text-[10px] font-medium tracking-wide uppercase mb-1.5 truncate">{label}</p>
-      <p className="font-data text-lg font-semibold text-text-primary leading-none mb-1.5">{value}</p>
-      <div className="flex items-center justify-between">
-        {hasVariation && direction !== 'neutral' ? (
-          <span className={`text-[11px] flex items-center gap-0.5 font-medium ${
-            isPositive ? 'text-green-400' : isNegative ? 'text-red-400' : 'text-text-muted'
-          }`}>
-            {direction === 'up' ? '↑' : '↓'} {Math.abs(pct).toFixed(1)}%
-          </span>
-        ) : <span />}
-        {source && <span className="text-[9px] text-text-muted/50">{source}</span>}
+    <div className={`kpi-card ${hasPace ? 'pb-2' : ''}`}>
+      <div className="flex items-start justify-between mb-1.5">
+        <p className="text-text-muted text-[10px] font-medium tracking-wide uppercase truncate flex-1">{label}</p>
+        {source && <span className="text-[8px] text-text-muted/40 ml-1 flex-shrink-0">{source}</span>}
       </div>
+      <p className="font-data text-lg font-semibold text-text-primary leading-none mb-1.5">{value}</p>
+      {bothHaveData && direction !== 'neutral' ? (
+        <span className={`text-[11px] flex items-center gap-0.5 font-medium ${
+          isPositive ? 'text-green-400' : isNegative ? 'text-red-400' : 'text-text-muted'
+        }`}>
+          {direction === 'up' ? '\u2191' : '\u2193'} {Math.abs(pct).toFixed(1)}% vs anterior
+        </span>
+      ) : (
+        <span className="text-[11px] text-text-muted/40">{current === 0 && previous === 0 ? '\u2014' : '\u2014'}</span>
+      )}
+      {hasPace && (
+        <>
+          <div className="border-t border-border/40 mt-2 pt-1.5">
+            <p className="text-[9px] text-text-muted/60 mb-0.5">{goalLabel}</p>
+            <p className={`text-[10px] font-medium ${pace.color}`}>
+              {pace.emoji} {pace.label}
+            </p>
+          </div>
+        </>
+      )}
     </div>
   )
 }
 
 function GaugeCard({
-  label, current, target, totalCurrent, totalTarget, projected, unit,
+  label, current, target, totalCurrent, totalTarget, projected, unit, invertProjection,
 }: {
   label: string; current: number; target: number
   totalCurrent: number; totalTarget: number; projected: number; unit: string
+  invertProjection?: boolean
 }) {
   const pct = target > 0 ? Math.min(current / target, 1.5) : 0
   const totalPct = totalTarget > 0 ? Math.min(totalCurrent / totalTarget, 1) : 0
@@ -740,6 +882,12 @@ function GaugeCard({
   const circumference = Math.PI * r
   const offset = circumference * (1 - Math.min(pct, 1))
   const gaugeColor = pct >= 1 ? '#22c55e' : pct >= 0.7 ? '#ECA206' : '#ef4444'
+
+  // For investment: under budget is good (green), over is bad (red)
+  const projectionOnTrack = invertProjection
+    ? projected <= totalTarget * 1.05
+    : projected >= totalTarget
+  const projectionDiff = Math.abs(projected - totalTarget)
 
   return (
     <div className="bg-bg-card border border-border-gold rounded-xl p-5 card-premium">
@@ -770,8 +918,12 @@ function GaugeCard({
         </div>
         <div className="flex justify-between text-[11px]">
           <span className="text-text-muted">Projeção</span>
-          <span className={`font-data font-medium ${projected >= totalTarget ? 'text-green-400' : 'text-red-400'}`}>
+          <span className={`font-data font-medium ${projectionOnTrack ? 'text-green-400' : 'text-red-400'}`}>
             {fmtCurrency(projected, 0)}
+            {projectionOnTrack
+              ? ' \u2713'
+              : ` (${invertProjection ? '+' : '-'}${fmtCurrency(projectionDiff, 0)})`
+            }
           </span>
         </div>
       </div>
@@ -809,6 +961,15 @@ function SyncIcon() {
     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" />
       <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+    </svg>
+  )
+}
+
+function InsightIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M9 18h6" /><path d="M10 22h4" />
+      <path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z" />
     </svg>
   )
 }
