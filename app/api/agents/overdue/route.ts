@@ -144,13 +144,13 @@ export async function GET(request: Request) {
         ownerEmail = ownerProfile?.email ?? null
       }
 
-      // Se não tem owner, tenta buscar qualquer admin do workspace
+      // Se não tem owner, tenta buscar qualquer manager do workspace
       if (!ownerEmail) {
         const { data: adminMember } = await adminSupabase
           .from('workspace_members')
           .select('user_id')
           .eq('workspace_id', ws.id)
-          .eq('role', 'admin')
+          .eq('role', 'manager')
           .eq('is_active', true)
           .limit(1)
           .single()

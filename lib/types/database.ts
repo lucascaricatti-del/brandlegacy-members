@@ -16,7 +16,7 @@ export type AdminRole = 'admin' | 'mentor' | 'lideranca' | 'cx' | 'financeiro'
 export type ContentType = 'course' | 'masterclass' | 'webinar'
 export type ModuleCategory = 'mentoria' | 'masterclass' | 'free_class'
 export type PlanType = 'free' | 'tracao' | 'club'
-export type WorkspaceRole = 'owner' | 'admin' | 'manager' | 'collaborator' | 'viewer'
+export type WorkspaceRole = 'owner' | 'manager' | 'collaborator' | 'mentee'
 export type KanbanPriority = 'low' | 'medium' | 'high' | 'urgent'
 export type CardLabel = { id: string; text: string; color: string }
 export type CardAttachment = { id: string; title: string; url: string; created_at: string }
@@ -290,6 +290,9 @@ export type Database = {
           invited_by: string | null
           joined_at: string
           created_at: string
+          permissions: Json
+          invited_at: string | null
+          accepted_at: string | null
         }
         Insert: {
           id?: string
@@ -300,6 +303,9 @@ export type Database = {
           invited_by?: string | null
           joined_at?: string
           created_at?: string
+          permissions?: Json
+          invited_at?: string | null
+          accepted_at?: string | null
         }
         Update: {
           id?: string
@@ -310,6 +316,9 @@ export type Database = {
           invited_by?: string | null
           joined_at?: string
           created_at?: string
+          permissions?: Json
+          invited_at?: string | null
+          accepted_at?: string | null
         }
         Relationships: [
           {
@@ -369,6 +378,63 @@ export type Database = {
             columns: ['module_id']
             isOneToOne: false
             referencedRelation: 'modules'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+      workspace_invites: {
+        Row: {
+          id: string
+          workspace_id: string
+          email: string
+          role: string
+          permissions: Json
+          token: string
+          invited_by: string
+          status: 'pending' | 'accepted' | 'cancelled' | 'expired'
+          expires_at: string
+          created_at: string
+          accepted_at: string | null
+        }
+        Insert: {
+          id?: string
+          workspace_id: string
+          email: string
+          role?: string
+          permissions?: Json
+          token?: string
+          invited_by: string
+          status?: 'pending' | 'accepted' | 'cancelled' | 'expired'
+          expires_at?: string
+          created_at?: string
+          accepted_at?: string | null
+        }
+        Update: {
+          id?: string
+          workspace_id?: string
+          email?: string
+          role?: string
+          permissions?: Json
+          token?: string
+          invited_by?: string
+          status?: 'pending' | 'accepted' | 'cancelled' | 'expired'
+          expires_at?: string
+          created_at?: string
+          accepted_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'workspace_invites_workspace_id_fkey'
+            columns: ['workspace_id']
+            isOneToOne: false
+            referencedRelation: 'workspaces'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'workspace_invites_invited_by_fkey'
+            columns: ['invited_by']
+            isOneToOne: false
+            referencedRelation: 'profiles'
             referencedColumns: ['id']
           }
         ]
@@ -1713,6 +1779,7 @@ export type TaskChecklistItem = Database['public']['Tables']['task_checklist_ite
 export type TaskComment = Database['public']['Tables']['task_comments']['Row']
 export type MediaPlan = Database['public']['Tables']['media_plans']['Row']
 export type MediaPlanMetric = Database['public']['Tables']['media_plan_metrics']['Row']
+export type WorkspaceInvite = Database['public']['Tables']['workspace_invites']['Row']
 
 // ============================================================
 // Tipos compostos para uso em componentes

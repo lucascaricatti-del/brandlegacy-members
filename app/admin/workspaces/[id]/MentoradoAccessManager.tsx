@@ -18,12 +18,21 @@ type Credentials = {
   password: string
 }
 
+type PendingInvite = {
+  id: string
+  email: string
+  role: string
+  createdAt: string
+}
+
 export default function MentoradoAccessManager({
   workspaceId,
   members,
+  pendingInvites = [],
 }: {
   workspaceId: string
   members: Member[]
+  pendingInvites?: PendingInvite[]
 }) {
   const [showForm, setShowForm] = useState(false)
   const [isPending, startTransition] = useTransition()
@@ -67,15 +76,14 @@ export default function MentoradoAccessManager({
   }
 
   const ROLE_LABELS: Record<string, string> = {
-    owner: 'Owner', admin: 'Admin', manager: 'Manager',
-    collaborator: 'Colaborador', viewer: 'Visualizador',
+    owner: 'Owner', manager: 'Manager',
+    collaborator: 'Colaborador', mentee: 'Mentorado',
   }
   const ROLE_COLORS: Record<string, string> = {
     owner: 'bg-brand-gold/15 text-brand-gold',
-    admin: 'bg-info/15 text-info',
-    manager: 'bg-success/15 text-success',
-    collaborator: 'bg-bg-surface text-text-secondary border border-border',
-    viewer: 'bg-bg-surface text-text-muted border border-border',
+    manager: 'bg-info/15 text-info',
+    collaborator: 'bg-success/15 text-success',
+    mentee: 'bg-bg-surface text-text-muted border border-border',
   }
 
   return (
@@ -191,6 +199,31 @@ export default function MentoradoAccessManager({
         </form>
       )}
 
+      {/* Convites pendentes */}
+      {pendingInvites.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-text-muted uppercase tracking-wider px-1">
+            Convites pendentes ({pendingInvites.length})
+          </p>
+          {pendingInvites.map((inv) => (
+            <div key={inv.id} className="flex items-center gap-3 p-3 rounded-lg border border-dashed border-border bg-bg-surface">
+              <div className="w-8 h-8 rounded-full bg-bg-card flex items-center justify-center shrink-0">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-text-muted">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-text-secondary truncate">{inv.email}</p>
+                <p className="text-xs text-text-muted">Enviado {new Date(inv.createdAt).toLocaleDateString('pt-BR')}</p>
+              </div>
+              <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${ROLE_COLORS[inv.role] ?? ROLE_COLORS.mentee}`}>
+                {ROLE_LABELS[inv.role] ?? inv.role}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Lista de membros */}
       {members.length > 0 && (
         <div className="space-y-2">
@@ -211,7 +244,7 @@ export default function MentoradoAccessManager({
                 <p className="text-sm font-medium text-text-primary truncate">{member.name || '—'}</p>
                 <p className="text-xs text-text-muted truncate">{member.email}</p>
               </div>
-              <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${ROLE_COLORS[member.role] ?? ROLE_COLORS.viewer}`}>
+              <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${ROLE_COLORS[member.role] ?? ROLE_COLORS.mentee}`}>
                 {ROLE_LABELS[member.role] ?? member.role}
               </span>
               <button

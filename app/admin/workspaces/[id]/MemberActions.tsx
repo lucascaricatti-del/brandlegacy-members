@@ -43,10 +43,9 @@ export default function MemberActions({ memberId, workspaceId, isActive, current
         className="text-xs bg-bg-surface border border-border text-text-muted rounded px-1.5 py-1 focus:outline-none focus:border-brand-gold"
       >
         <option value="owner">Owner</option>
-        <option value="admin">Admin</option>
         <option value="manager">Manager</option>
         <option value="collaborator">Colaborador</option>
-        <option value="viewer">Viewer</option>
+        <option value="mentee">Mentorado</option>
       </select>
       <button
         onClick={handleToggle}

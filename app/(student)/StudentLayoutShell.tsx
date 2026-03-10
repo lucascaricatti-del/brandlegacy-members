@@ -4,6 +4,7 @@ import { useState, useEffect, createContext, useContext } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createBrowserClient } from '@supabase/ssr'
+import { hasPermission, SIDEBAR_PERMISSION_MAP, type PermissionsMap } from '@/lib/permissions'
 
 type Profile = { name: string | null; role: string | null } | null
 
@@ -29,10 +30,14 @@ const T = {
 export default function StudentLayoutShell({
   profile,
   workspaceName,
+  memberRole,
+  permissions,
   children,
 }: {
   profile: Profile
   workspaceName?: string | null
+  memberRole?: string | null
+  permissions?: PermissionsMap | null
   children: React.ReactNode
 }) {
   const [open, setOpen] = useState(false)
@@ -42,6 +47,13 @@ export default function StudentLayoutShell({
   const nav = () => setOpen(false)
   const [navigating, setNavigating] = useState(false)
   useEffect(() => { setNavigating(false) }, [pathname])
+
+  function canSee(href: string): boolean {
+    if (!permissions) return true // no permissions = show all (backward compat)
+    const permKey = SIDEBAR_PERMISSION_MAP[href]
+    if (!permKey) return true // no mapping = always show
+    return hasPermission(permissions, permKey)
+  }
 
   function isActive(href: string) {
     if (href.includes('?')) {
@@ -129,52 +141,60 @@ export default function StudentLayoutShell({
         >
           {/* Top items */}
           <div className="px-2 space-y-0.5">
-            <SidebarItem href="/academy" icon={<IcoGraduationCap />} label="Academy" active={isActive('/academy')} onClick={nav} />
-            <SidebarItem href="/dashboard" icon={<IcoDashboard />} label="Dashboard" active={isActive('/dashboard')} onClick={nav} />
+            {canSee('/academy') && <SidebarItem href="/academy" icon={<IcoGraduationCap />} label="Academy" active={isActive('/academy')} onClick={nav} />}
+            {canSee('/dashboard') && <SidebarItem href="/dashboard" icon={<IcoDashboard />} label="Dashboard" active={isActive('/dashboard')} onClick={nav} />}
           </div>
+
+          {(canSee('/entregas') || canSee('/workspace/tasks')) && (
+            <>
+              <Divider />
+              <SectionLabel>Operations</SectionLabel>
+              <div className="px-2 space-y-0.5">
+                {canSee('/entregas') && <SidebarItem href="/entregas" icon={<IcoGitBranch />} label="Workflow" active={isActive('/entregas')} onClick={nav} />}
+                {canSee('/workspace/tasks') && <SidebarItem href="/workspace/tasks" icon={<IcoCheckSquare />} label="Tasks" active={isActive('/workspace/tasks')} onClick={nav} />}
+              </div>
+            </>
+          )}
+
+          {(canSee('/performance') || canSee('/metricas?tab=meta') || canSee('/metricas?tab=google') || canSee('/metricas?tab=yampi') || canSee('/metricas?tab=influenciadores')) && (
+            <>
+              <Divider />
+              <SectionLabel>Mídia Analytics</SectionLabel>
+              <div className="px-2 space-y-0.5">
+                {canSee('/performance') && <SidebarItem href="/performance" icon={<IcoTrendingUp />} label="Performance" active={isActive('/performance')} onClick={nav} />}
+                {canSee('/metricas?tab=meta') && <SidebarSub href="/metricas?tab=meta" icon={<IconSubMeta />} label="Meta Ads" active={isActive('/metricas?tab=meta')} onClick={nav} />}
+                {canSee('/metricas?tab=google') && <SidebarSub href="/metricas?tab=google" icon={<IconSubGoogle />} label="Google Ads" active={isActive('/metricas?tab=google')} onClick={nav} />}
+                {canSee('/metricas?tab=yampi') && <SidebarSub href="/metricas?tab=yampi" icon={<IcoShoppingCart />} label="Yampi" active={isActive('/metricas?tab=yampi')} onClick={nav} />}
+                {canSee('/metricas?tab=influenciadores') && <SidebarSub href="/metricas?tab=influenciadores" icon={<IcoStar />} label="Influencers" active={isActive('/metricas?tab=influenciadores')} onClick={nav} />}
+              </div>
+            </>
+          )}
+
+          {(canSee('/ferramentas/calculadora-cenarios') || canSee('/ferramentas/planejamento-midia') || canSee('/ferramentas/planejamento-midia?tab=sales_forecast') || canSee('/ferramentas/forecast')) && (
+            <>
+              <Divider />
+              <SectionLabel>Business Plan</SectionLabel>
+              <div className="px-2 space-y-0.5">
+                {canSee('/ferramentas/calculadora-cenarios') && <SidebarItem href="/ferramentas/calculadora-cenarios" icon={<IcoCalculator />} label="ROAS/CAC Planner" active={isActive('/ferramentas/calculadora-cenarios')} onClick={nav} />}
+                {canSee('/ferramentas/planejamento-midia') && <SidebarItem href="/ferramentas/planejamento-midia" icon={<IcoBarChart />} label="Midia Plan" active={isActive('/ferramentas/planejamento-midia')} onClick={nav} />}
+                {canSee('/ferramentas/planejamento-midia?tab=sales_forecast') && <SidebarItem href="/ferramentas/planejamento-midia?tab=sales_forecast" icon={<IcoDollarSign />} label="Sales Forecast" active={isActive('/ferramentas/planejamento-midia?tab=sales_forecast')} onClick={nav} />}
+                {canSee('/ferramentas/forecast') && <SidebarItem href="/ferramentas/forecast" icon={<IcoFileText />} label="Forecast" active={isActive('/ferramentas/forecast')} onClick={nav} />}
+              </div>
+            </>
+          )}
+
+          {canSee('/marketplaces') && (
+            <>
+              <Divider />
+              <div className="px-2 space-y-0.5">
+                <SidebarItem href="/marketplaces" icon={<IcoStore />} label="Marketplaces" active={isActive('/marketplaces')} onClick={nav} />
+              </div>
+            </>
+          )}
 
           <Divider />
 
-          {/* OPERATIONS */}
-          <SectionLabel>Operations</SectionLabel>
-          <div className="px-2 space-y-0.5">
-            <SidebarItem href="/entregas" icon={<IcoGitBranch />} label="Workflow" active={isActive('/entregas')} onClick={nav} />
-            <SidebarItem href="/workspace/tasks" icon={<IcoCheckSquare />} label="Tasks" active={isActive('/workspace/tasks')} onClick={nav} />
-          </div>
-
-          <Divider />
-
-          {/* MÍDIA ANALYTICS */}
-          <SectionLabel>Mídia Analytics</SectionLabel>
-          <div className="px-2 space-y-0.5">
-            <SidebarItem href="/performance" icon={<IcoTrendingUp />} label="Performance" active={isActive('/performance')} onClick={nav} />
-            <SidebarSub href="/metricas?tab=meta" icon={<IconSubMeta />} label="Meta Ads" active={isActive('/metricas?tab=meta')} onClick={nav} />
-            <SidebarSub href="/metricas?tab=google" icon={<IconSubGoogle />} label="Google Ads" active={isActive('/metricas?tab=google')} onClick={nav} />
-            <SidebarSub href="/metricas?tab=yampi" icon={<IcoShoppingCart />} label="Yampi" active={isActive('/metricas?tab=yampi')} onClick={nav} />
-            <SidebarSub href="/metricas?tab=influenciadores" icon={<IcoStar />} label="Influencers" active={isActive('/metricas?tab=influenciadores')} onClick={nav} />
-          </div>
-
-          <Divider />
-
-          {/* BUSINESS PLAN */}
-          <SectionLabel>Business Plan</SectionLabel>
-          <div className="px-2 space-y-0.5">
-            <SidebarItem href="/ferramentas/calculadora-cenarios" icon={<IcoCalculator />} label="ROAS/CAC Planner" active={isActive('/ferramentas/calculadora-cenarios')} onClick={nav} />
-            <SidebarItem href="/ferramentas/planejamento-midia" icon={<IcoBarChart />} label="Midia Plan" active={isActive('/ferramentas/planejamento-midia')} onClick={nav} />
-            <SidebarItem href="/ferramentas/planejamento-midia?tab=sales_forecast" icon={<IcoDollarSign />} label="Sales Forecast" active={isActive('/ferramentas/planejamento-midia?tab=sales_forecast')} onClick={nav} />
-            <SidebarItem href="/ferramentas/forecast" icon={<IcoFileText />} label="Forecast" active={isActive('/ferramentas/forecast')} onClick={nav} />
-          </div>
-
-          <Divider />
-
-          {/* Marketplaces */}
-          <div className="px-2 space-y-0.5">
-            <SidebarItem href="/marketplaces" icon={<IcoStore />} label="Marketplaces" active={isActive('/marketplaces')} onClick={nav} />
-          </div>
-
-          <Divider />
-
-          {/* EM BREVE */}
+          {/* EM BREVE — always visible */}
           <SectionLabel>Em breve</SectionLabel>
           <div className="px-2 space-y-0.5">
             <SoonItem label="Gerador de LP" />
@@ -185,8 +205,8 @@ export default function StudentLayoutShell({
 
           {/* Bottom */}
           <div className="px-2 space-y-0.5">
-            <SidebarItem href="/team" icon={<IcoTeam />} label="Equipe" active={isActive('/team')} onClick={nav} />
-            <SidebarItem href="/integracoes" icon={<IcoLink />} label="Integrações" active={isActive('/integracoes')} onClick={nav} />
+            {canSee('/team') && <SidebarItem href="/team" icon={<IcoTeam />} label="Equipe" active={isActive('/team')} onClick={nav} />}
+            {canSee('/integracoes') && <SidebarItem href="/integracoes" icon={<IcoLink />} label="Integrações" active={isActive('/integracoes')} onClick={nav} />}
           </div>
 
           {profile?.role === 'admin' && (

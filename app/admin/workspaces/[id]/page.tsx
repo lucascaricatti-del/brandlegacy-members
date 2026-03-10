@@ -61,11 +61,19 @@ export default async function AdminWorkspacePage({ params }: Props) {
   )
 
   // Busca financial info via adminClient
-  const { data: financialInfo } = await adminSupabase
-    .from('financial_info')
-    .select('*')
-    .eq('workspace_id', id)
-    .single()
+  const [{ data: financialInfo }, { data: pendingInvites }] = await Promise.all([
+    adminSupabase
+      .from('financial_info')
+      .select('*')
+      .eq('workspace_id', id)
+      .single(),
+    adminSupabase
+      .from('workspace_invites')
+      .select('id, email, role, status, created_at')
+      .eq('workspace_id', id)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false }),
+  ])
 
   return (
     <div className="animate-fade-in">
@@ -220,6 +228,12 @@ export default async function AdminWorkspacePage({ params }: Props) {
                 email: profileMap[m.user_id]?.email ?? '',
                 role: m.role,
                 isActive: m.is_active,
+              }))}
+              pendingInvites={(pendingInvites ?? []).map((inv) => ({
+                id: inv.id,
+                email: inv.email,
+                role: inv.role,
+                createdAt: inv.created_at,
               }))}
             />
           </div>

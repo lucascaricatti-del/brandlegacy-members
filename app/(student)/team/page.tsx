@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import TeamManager from './TeamManager'
+import { createAdminClient } from '@/lib/supabase/admin'
+import TeamClient from './TeamClient'
 
 export const metadata = { title: 'Meu Time — BrandLegacy' }
 
@@ -9,13 +10,15 @@ export default async function TeamPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // Busca workspaces onde o usuário é owner ou admin
-  const { data: memberships } = await supabase
+  const adminSupabase = createAdminClient()
+
+  // Busca workspaces onde o usuário é owner ou manager
+  const { data: memberships } = await adminSupabase
     .from('workspace_members')
     .select('workspace_id, role, workspaces(id, name, plan_type)')
     .eq('user_id', user.id)
     .eq('is_active', true)
-    .in('role', ['owner', 'admin'])
+    .in('role', ['owner', 'manager'])
 
   type Membership = {
     workspace_id: string
@@ -27,10 +30,9 @@ export default async function TeamPage() {
     .map((m) => m.workspaces)
     .filter(Boolean) as { id: string; name: string; plan_type: string }[]
 
-  // Se não for owner/admin de nenhum workspace, mostra mensagem
+  // Se não for owner/manager de nenhum workspace, mostra mensagem
   if (adminWorkspaces.length === 0) {
-    // Verifica se ao menos é membro (para mostrar info diferente)
-    const { data: anyMembership } = await supabase
+    const { data: anyMembership } = await adminSupabase
       .from('workspace_members')
       .select('workspace_id, workspaces(name)')
       .eq('user_id', user.id)
@@ -57,7 +59,7 @@ export default async function TeamPage() {
             <>
               <p className="text-text-primary font-medium mb-1">Você é membro de {ws.name}</p>
               <p className="text-text-muted text-sm">
-                Apenas o <strong className="text-text-secondary">owner</strong> ou <strong className="text-text-secondary">admin</strong> pode gerenciar o time.
+                Apenas o <strong className="text-text-secondary">owner</strong> ou <strong className="text-text-secondary">manager</strong> pode gerenciar o time.
               </p>
             </>
           ) : (
@@ -73,17 +75,17 @@ export default async function TeamPage() {
 
   const ws = adminWorkspaces[0]
 
-  // Busca todos os membros do workspace com seus perfis
-  const { data: rawMembers } = await supabase
+  // Fetch members with profiles
+  const { data: rawMembers } = await adminSupabase
     .from('workspace_members')
-    .select('id, user_id, role, is_active')
+    .select('id, user_id, role, is_active, permissions')
     .eq('workspace_id', ws.id)
     .eq('is_active', true)
 
   const memberUserIds = (rawMembers ?? []).map((m) => m.user_id)
 
   const { data: profiles } = memberUserIds.length > 0
-    ? await supabase
+    ? await adminSupabase
         .from('profiles')
         .select('id, name, email')
         .in('id', memberUserIds)
@@ -99,8 +101,17 @@ export default async function TeamPage() {
     name: profileMap[m.user_id]?.name ?? '',
     email: profileMap[m.user_id]?.email ?? '',
     role: m.role,
-    isOwnerOrAdmin: ['owner', 'admin'].includes(m.role),
+    permissions: m.permissions as Record<string, unknown> | null,
+    isOwnerOrManager: ['owner', 'manager'].includes(m.role),
   }))
+
+  // Fetch pending invites
+  const { data: pendingInvites } = await adminSupabase
+    .from('workspace_invites')
+    .select('id, email, role, status, created_at, expires_at')
+    .eq('workspace_id', ws.id)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
 
   const PLAN_LABELS: Record<string, string> = { free: 'Free', tracao: 'Tração', club: 'Club' }
   const PLAN_COLORS: Record<string, string> = {
@@ -122,9 +133,10 @@ export default async function TeamPage() {
       </div>
 
       <div className="max-w-2xl">
-        <TeamManager
+        <TeamClient
           workspaceId={ws.id}
           members={members}
+          pendingInvites={pendingInvites ?? []}
           currentUserId={user.id}
         />
       </div>

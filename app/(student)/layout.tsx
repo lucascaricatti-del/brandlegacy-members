@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { resolvePermissions } from '@/lib/permissions'
 import StudentLayoutShell from './StudentLayoutShell'
 
 export default async function StudentLayout({
@@ -23,7 +24,7 @@ export default async function StudentLayout({
       .single(),
     adminSupabase
       .from('workspace_members')
-      .select('workspace_id, workspaces(name)')
+      .select('workspace_id, role, permissions, workspaces(name)')
       .eq('user_id', user.id)
       .eq('is_active', true)
       .limit(1)
@@ -31,9 +32,18 @@ export default async function StudentLayout({
   ])
 
   const workspaceName = (membership as any)?.workspaces?.name || null
+  const memberRole = membership?.role || null
+  const resolvedPermissions = memberRole
+    ? resolvePermissions(memberRole, membership?.permissions as Record<string, unknown> | null)
+    : null
 
   return (
-    <StudentLayoutShell profile={profile} workspaceName={workspaceName}>
+    <StudentLayoutShell
+      profile={profile}
+      workspaceName={workspaceName}
+      memberRole={memberRole}
+      permissions={resolvedPermissions}
+    >
       {children}
     </StudentLayoutShell>
   )

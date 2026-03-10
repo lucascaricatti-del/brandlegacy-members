@@ -44,10 +44,9 @@ export default function AddMemberForm({ workspaceId }: { workspaceId: string }) 
           className="w-full px-3 py-2 rounded-lg bg-bg-surface border border-border text-text-primary focus:outline-none focus:border-brand-gold transition-colors text-sm"
         >
           <option value="owner">Owner</option>
-          <option value="admin">Admin</option>
           <option value="manager">Manager</option>
           <option value="collaborator">Colaborador</option>
-          <option value="viewer">Visualizador</option>
+          <option value="mentee">Mentorado</option>
         </select>
       </div>
       {error && <p className="text-error text-xs">{error}</p>}
