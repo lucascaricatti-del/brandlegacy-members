@@ -14,10 +14,12 @@ const adminSupabase = createClient(
 /**
  * Import data from Midia Plan into Sales Forecast (ecommerce channel).
  *
- * DB only stores KEY metrics (editable inputs). RESULT metrics like
- * REV_BILLED, ORD_BILLED, SPEND_TOTAL are computed via calcAllMonths().
- *
- * Maps: REV_BILLED → faturamento_bruto, ORD_BILLED → pedidos, SPEND_TOTAL → investimento_midia
+ * Replicates the EXACT frontend calculation including minInvest propagation:
+ * 1. Fetch all key metrics + media plan metadata
+ * 2. resolveValue() for delta_pct chains
+ * 3. Apply minInvest propagation (Math.max for SPEND_META/GOOGLE/INFLUENCER)
+ * 4. calcAllMonths() to compute result metrics
+ * 5. Map: REV_BILLED → faturamento_bruto, ORD_BILLED → pedidos, SPEND_TOTAL → investimento_midia
  */
 export async function POST(req: NextRequest) {
   const body = await req.json()
@@ -28,10 +30,10 @@ export async function POST(req: NextRequest) {
 
   if (!year) return NextResponse.json({ error: 'year required' }, { status: 400 })
 
-  // Find the media plan for this workspace/year
+  // Find the media plan for this workspace/year (including metadata for minInvest)
   const { data: mediaPlan } = await adminSupabase
     .from('media_plans')
-    .select('id')
+    .select('id, metadata')
     .eq('workspace_id', workspace_id)
     .eq('year', year)
     .eq('plan_type', 'media')
@@ -41,7 +43,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Midia Plan não encontrado para este ano' }, { status: 404 })
   }
 
-  // Get ALL key metrics from the media plan (not just result metrics)
+  // Get ALL key metrics from the media plan
   const { data: metrics } = await adminSupabase
     .from('media_plan_metrics')
     .select('metric_key, month, value_numeric, delta_pct, input_mode')
@@ -62,12 +64,27 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Resolve key values (handles delta_pct mode)
+  // Resolve key values with minInvest propagation (mirrors PlannerClient keyValues useMemo)
+  const minInvestData = (mediaPlan as any).metadata?.minimo_investimento as
+    Record<string, { enabled: boolean; pct: number; meta_pct: number; google_pct: number; influencer_pct: number }> | undefined
+
   const keyValues: KeyValues = {}
   for (const key of KEY_METRICS) {
     keyValues[key] = {}
     for (const month of MONTHS) {
-      keyValues[key][month] = resolveValue(key, month, rawCells)
+      let val = resolveValue(key, month, rawCells)
+
+      // MinInvest propagation — exact same logic as PlannerClient
+      const cfg = minInvestData?.[String(month)]
+      if (cfg?.enabled) {
+        const receita = resolveValue('RECEITA_META', month, rawCells)
+        const totalMin = receita * cfg.pct / 100
+        if (key === 'SPEND_META') val = Math.max(val, Math.round(totalMin * cfg.meta_pct / 100))
+        if (key === 'SPEND_GOOGLE') val = Math.max(val, Math.round(totalMin * cfg.google_pct / 100))
+        if (key === 'SPEND_INFLUENCER') val = Math.max(val, Math.round(totalMin * cfg.influencer_pct / 100))
+      }
+
+      keyValues[key][month] = val
     }
   }
 
