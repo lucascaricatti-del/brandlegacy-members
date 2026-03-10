@@ -132,7 +132,7 @@ export default async function TeamPage() {
         <p className="text-text-secondary">{ws.name} — {members.length} membro{members.length !== 1 ? 's' : ''}</p>
       </div>
 
-      <div className="max-w-2xl">
+      <div>
         <TeamClient
           workspaceId={ws.id}
           members={members}
