@@ -8,6 +8,9 @@ import {
   type KeyValues, type MetricKey, type ResultMetric, type MetricDef,
 } from '@/lib/utils/media-plan-calc'
 import { upsertMetrics, upsertMetricsAdmin, updateMediaPlanMetadata } from '@/app/actions/media-plan'
+import { useRealizadoData, type MonthRealizado } from '@/lib/hooks/useRealizadoData'
+import { RealizadoToggle } from '@/components/business-plan/RealizadoToggle'
+import { VarianceBadge } from '@/components/business-plan/VarianceBadge'
 
 // ============================================================
 // View mode types
@@ -17,6 +20,40 @@ type TopTab = 'midia_plan' | 'sales_forecast'
 type ViewMode = 'completo' | 'quarters' | 'mes'
 
 type ViewColumn = { key: string; label: string; months: number[]; color?: string }
+
+// Mídia Plan metric key → realizado field mapping
+const REALIZADO_MAP: Record<string, { field: keyof MonthRealizado; invertColor?: boolean; type: 'currency' | 'pct' | 'number' | 'roas' }> = {
+  RECEITA_META: { field: 'receita_faturada', type: 'currency' },
+  REV_CAPTURED: { field: 'receita_captada', type: 'currency' },
+  REV_BILLED: { field: 'receita_faturada', type: 'currency' },
+  ORD_CAPTURED: { field: 'pedidos_captados', type: 'number' },
+  ORD_BILLED: { field: 'pedidos_faturados', type: 'number' },
+  ORD_PAID: { field: 'pedidos_faturados', type: 'number' },
+  SPEND_META: { field: 'meta_spend', invertColor: true, type: 'currency' },
+  SPEND_GOOGLE: { field: 'google_spend', invertColor: true, type: 'currency' },
+  SPEND_INFLUENCER: { field: 'influencer_spend', invertColor: true, type: 'currency' },
+  SPEND_TOTAL: { field: 'investimento_total', invertColor: true, type: 'currency' },
+  S_ORG: { field: 'organic_sessions', type: 'number' },
+  S_PAID_IMPLIED: { field: 'paid_sessions', type: 'number' },
+  S_TOTAL: { field: 'ga4_sessions', type: 'number' },
+  AOV: { field: 'ticket_medio', type: 'currency' },
+  ROAS_CAPTURED: { field: 'roas', type: 'roas' },
+  ROAS_BILLED: { field: 'roas', type: 'roas' },
+}
+
+// Sales Forecast e-commerce key → realizado field mapping
+const SF_REALIZADO_MAP: Record<string, { field: keyof MonthRealizado; invertColor?: boolean; type: 'currency' | 'pct' | 'number' | 'roas' }> = {
+  faturamento_bruto: { field: 'receita_faturada', type: 'currency' },
+  pedidos: { field: 'pedidos_faturados', type: 'number' },
+  ticket_medio: { field: 'ticket_medio', type: 'currency' },
+  investimento_midia: { field: 'investimento_total', invertColor: true, type: 'currency' },
+  roas: { field: 'roas', type: 'roas' },
+}
+
+// Helper to get realizado value for a month key like "2026-01" → month 1
+function getRealizadoMonthKey(year: number, month: number): string {
+  return `${year}-${String(month).padStart(2, '0')}`
+}
 
 const QUARTERS: { label: string; months: number[]; color: string }[] = [
   { label: 'Q1', months: [1, 2, 3], color: '#3b82f6' },
@@ -126,6 +163,10 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
       influencer: Math.round(total * cfg.influencer_pct / 100),
     }
   }, [minInvestData, cells])
+
+  // Realizado (actuals from DB)
+  const [showRealizado, setShowRealizado] = useState(false)
+  const { realizado, loadingRealizado } = useRealizadoData(workspaceId, year)
 
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
   const [viewMode, setViewMode] = useState<ViewMode>('completo')
@@ -315,7 +356,7 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
       </div>
 
       {topTab === 'sales_forecast' && (
-        <SalesForecastTab workspaceId={workspaceId} year={year} isAdmin={isAdmin} />
+        <SalesForecastTab workspaceId={workspaceId} year={year} isAdmin={isAdmin} realizado={realizado} showRealizado={showRealizado} onToggleRealizado={() => setShowRealizado(v => !v)} />
       )}
 
       {topTab === 'midia_plan' && (<>
@@ -395,6 +436,8 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
             </a>
           </div>
 
+          <RealizadoToggle show={showRealizado} onToggle={() => setShowRealizado(v => !v)} />
+
           <button
             onClick={exportCSV}
             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-bg-card border border-border text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
@@ -446,6 +489,9 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
                     annualSummary={annualSummary}
                     onUpdateCell={updateCell}
                     onToggleMode={toggleMode}
+                    showRealizado={showRealizado}
+                    realizado={realizado}
+                    year={year}
                   >
                     {/* Min Investment toggle after INVESTIMENTOS section */}
                     {section.key === 'investimentos' && !isCollapsed && (
@@ -597,7 +643,7 @@ function parseForecast(f: any): Record<string, number | null> {
   return r
 }
 
-function SalesForecastTab({ workspaceId, year, isAdmin }: { workspaceId: string; year: number; isAdmin?: boolean }) {
+function SalesForecastTab({ workspaceId, year, isAdmin, realizado, showRealizado, onToggleRealizado }: { workspaceId: string; year: number; isAdmin?: boolean; realizado: Record<string, MonthRealizado>; showRealizado: boolean; onToggleRealizado: () => void }) {
   const [channel, setChannel] = useState('ecommerce')
   const [data, setData] = useState<ForecastData>({})
   const [loading, setLoading] = useState(true)
@@ -938,6 +984,8 @@ function SalesForecastTab({ workspaceId, year, isAdmin }: { workspaceId: string;
             </a>
           </div>
 
+          <RealizadoToggle show={showRealizado} onToggle={onToggleRealizado} />
+
           {isEcommerce && (
             <button onClick={handleImportMidia} disabled={importing}
               className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-500/10 border border-purple-500/20 text-sm text-purple-400 hover:bg-purple-500/20 transition-colors disabled:opacity-50">
@@ -1056,7 +1104,8 @@ function SalesForecastTab({ workspaceId, year, isAdmin }: { workspaceId: string;
                     <SFSectionGroup key={section.key} section={section} rows={rows} channel={channel}
                       getDisplayValue={getDisplayValue} getAnnual={getAnnual} fmtVal={fmtVal}
                       isConsolidado={isConsolidado} saveCell={saveCell} savingCell={savingCell}
-                      columns={sfColumns} isImported={isEcommerce && data['ecommerce']?.[1]?.imported_from_midia_plan === 1} />
+                      columns={sfColumns} isImported={isEcommerce && data['ecommerce']?.[1]?.imported_from_midia_plan === 1}
+                      showRealizado={showRealizado && (isEcommerce || isConsolidado)} realizado={realizado} year={year} />
                   )
                 })}
               </tbody>
@@ -1079,7 +1128,7 @@ function SalesForecastTab({ workspaceId, year, isAdmin }: { workspaceId: string;
 // Sales Forecast Section Group
 // ============================================================
 
-function SFSectionGroup({ section, rows, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado, saveCell, savingCell, columns, isImported }: {
+function SFSectionGroup({ section, rows, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado, saveCell, savingCell, columns, isImported, showRealizado, realizado, year }: {
   section: { key: string; label: string; color: string }
   rows: ForecastRow[]
   channel: string
@@ -1091,6 +1140,9 @@ function SFSectionGroup({ section, rows, channel, getDisplayValue, getAnnual, fm
   savingCell: string | null
   columns: SFColumn[]
   isImported?: boolean
+  showRealizado?: boolean
+  realizado?: Record<string, MonthRealizado>
+  year?: number
 }) {
   return (
     <>
@@ -1104,7 +1156,7 @@ function SFSectionGroup({ section, rows, channel, getDisplayValue, getAnnual, fm
       {rows.map(row => (
         <SFRow key={row.key} row={row} channel={channel} getDisplayValue={getDisplayValue}
           getAnnual={getAnnual} fmtVal={fmtVal} isConsolidado={isConsolidado} saveCell={saveCell} savingCell={savingCell}
-          columns={columns} isImported={isImported} />
+          columns={columns} isImported={isImported} showRealizado={showRealizado} realizado={realizado} year={year} />
       ))}
     </>
   )
@@ -1114,7 +1166,7 @@ function SFSectionGroup({ section, rows, channel, getDisplayValue, getAnnual, fm
 // Sales Forecast Row
 // ============================================================
 
-function SFRow({ row, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado, saveCell, savingCell, columns, isImported }: {
+function SFRow({ row, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado, saveCell, savingCell, columns, isImported, showRealizado, realizado, year }: {
   row: ForecastRow
   channel: string
   getDisplayValue: (ch: string, m: number, field: string) => number | null
@@ -1125,11 +1177,70 @@ function SFRow({ row, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado
   savingCell: string | null
   columns: SFColumn[]
   isImported?: boolean
+  showRealizado?: boolean
+  realizado?: Record<string, MonthRealizado>
+  year?: number
 }) {
   const canEdit = row.editable && (isConsolidado ? !!row.consolidadoOnly : true)
   const annual = getAnnual(channel, row.key, row.format)
   const isProfit = row.resultColor === 'profit'
   const showImportBadge = row.imported && isImported
+
+  const sfMapping = SF_REALIZADO_MAP[row.key]
+  const hasRealizado = showRealizado && sfMapping && realizado && year
+
+  // Compute SF realizado for a month — some fields need special derivation
+  function getSFRealVal(month: number): number {
+    if (!realizado || !year) return 0
+    const key = getRealizadoMonthKey(year, month)
+    const rm = realizado[key]
+    if (!rm) return 0
+
+    // Special cases for derived fields
+    if (row.key === 'imposto_rs') {
+      const prevPct = getDisplayValue(channel, month, 'imposto_pct') ?? 0
+      return Math.round(rm.receita_faturada * prevPct / 100 * 100) / 100
+    }
+    if (row.key === 'taxas_rs') {
+      const prevPct = getDisplayValue(channel, month, 'taxas_pct') ?? 0
+      return Math.round(rm.receita_faturada * prevPct / 100 * 100) / 100
+    }
+    if (row.key === 'cmv_rs') {
+      const prevPct = getDisplayValue(channel, month, 'cmv_pct') ?? 0
+      return Math.round(rm.receita_faturada * prevPct / 100 * 100) / 100
+    }
+    if (row.key === 'faturamento_liquido') {
+      const impPct = getDisplayValue(channel, month, 'imposto_pct') ?? 0
+      const taxPct = getDisplayValue(channel, month, 'taxas_pct') ?? 0
+      return Math.round(rm.receita_faturada * (1 - impPct/100 - taxPct/100) * 100) / 100
+    }
+    if (row.key === 'lucro_apos_aquisicao') {
+      const impPct = getDisplayValue(channel, month, 'imposto_pct') ?? 0
+      const taxPct = getDisplayValue(channel, month, 'taxas_pct') ?? 0
+      const cmvPct = getDisplayValue(channel, month, 'cmv_pct') ?? 0
+      return Math.round((rm.receita_faturada * (1 - impPct/100 - taxPct/100 - cmvPct/100) - rm.investimento_total) * 100) / 100
+    }
+
+    // Direct mapping
+    if (sfMapping) return rm[sfMapping.field] ?? 0
+    return 0
+  }
+
+  // Has realizado for derived rows too
+  const hasDerivedReal = showRealizado && realizado && year && ['imposto_rs', 'taxas_rs', 'cmv_rs', 'faturamento_liquido', 'lucro_apos_aquisicao'].includes(row.key)
+  const showReal = hasRealizado || hasDerivedReal
+
+  function getSFRealAgg(months: number[]): number {
+    if (row.format === 'percent' || row.format === 'roas') {
+      const vals = months.map(m => getSFRealVal(m)).filter(v => v !== 0)
+      return vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : 0
+    }
+    return months.reduce((s, m) => s + getSFRealVal(m), 0)
+  }
+
+  const annualReal = showReal ? getSFRealAgg(SF_MONTHS) : 0
+  const realType = sfMapping?.type ?? (row.format === 'percent' ? 'pct' : row.format === 'roas' ? 'roas' : row.format === 'number' ? 'number' : 'currency')
+  const realInvert = sfMapping?.invertColor ?? (row.key === 'imposto_rs' || row.key === 'taxas_rs' || row.key === 'cmv_rs')
 
   function getQuarterValue(months: number[]): number | null {
     const values = months.map(m => getDisplayValue(channel, m, row.key)).filter(v => v !== null) as number[]
@@ -1140,7 +1251,13 @@ function SFRow({ row, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado
     return Math.round(values.reduce((s, v) => s + v, 0) * 100) / 100
   }
 
+  // Lucro row bg tint
+  const lucroRealBg = row.key === 'lucro_apos_aquisicao' && showReal && annualReal !== 0
+    ? (annualReal > 0 ? 'rgba(34,197,94,0.07)' : 'rgba(239,68,68,0.07)')
+    : undefined
+
   return (
+    <>
     <tr className={`border-t transition-colors ${canEdit ? 'hover:bg-bg-hover/30' : ''} ${row.highlight ? 'border-border' : 'border-border/40'}`}
       style={row.highlight ? { background: 'linear-gradient(90deg, #0a1a0f, #0d2015)' } : undefined}>
       <td className="sticky left-0 z-10 px-4 py-0 border-r border-border"
@@ -1154,6 +1271,7 @@ function SFRow({ row, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado
           {showImportBadge && (
             <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 font-medium whitespace-nowrap">Midia Plan</span>
           )}
+          {showReal && <span className="italic text-text-muted" style={{ fontSize: 9 }}>Prev</span>}
         </div>
       </td>
       {columns.map(col => {
@@ -1209,6 +1327,56 @@ function SFRow({ row, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado
         </span>
       </td>
     </tr>
+
+    {/* SF Realizado sub-row */}
+    {showReal && (
+      <tr className="border-t border-border/20" style={{ background: lucroRealBg ?? 'rgba(201,151,26,0.02)' }}>
+        <td className="sticky left-0 z-10 px-4 py-0 border-r border-border" style={{ background: '#0b1a0f', borderLeft: row.highlight ? '3px solid rgba(201,168,76,0.3)' : undefined }}>
+          <span className="italic text-text-muted" style={{ fontSize: 10 }}>Real</span>
+        </td>
+        {columns.map(col => {
+          const realVal = col.months.length === 1 ? getSFRealVal(col.months[0]) : getSFRealAgg(col.months)
+          const isLucro = row.key === 'lucro_apos_aquisicao'
+          const color = isLucro
+            ? (realVal === 0 ? '#4a5a4f' : realVal > 0 ? '#4ade80' : '#ef4444')
+            : (realVal === 0 ? '#4a5a4f' : 'rgba(255,255,255,0.55)')
+          return (
+            <td key={col.key} className="px-1 py-0 text-center">
+              <span className="tabular-nums px-2 py-1 block" style={{ fontSize: 11, color }}>
+                {realVal === 0 ? '\u2014' : fmtVal(Math.round(realVal * 100) / 100, row.format)}
+              </span>
+            </td>
+          )
+        })}
+        <td className="px-3 py-1 text-center border-l border-border">
+          <span className="tabular-nums" style={{ fontSize: 11, color: annualReal === 0 ? '#4a5a4f' : row.key === 'lucro_apos_aquisicao' ? (annualReal > 0 ? '#4ade80' : '#ef4444') : 'rgba(255,255,255,0.55)' }}>
+            {annualReal === 0 ? '\u2014' : fmtVal(Math.round(annualReal * 100) / 100, row.format)}
+          </span>
+        </td>
+      </tr>
+    )}
+
+    {/* SF Variance sub-row */}
+    {showReal && (
+      <tr className="border-t border-border/10" style={{ background: 'rgba(201,151,26,0.02)' }}>
+        <td className="sticky left-0 z-10 px-4 py-0 border-r border-border" style={{ background: '#0b1a0f' }}>
+          <span className="text-text-muted" style={{ fontSize: 9 }}>&Delta;</span>
+        </td>
+        {columns.map(col => {
+          const prevVal = col.months.length === 1 ? (getDisplayValue(channel, col.months[0], row.key) ?? 0) : (getQuarterValue(col.months) ?? 0)
+          const realVal = col.months.length === 1 ? getSFRealVal(col.months[0]) : getSFRealAgg(col.months)
+          return (
+            <td key={col.key} className="px-1 py-0 text-center">
+              <VarianceBadge previsto={prevVal} realizado={realVal} type={realType} invertColor={realInvert} />
+            </td>
+          )
+        })}
+        <td className="px-3 py-0 text-center border-l border-border">
+          <VarianceBadge previsto={annual ?? 0} realizado={annualReal} type={realType} invertColor={realInvert} />
+        </td>
+      </tr>
+    )}
+    </>
   )
 }
 
@@ -1535,6 +1703,9 @@ function SectionGroup({
   onUpdateCell,
   onToggleMode,
   children,
+  showRealizado,
+  realizado,
+  year,
 }: {
   section: typeof SECTIONS[number]
   metrics: MetricDef[]
@@ -1548,6 +1719,9 @@ function SectionGroup({
   onUpdateCell: (key: string, month: number, value: number | null, mode?: 'value' | 'delta_pct') => void
   onToggleMode: (key: string, month: number) => void
   children?: React.ReactNode
+  showRealizado?: boolean
+  realizado?: Record<string, MonthRealizado>
+  year?: number
 }) {
   return (
     <>
@@ -1590,6 +1764,9 @@ function SectionGroup({
           annual={annualSummary[def.key] ?? 0}
           onUpdateCell={onUpdateCell}
           onToggleMode={onToggleMode}
+          showRealizado={showRealizado}
+          realizado={realizado}
+          year={year}
         />
       ))}
       {children}
@@ -1610,6 +1787,9 @@ function MetricRow({
   annual,
   onUpdateCell,
   onToggleMode,
+  showRealizado,
+  realizado,
+  year,
 }: {
   def: MetricDef
   getCellValue: (key: string, month: number) => number
@@ -1619,8 +1799,13 @@ function MetricRow({
   annual: number
   onUpdateCell: (key: string, month: number, value: number | null, mode?: 'value' | 'delta_pct') => void
   onToggleMode: (key: string, month: number) => void
+  showRealizado?: boolean
+  realizado?: Record<string, MonthRealizado>
+  year?: number
 }) {
   const isResult = !def.isKey
+  const mapping = REALIZADO_MAP[def.key]
+  const hasRealizado = showRealizado && mapping && realizado && year
 
   // Row background: result rows get gradient
   const rowBg = isResult
@@ -1634,7 +1819,28 @@ function MetricRow({
       ? '3px solid rgba(201,168,76,0.3)'
       : undefined
 
+  // Helper to get realizado value for a single month
+  const getRealVal = (month: number): number => {
+    if (!mapping || !realizado || !year) return 0
+    const key = getRealizadoMonthKey(year, month)
+    return realizado[key]?.[mapping.field] ?? 0
+  }
+
+  // Helper to get realizado for multi-month (quarter)
+  const getRealAgg = (months: number[]): number => {
+    if (!mapping || !realizado || !year) return 0
+    if (def.format === 'percent' || def.format === 'decimal') {
+      const vals = months.map(m => getRealVal(m)).filter(v => v !== 0)
+      return vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : 0
+    }
+    return months.reduce((s, m) => s + getRealVal(m), 0)
+  }
+
+  // Annual realizado
+  const annualReal = hasRealizado ? getRealAgg([...MONTHS]) : 0
+
   return (
+    <>
     <tr
       className={`border-t transition-colors ${
         def.isSubtotal ? 'border-border' : 'border-border/40'
@@ -1662,6 +1868,7 @@ function MetricRow({
           >
             {def.label}
           </span>
+          {hasRealizado && <span className="text-text-muted italic" style={{ fontSize: 9 }}>Prev</span>}
         </div>
       </td>
 
@@ -1730,6 +1937,52 @@ function MetricRow({
         </span>
       </td>
     </tr>
+
+    {/* Realizado sub-row */}
+    {hasRealizado && (
+      <tr className="border-t border-border/20" style={{ background: 'rgba(201,151,26,0.02)' }}>
+        <td className="sticky left-0 z-10 px-4 py-0 border-r border-border" style={{ background: '#0b1a0f', borderLeft: leftBorder }}>
+          <span className="italic text-text-muted" style={{ fontSize: 10, paddingLeft: def.isKey ? 14 : 0 }}>Real</span>
+        </td>
+        {columns.map(col => {
+          const realVal = col.months.length === 1 ? getRealVal(col.months[0]) : getRealAgg(col.months)
+          return (
+            <td key={col.key} className="px-1 py-0 text-center">
+              <span className="tabular-nums px-2 py-1 block" style={{ fontSize: 11, color: realVal === 0 ? '#4a5a4f' : 'rgba(255,255,255,0.55)' }}>
+                {realVal === 0 ? '\u2014' : formatMetricValue(realVal, def.format, def.decimals)}
+              </span>
+            </td>
+          )
+        })}
+        <td className="px-3 py-1 text-center border-l border-border">
+          <span className="tabular-nums" style={{ fontSize: 11, color: annualReal === 0 ? '#4a5a4f' : 'rgba(255,255,255,0.55)' }}>
+            {annualReal === 0 ? '\u2014' : formatMetricValue(annualReal, def.format, def.decimals)}
+          </span>
+        </td>
+      </tr>
+    )}
+
+    {/* Variance sub-row */}
+    {hasRealizado && (
+      <tr className="border-t border-border/10" style={{ background: 'rgba(201,151,26,0.02)' }}>
+        <td className="sticky left-0 z-10 px-4 py-0 border-r border-border" style={{ background: '#0b1a0f', borderLeft: leftBorder }}>
+          <span className="text-text-muted" style={{ fontSize: 9, paddingLeft: def.isKey ? 14 : 0 }}>&Delta;</span>
+        </td>
+        {columns.map(col => {
+          const prevVal = col.months.length === 1 ? getCellValue(def.key, col.months[0]) : getColumnValue(def.key, col.months, def.format)
+          const realVal = col.months.length === 1 ? getRealVal(col.months[0]) : getRealAgg(col.months)
+          return (
+            <td key={col.key} className="px-1 py-0 text-center">
+              <VarianceBadge previsto={prevVal} realizado={realVal} type={mapping.type} invertColor={mapping.invertColor} />
+            </td>
+          )
+        })}
+        <td className="px-3 py-0 text-center border-l border-border">
+          <VarianceBadge previsto={annual} realizado={annualReal} type={mapping.type} invertColor={mapping.invertColor} />
+        </td>
+      </tr>
+    )}
+    </>
   )
 }
 

@@ -7,6 +7,9 @@ import {
   type FinKeyValues as KeyValues, type FinMetricKey as MetricKey, type FinResultMetric as ResultMetric, type FinMetricDef as MetricDef,
 } from '@/lib/utils/financial-plan-calc'
 import { upsertMetrics, upsertMetricsAdmin } from '@/app/actions/media-plan'
+import { useRealizadoData, type MonthRealizado } from '@/lib/hooks/useRealizadoData'
+import { RealizadoToggle } from '@/components/business-plan/RealizadoToggle'
+import { VarianceBadge } from '@/components/business-plan/VarianceBadge'
 
 // ============================================================
 // View mode types
@@ -15,6 +18,18 @@ import { upsertMetrics, upsertMetricsAdmin } from '@/app/actions/media-plan'
 type ViewMode = 'completo' | 'quarters' | 'mes'
 
 type ViewColumn = { key: string; label: string; months: number[]; color?: string }
+
+// Forecast (DRE) metric key → realizado field mapping
+const FIN_REALIZADO_MAP: Record<string, { field: keyof MonthRealizado; invertColor?: boolean; type: 'currency' | 'pct' | 'number' | 'roas' }> = {
+  FATURAMENTO: { field: 'receita_faturada', type: 'currency' },
+  MIDIA_VAL: { field: 'investimento_total', invertColor: true, type: 'currency' },
+}
+
+function getRealizadoMonthKey(year: number, month: number): string {
+  return `${year}-${String(month).padStart(2, '0')}`
+}
+
+const FIN_MONTHS = [1,2,3,4,5,6,7,8,9,10,11,12]
 
 const QUARTERS: { label: string; months: number[]; color: string }[] = [
   { label: 'Q1', months: [1, 2, 3], color: '#3b82f6' },
@@ -52,6 +67,9 @@ interface Props {
 // ============================================================
 
 export default function FinancialPlannerClient({ planId, workspaceId, year, initialMetrics, isAdmin }: Props) {
+  const [showRealizado, setShowRealizado] = useState(false)
+  const { realizado } = useRealizadoData(workspaceId, year)
+
   const [cells, setCells] = useState<Record<string, Record<number, CellData>>>(() => {
     const map: Record<string, Record<number, CellData>> = {}
     for (const m of initialMetrics) {
@@ -320,6 +338,8 @@ export default function FinancialPlannerClient({ planId, workspaceId, year, init
             </a>
           </div>
 
+          <RealizadoToggle show={showRealizado} onToggle={() => setShowRealizado(v => !v)} />
+
           <button
             onClick={exportCSV}
             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-bg-card border border-border text-sm text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
@@ -332,6 +352,30 @@ export default function FinancialPlannerClient({ planId, workspaceId, year, init
 
         </div>
       </div>
+
+      {/* Aderência banner */}
+      {showRealizado && (() => {
+        const previstoTotal = MONTHS.reduce((s, m) => s + getCellValue('FATURAMENTO', m), 0)
+        const realizadoTotal = FIN_MONTHS.reduce((s, m) => {
+          const key = getRealizadoMonthKey(year, m)
+          return s + (realizado[key]?.receita_faturada ?? 0)
+        }, 0)
+        const aderencia = previstoTotal > 0 ? Math.round(realizadoTotal / previstoTotal * 100) : 0
+        const color = aderencia >= 90 ? '#4ade80' : aderencia >= 70 ? '#eab308' : '#ef4444'
+        const bg = aderencia >= 90 ? 'rgba(34,197,94,0.08)' : aderencia >= 70 ? 'rgba(234,179,8,0.08)' : 'rgba(239,68,68,0.08)'
+        const border = aderencia >= 90 ? 'rgba(34,197,94,0.2)' : aderencia >= 70 ? 'rgba(234,179,8,0.2)' : 'rgba(239,68,68,0.2)'
+        return realizadoTotal > 0 ? (
+          <div className="mb-4 px-4 py-3 rounded-lg flex items-center gap-3 text-sm" style={{ background: bg, border: `1px solid ${border}` }}>
+            <span style={{ fontSize: 16 }}>{aderencia >= 90 ? '\u2705' : aderencia >= 70 ? '\u26A0\uFE0F' : '\u274C'}</span>
+            <span className="text-text-secondary">
+              Aderencia ao cenario base: <span className="font-bold" style={{ color }}>{aderencia}%</span>
+            </span>
+            <span className="text-text-muted text-xs">
+              (Realizado {realizadoTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })} / Previsto {previstoTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })})
+            </span>
+          </div>
+        ) : null
+      })()}
 
       {/* Spreadsheet */}
       <div className="bg-bg-card border border-border rounded-xl overflow-hidden">
@@ -373,6 +417,9 @@ export default function FinancialPlannerClient({ planId, workspaceId, year, init
                     onUpdateCell={updateCell}
                     onToggleMode={toggleMode}
                     lockedKeys={lockedKeys}
+                    showRealizado={showRealizado}
+                    realizado={realizado}
+                    year={year}
                   />
                 )
               })}
@@ -414,6 +461,9 @@ function SectionGroup({
   onUpdateCell,
   onToggleMode,
   lockedKeys,
+  showRealizado,
+  realizado,
+  year,
 }: {
   section: typeof SECTIONS[number]
   metrics: MetricDef[]
@@ -427,6 +477,9 @@ function SectionGroup({
   onUpdateCell: (key: string, month: number, value: number | null, mode?: 'value' | 'delta_pct') => void
   onToggleMode: (key: string, month: number) => void
   lockedKeys: Set<string>
+  showRealizado?: boolean
+  realizado?: Record<string, MonthRealizado>
+  year?: number
 }) {
   return (
     <>
@@ -470,6 +523,9 @@ function SectionGroup({
           onUpdateCell={onUpdateCell}
           onToggleMode={onToggleMode}
           isLocked={lockedKeys.has(def.key)}
+          showRealizado={showRealizado}
+          realizado={realizado}
+          year={year}
         />
       ))}
     </>
@@ -490,6 +546,9 @@ function MetricRow({
   onUpdateCell,
   onToggleMode,
   isLocked,
+  showRealizado,
+  realizado,
+  year,
 }: {
   def: MetricDef
   getCellValue: (key: string, month: number) => number
@@ -500,8 +559,13 @@ function MetricRow({
   onUpdateCell: (key: string, month: number, value: number | null, mode?: 'value' | 'delta_pct') => void
   onToggleMode: (key: string, month: number) => void
   isLocked?: boolean
+  showRealizado?: boolean
+  realizado?: Record<string, MonthRealizado>
+  year?: number
 }) {
   const isResult = !def.isKey
+  const mapping = FIN_REALIZADO_MAP[def.key]
+  const hasRealizado = showRealizado && mapping && realizado && year
 
   // Row background: result rows get gradient
   const rowBg = isResult
@@ -515,7 +579,25 @@ function MetricRow({
       ? '3px solid rgba(201,168,76,0.3)'
       : undefined
 
+  const getRealVal = (month: number): number => {
+    if (!mapping || !realizado || !year) return 0
+    const key = getRealizadoMonthKey(year, month)
+    return realizado[key]?.[mapping.field] ?? 0
+  }
+
+  const getRealAgg = (months: number[]): number => {
+    if (!mapping || !realizado || !year) return 0
+    if (def.format === 'percent' || def.format === 'decimal') {
+      const vals = months.map(m => getRealVal(m)).filter(v => v !== 0)
+      return vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : 0
+    }
+    return months.reduce((s, m) => s + getRealVal(m), 0)
+  }
+
+  const annualReal = hasRealizado ? getRealAgg(FIN_MONTHS) : 0
+
   return (
+    <>
     <tr
       className={`border-t transition-colors ${
         def.isSubtotal ? 'border-border' : 'border-border/40'
@@ -547,6 +629,7 @@ function MetricRow({
           >
             {def.label}
           </span>
+          {hasRealizado && <span className="italic text-text-muted" style={{ fontSize: 9 }}>Prev</span>}
         </div>
       </td>
 
@@ -617,6 +700,52 @@ function MetricRow({
         </span>
       </td>
     </tr>
+
+    {/* Realizado sub-row */}
+    {hasRealizado && (
+      <tr className="border-t border-border/20" style={{ background: 'rgba(201,151,26,0.02)' }}>
+        <td className="sticky left-0 z-10 px-4 py-0 border-r border-border" style={{ background: '#0b1a0f', borderLeft: leftBorder }}>
+          <span className="italic text-text-muted" style={{ fontSize: 10, paddingLeft: def.isKey ? 14 : 0 }}>Real</span>
+        </td>
+        {columns.map(col => {
+          const realVal = col.months.length === 1 ? getRealVal(col.months[0]) : getRealAgg(col.months)
+          return (
+            <td key={col.key} className="px-1 py-0 text-center">
+              <span className="tabular-nums px-2 py-1 block" style={{ fontSize: 11, color: realVal === 0 ? '#4a5a4f' : 'rgba(255,255,255,0.55)' }}>
+                {realVal === 0 ? '\u2014' : formatMetricValue(realVal, def.format, def.decimals)}
+              </span>
+            </td>
+          )
+        })}
+        <td className="px-3 py-1 text-center border-l border-border">
+          <span className="tabular-nums" style={{ fontSize: 11, color: annualReal === 0 ? '#4a5a4f' : 'rgba(255,255,255,0.55)' }}>
+            {annualReal === 0 ? '\u2014' : formatMetricValue(annualReal, def.format, def.decimals)}
+          </span>
+        </td>
+      </tr>
+    )}
+
+    {/* Variance sub-row */}
+    {hasRealizado && (
+      <tr className="border-t border-border/10" style={{ background: 'rgba(201,151,26,0.02)' }}>
+        <td className="sticky left-0 z-10 px-4 py-0 border-r border-border" style={{ background: '#0b1a0f', borderLeft: leftBorder }}>
+          <span className="text-text-muted" style={{ fontSize: 9, paddingLeft: def.isKey ? 14 : 0 }}>&Delta;</span>
+        </td>
+        {columns.map(col => {
+          const prevVal = col.months.length === 1 ? getCellValue(def.key, col.months[0]) : getColumnValue(def.key, col.months, def.format)
+          const realVal = col.months.length === 1 ? getRealVal(col.months[0]) : getRealAgg(col.months)
+          return (
+            <td key={col.key} className="px-1 py-0 text-center">
+              <VarianceBadge previsto={prevVal} realizado={realVal} type={mapping.type} invertColor={mapping.invertColor} />
+            </td>
+          )
+        })}
+        <td className="px-3 py-0 text-center border-l border-border">
+          <VarianceBadge previsto={annual} realizado={annualReal} type={mapping.type} invertColor={mapping.invertColor} />
+        </td>
+      </tr>
+    )}
+    </>
   )
 }
 
