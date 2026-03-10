@@ -128,6 +128,7 @@ export async function POST(req: NextRequest) {
       .eq('year', year)
       .eq('month', month)
       .eq('channel', 'ecommerce')
+      .eq('is_realizado', false)
       .single()
 
     const { error } = await adminSupabase
@@ -137,6 +138,7 @@ export async function POST(req: NextRequest) {
         year,
         month,
         channel: 'ecommerce',
+        is_realizado: false,
         faturamento_bruto: values.faturamento_bruto,
         pedidos: values.pedidos,
         investimento_midia: values.investimento_midia,
@@ -145,7 +147,7 @@ export async function POST(req: NextRequest) {
         taxas_pct: (existing as any)?.taxas_pct ?? null,
         imported_from_midia_plan: true,
         updated_at: new Date().toISOString(),
-      }, { onConflict: 'workspace_id,year,month,channel' })
+      }, { onConflict: 'workspace_id,year,month,channel,is_realizado' })
 
     if (!error) imported++
   }

@@ -8,7 +8,6 @@ import {
   type KeyValues, type MetricKey, type ResultMetric, type MetricDef,
 } from '@/lib/utils/media-plan-calc'
 import { upsertMetrics, upsertMetricsAdmin, updateMediaPlanMetadata } from '@/app/actions/media-plan'
-import { useRealizadoData, type MonthRealizado } from '@/lib/hooks/useRealizadoData'
 import { RealizadoToggle } from '@/components/business-plan/RealizadoToggle'
 import { VarianceBadge } from '@/components/business-plan/VarianceBadge'
 
@@ -20,40 +19,6 @@ type TopTab = 'midia_plan' | 'sales_forecast'
 type ViewMode = 'completo' | 'quarters' | 'mes'
 
 type ViewColumn = { key: string; label: string; months: number[]; color?: string }
-
-// Mídia Plan metric key → realizado field mapping
-const REALIZADO_MAP: Record<string, { field: keyof MonthRealizado; invertColor?: boolean; type: 'currency' | 'pct' | 'number' | 'roas' }> = {
-  RECEITA_META: { field: 'receita_faturada', type: 'currency' },
-  REV_CAPTURED: { field: 'receita_captada', type: 'currency' },
-  REV_BILLED: { field: 'receita_faturada', type: 'currency' },
-  ORD_CAPTURED: { field: 'pedidos_captados', type: 'number' },
-  ORD_BILLED: { field: 'pedidos_faturados', type: 'number' },
-  ORD_PAID: { field: 'pedidos_faturados', type: 'number' },
-  SPEND_META: { field: 'meta_spend', invertColor: true, type: 'currency' },
-  SPEND_GOOGLE: { field: 'google_spend', invertColor: true, type: 'currency' },
-  SPEND_INFLUENCER: { field: 'influencer_spend', invertColor: true, type: 'currency' },
-  SPEND_TOTAL: { field: 'investimento_total', invertColor: true, type: 'currency' },
-  S_ORG: { field: 'organic_sessions', type: 'number' },
-  S_PAID_IMPLIED: { field: 'paid_sessions', type: 'number' },
-  S_TOTAL: { field: 'ga4_sessions', type: 'number' },
-  AOV: { field: 'ticket_medio', type: 'currency' },
-  ROAS_CAPTURED: { field: 'roas', type: 'roas' },
-  ROAS_BILLED: { field: 'roas', type: 'roas' },
-}
-
-// Sales Forecast e-commerce key → realizado field mapping
-const SF_REALIZADO_MAP: Record<string, { field: keyof MonthRealizado; invertColor?: boolean; type: 'currency' | 'pct' | 'number' | 'roas' }> = {
-  faturamento_bruto: { field: 'receita_faturada', type: 'currency' },
-  pedidos: { field: 'pedidos_faturados', type: 'number' },
-  ticket_medio: { field: 'ticket_medio', type: 'currency' },
-  investimento_midia: { field: 'investimento_total', invertColor: true, type: 'currency' },
-  roas: { field: 'roas', type: 'roas' },
-}
-
-// Helper to get realizado value for a month key like "2026-01" → month 1
-function getRealizadoMonthKey(year: number, month: number): string {
-  return `${year}-${String(month).padStart(2, '0')}`
-}
 
 const QUARTERS: { label: string; months: number[]; color: string }[] = [
   { label: 'Q1', months: [1, 2, 3], color: '#3b82f6' },
@@ -92,6 +57,7 @@ interface Props {
     value_numeric: number | null
     delta_pct: number | null
     input_mode: string
+    is_realizado?: boolean
   }>
   isAdmin?: boolean
   initialMetadata?: Record<string, any>
@@ -108,12 +74,24 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
   const [cells, setCells] = useState<Record<string, Record<number, CellData>>>(() => {
     const map: Record<string, Record<number, CellData>> = {}
     for (const m of initialMetrics) {
+      if (m.is_realizado) continue
       if (!map[m.metric_key]) map[m.metric_key] = {}
       map[m.metric_key][m.month] = {
         value: m.value_numeric,
         delta_pct: m.delta_pct,
         mode: (m.input_mode as 'value' | 'delta_pct') ?? 'value',
       }
+    }
+    return map
+  })
+
+  // Realizado cells — manual input, stored with is_realizado=true
+  const [realizadoCells, setRealizadoCells] = useState<Record<string, Record<number, number | null>>>(() => {
+    const map: Record<string, Record<number, number | null>> = {}
+    for (const m of initialMetrics) {
+      if (!m.is_realizado) continue
+      if (!map[m.metric_key]) map[m.metric_key] = {}
+      map[m.metric_key][m.month] = m.value_numeric
     }
     return map
   })
@@ -164,9 +142,44 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
     }
   }, [minInvestData, cells])
 
-  // Realizado (actuals from DB)
+  // Realizado (manual input)
   const [showRealizado, setShowRealizado] = useState(false)
-  const { realizado, loadingRealizado } = useRealizadoData(workspaceId, year)
+  const [showRealizadoBanner, setShowRealizadoBanner] = useState(true)
+  const realizadoPendingRef = useRef<Array<{ metric_key: string; month: number; value_numeric: number | null; delta_pct: number | null; input_mode: 'value' | 'delta_pct' }>>([])
+  const realizadoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const flushRealizadoSave = useCallback(async () => {
+    if (realizadoPendingRef.current.length === 0) return
+    const batch = [...realizadoPendingRef.current]
+    realizadoPendingRef.current = []
+    try {
+      if (isAdmin) {
+        await upsertMetricsAdmin(planId, batch, true)
+      } else {
+        await upsertMetrics(workspaceId, planId, batch, true)
+      }
+    } catch (e) {
+      console.error('Realizado save error:', e)
+    }
+  }, [planId, workspaceId, isAdmin])
+
+  const updateRealizadoCell = useCallback((metricKey: string, month: number, value: number | null) => {
+    setRealizadoCells(prev => {
+      const next = { ...prev }
+      if (!next[metricKey]) next[metricKey] = {}
+      next[metricKey] = { ...next[metricKey], [month]: value }
+      return next
+    })
+    realizadoPendingRef.current.push({
+      metric_key: metricKey,
+      month,
+      value_numeric: value,
+      delta_pct: null,
+      input_mode: 'value',
+    })
+    if (realizadoTimerRef.current) clearTimeout(realizadoTimerRef.current)
+    realizadoTimerRef.current = setTimeout(flushRealizadoSave, 800)
+  }, [flushRealizadoSave])
 
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
   const [viewMode, setViewMode] = useState<ViewMode>('completo')
@@ -356,7 +369,7 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
       </div>
 
       {topTab === 'sales_forecast' && (
-        <SalesForecastTab workspaceId={workspaceId} year={year} isAdmin={isAdmin} realizado={realizado} showRealizado={showRealizado} onToggleRealizado={() => setShowRealizado(v => !v)} />
+        <SalesForecastTab workspaceId={workspaceId} year={year} isAdmin={isAdmin} showRealizado={showRealizado} onToggleRealizado={() => setShowRealizado(v => !v)} showRealizadoBanner={showRealizadoBanner} onDismissBanner={() => setShowRealizadoBanner(false)} />
       )}
 
       {topTab === 'midia_plan' && (<>
@@ -450,6 +463,17 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
         </div>
       </div>
 
+      {/* Realizado info banner */}
+      {showRealizado && showRealizadoBanner && (
+        <div className="mb-4 px-4 py-3 rounded-lg border border-brand-gold/20 bg-brand-gold/5 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm text-text-secondary">
+            <span style={{ fontSize: 14 }}>&#x1F4DD;</span>
+            Preencha os valores realizados manualmente. Em breve conectaremos as metricas automaticamente.
+          </div>
+          <button onClick={() => setShowRealizadoBanner(false)} className="text-text-muted hover:text-text-primary text-xs px-2">&#x2715;</button>
+        </div>
+      )}
+
       {/* Spreadsheet */}
       <div className="bg-bg-card border border-border rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
@@ -490,8 +514,8 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
                     onUpdateCell={updateCell}
                     onToggleMode={toggleMode}
                     showRealizado={showRealizado}
-                    realizado={realizado}
-                    year={year}
+                    realizadoCells={realizadoCells}
+                    onUpdateRealizadoCell={updateRealizadoCell}
                   >
                     {/* Min Investment toggle after INVESTIMENTOS section */}
                     {section.key === 'investimentos' && !isCollapsed && (
@@ -643,9 +667,10 @@ function parseForecast(f: any): Record<string, number | null> {
   return r
 }
 
-function SalesForecastTab({ workspaceId, year, isAdmin, realizado, showRealizado, onToggleRealizado }: { workspaceId: string; year: number; isAdmin?: boolean; realizado: Record<string, MonthRealizado>; showRealizado: boolean; onToggleRealizado: () => void }) {
+function SalesForecastTab({ workspaceId, year, isAdmin, showRealizado, onToggleRealizado, showRealizadoBanner, onDismissBanner }: { workspaceId: string; year: number; isAdmin?: boolean; showRealizado: boolean; onToggleRealizado: () => void; showRealizadoBanner?: boolean; onDismissBanner?: () => void }) {
   const [channel, setChannel] = useState('ecommerce')
   const [data, setData] = useState<ForecastData>({})
+  const [realizadoData, setRealizadoData] = useState<ForecastData>({})
   const [loading, setLoading] = useState(true)
   const [savingCell, setSavingCell] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
@@ -660,11 +685,14 @@ function SalesForecastTab({ workspaceId, year, isAdmin, realizado, showRealizado
     const r = await fetch(`/api/sales-forecast?workspace_id=${workspaceId}&year=${year}`)
     const json = await r.json()
     const map: ForecastData = {}
+    const realMap: ForecastData = {}
     for (const f of json.forecasts || []) {
-      if (!map[f.channel]) map[f.channel] = {}
-      map[f.channel][f.month] = parseForecast(f)
+      const target = f.is_realizado ? realMap : map
+      if (!target[f.channel]) target[f.channel] = {}
+      target[f.channel][f.month] = parseForecast(f)
     }
     setData(map)
+    setRealizadoData(realMap)
   }, [workspaceId, year])
 
   useEffect(() => {
@@ -926,6 +954,23 @@ function SalesForecastTab({ workspaceId, year, isAdmin, realizado, showRealizado
     setSavingCell(null)
   }
 
+  async function saveCellRealizado(ch: string, month: number, field: string, value: number | null) {
+    setRealizadoData(prev => {
+      const next = { ...prev }
+      if (!next[ch]) next[ch] = {}
+      next[ch] = { ...next[ch] }
+      next[ch][month] = { ...(next[ch][month] || {}), [field]: value }
+      return next
+    })
+    try {
+      await fetch('/api/sales-forecast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: workspaceId, year, month, channel: ch, is_realizado: true, [field]: value }),
+      })
+    } catch {}
+  }
+
   function fmtVal(v: number | null, format: string): string {
     if (v === null || v === undefined) return '-'
     if (format === 'currency') return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 })
@@ -986,7 +1031,7 @@ function SalesForecastTab({ workspaceId, year, isAdmin, realizado, showRealizado
 
           <RealizadoToggle show={showRealizado} onToggle={onToggleRealizado} />
 
-          {isEcommerce && (
+          {isEcommerce && !isConsolidado && (
             <button onClick={handleImportMidia} disabled={importing}
               className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-500/10 border border-purple-500/20 text-sm text-purple-400 hover:bg-purple-500/20 transition-colors disabled:opacity-50">
               {importing ? (
@@ -1003,6 +1048,17 @@ function SalesForecastTab({ workspaceId, year, isAdmin, realizado, showRealizado
       {importMsg && (
         <div className={`mb-4 px-4 py-2.5 rounded-lg text-sm ${importMsg.type === 'ok' ? 'bg-green-500/10 border border-green-500/20 text-green-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>
           {importMsg.text}
+        </div>
+      )}
+
+      {/* Realizado info banner */}
+      {showRealizado && showRealizadoBanner && (
+        <div className="mb-4 px-4 py-3 rounded-lg border border-brand-gold/20 bg-brand-gold/5 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm text-text-secondary">
+            <span style={{ fontSize: 14 }}>&#x1F4DD;</span>
+            Preencha os valores realizados manualmente. Em breve conectaremos as metricas automaticamente.
+          </div>
+          <button onClick={onDismissBanner} className="text-text-muted hover:text-text-primary text-xs px-2">&#x2715;</button>
         </div>
       )}
 
@@ -1105,7 +1161,7 @@ function SalesForecastTab({ workspaceId, year, isAdmin, realizado, showRealizado
                       getDisplayValue={getDisplayValue} getAnnual={getAnnual} fmtVal={fmtVal}
                       isConsolidado={isConsolidado} saveCell={saveCell} savingCell={savingCell}
                       columns={sfColumns} isImported={isEcommerce && data['ecommerce']?.[1]?.imported_from_midia_plan === 1}
-                      showRealizado={showRealizado && (isEcommerce || isConsolidado)} realizado={realizado} year={year} />
+                      showRealizado={showRealizado} realizadoData={realizadoData} saveCellRealizado={saveCellRealizado} />
                   )
                 })}
               </tbody>
@@ -1128,7 +1184,7 @@ function SalesForecastTab({ workspaceId, year, isAdmin, realizado, showRealizado
 // Sales Forecast Section Group
 // ============================================================
 
-function SFSectionGroup({ section, rows, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado, saveCell, savingCell, columns, isImported, showRealizado, realizado, year }: {
+function SFSectionGroup({ section, rows, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado, saveCell, savingCell, columns, isImported, showRealizado, realizadoData, saveCellRealizado }: {
   section: { key: string; label: string; color: string }
   rows: ForecastRow[]
   channel: string
@@ -1141,8 +1197,8 @@ function SFSectionGroup({ section, rows, channel, getDisplayValue, getAnnual, fm
   columns: SFColumn[]
   isImported?: boolean
   showRealizado?: boolean
-  realizado?: Record<string, MonthRealizado>
-  year?: number
+  realizadoData?: ForecastData
+  saveCellRealizado?: (ch: string, m: number, field: string, v: number | null) => void
 }) {
   return (
     <>
@@ -1156,7 +1212,7 @@ function SFSectionGroup({ section, rows, channel, getDisplayValue, getAnnual, fm
       {rows.map(row => (
         <SFRow key={row.key} row={row} channel={channel} getDisplayValue={getDisplayValue}
           getAnnual={getAnnual} fmtVal={fmtVal} isConsolidado={isConsolidado} saveCell={saveCell} savingCell={savingCell}
-          columns={columns} isImported={isImported} showRealizado={showRealizado} realizado={realizado} year={year} />
+          columns={columns} isImported={isImported} showRealizado={showRealizado} realizadoData={realizadoData} saveCellRealizado={saveCellRealizado} />
       ))}
     </>
   )
@@ -1166,7 +1222,7 @@ function SFSectionGroup({ section, rows, channel, getDisplayValue, getAnnual, fm
 // Sales Forecast Row
 // ============================================================
 
-function SFRow({ row, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado, saveCell, savingCell, columns, isImported, showRealizado, realizado, year }: {
+function SFRow({ row, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado, saveCell, savingCell, columns, isImported, showRealizado, realizadoData, saveCellRealizado }: {
   row: ForecastRow
   channel: string
   getDisplayValue: (ch: string, m: number, field: string) => number | null
@@ -1178,69 +1234,32 @@ function SFRow({ row, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado
   columns: SFColumn[]
   isImported?: boolean
   showRealizado?: boolean
-  realizado?: Record<string, MonthRealizado>
-  year?: number
+  realizadoData?: ForecastData
+  saveCellRealizado?: (ch: string, m: number, field: string, v: number | null) => void
 }) {
   const canEdit = row.editable && (isConsolidado ? !!row.consolidadoOnly : true)
   const annual = getAnnual(channel, row.key, row.format)
   const isProfit = row.resultColor === 'profit'
   const showImportBadge = row.imported && isImported
 
-  const sfMapping = SF_REALIZADO_MAP[row.key]
-  const hasRealizado = showRealizado && sfMapping && realizado && year
+  // Manual realizado: value from realizadoData
+  const showReal = showRealizado && !isConsolidado
 
-  // Compute SF realizado for a month — some fields need special derivation
-  function getSFRealVal(month: number): number {
-    if (!realizado || !year) return 0
-    const key = getRealizadoMonthKey(year, month)
-    const rm = realizado[key]
-    if (!rm) return 0
-
-    // Special cases for derived fields
-    if (row.key === 'imposto_rs') {
-      const prevPct = getDisplayValue(channel, month, 'imposto_pct') ?? 0
-      return Math.round(rm.receita_faturada * prevPct / 100 * 100) / 100
-    }
-    if (row.key === 'taxas_rs') {
-      const prevPct = getDisplayValue(channel, month, 'taxas_pct') ?? 0
-      return Math.round(rm.receita_faturada * prevPct / 100 * 100) / 100
-    }
-    if (row.key === 'cmv_rs') {
-      const prevPct = getDisplayValue(channel, month, 'cmv_pct') ?? 0
-      return Math.round(rm.receita_faturada * prevPct / 100 * 100) / 100
-    }
-    if (row.key === 'faturamento_liquido') {
-      const impPct = getDisplayValue(channel, month, 'imposto_pct') ?? 0
-      const taxPct = getDisplayValue(channel, month, 'taxas_pct') ?? 0
-      return Math.round(rm.receita_faturada * (1 - impPct/100 - taxPct/100) * 100) / 100
-    }
-    if (row.key === 'lucro_apos_aquisicao') {
-      const impPct = getDisplayValue(channel, month, 'imposto_pct') ?? 0
-      const taxPct = getDisplayValue(channel, month, 'taxas_pct') ?? 0
-      const cmvPct = getDisplayValue(channel, month, 'cmv_pct') ?? 0
-      return Math.round((rm.receita_faturada * (1 - impPct/100 - taxPct/100 - cmvPct/100) - rm.investimento_total) * 100) / 100
-    }
-
-    // Direct mapping
-    if (sfMapping) return rm[sfMapping.field] ?? 0
-    return 0
+  function getRealVal(month: number): number {
+    return (realizadoData?.[channel]?.[month]?.[row.key] as number) ?? 0
   }
 
-  // Has realizado for derived rows too
-  const hasDerivedReal = showRealizado && realizado && year && ['imposto_rs', 'taxas_rs', 'cmv_rs', 'faturamento_liquido', 'lucro_apos_aquisicao'].includes(row.key)
-  const showReal = hasRealizado || hasDerivedReal
-
-  function getSFRealAgg(months: number[]): number {
+  function getRealAgg(months: number[]): number {
     if (row.format === 'percent' || row.format === 'roas') {
-      const vals = months.map(m => getSFRealVal(m)).filter(v => v !== 0)
+      const vals = months.map(m => getRealVal(m)).filter(v => v !== 0)
       return vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : 0
     }
-    return months.reduce((s, m) => s + getSFRealVal(m), 0)
+    return months.reduce((s, m) => s + getRealVal(m), 0)
   }
 
-  const annualReal = showReal ? getSFRealAgg(SF_MONTHS) : 0
-  const realType = sfMapping?.type ?? (row.format === 'percent' ? 'pct' : row.format === 'roas' ? 'roas' : row.format === 'number' ? 'number' : 'currency')
-  const realInvert = sfMapping?.invertColor ?? (row.key === 'imposto_rs' || row.key === 'taxas_rs' || row.key === 'cmv_rs')
+  const annualReal = showReal ? getRealAgg(SF_MONTHS) : 0
+  const realType = row.format === 'percent' ? 'pct' as const : row.format === 'roas' ? 'roas' as const : row.format === 'number' ? 'number' as const : 'currency' as const
+  const realInvert = row.key.includes('imposto') || row.key.includes('taxas') || row.key.includes('cmv') || row.key.includes('investimento') || row.key.includes('comissao')
 
   function getQuarterValue(months: number[]): number | null {
     const values = months.map(m => getDisplayValue(channel, m, row.key)).filter(v => v !== null) as number[]
@@ -1328,21 +1347,27 @@ function SFRow({ row, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado
       </td>
     </tr>
 
-    {/* SF Realizado sub-row */}
+    {/* SF Realizado sub-row — editable */}
     {showReal && (
       <tr className="border-t border-border/20" style={{ background: lucroRealBg ?? 'rgba(201,151,26,0.02)' }}>
         <td className="sticky left-0 z-10 px-4 py-0 border-r border-border" style={{ background: '#0b1a0f', borderLeft: row.highlight ? '3px solid rgba(201,168,76,0.3)' : undefined }}>
-          <span className="italic text-text-muted" style={{ fontSize: 10 }}>Real</span>
+          <span className="italic" style={{ fontSize: 10, color: '#c9a84c' }}>Real</span>
         </td>
         {columns.map(col => {
-          const realVal = col.months.length === 1 ? getSFRealVal(col.months[0]) : getSFRealAgg(col.months)
-          const isLucro = row.key === 'lucro_apos_aquisicao'
-          const color = isLucro
-            ? (realVal === 0 ? '#4a5a4f' : realVal > 0 ? '#4ade80' : '#ef4444')
-            : (realVal === 0 ? '#4a5a4f' : 'rgba(255,255,255,0.55)')
+          if (col.months.length === 1) {
+            const m = col.months[0]
+            const realVal = getRealVal(m)
+            return (
+              <td key={col.key} className="px-1 py-0 text-center">
+                <SFEditableCell value={realVal || null} format={row.format} isSaving={false}
+                  onSave={v => saveCellRealizado?.(channel, m, row.key, v)} isRealizado />
+              </td>
+            )
+          }
+          const realVal = getRealAgg(col.months)
           return (
             <td key={col.key} className="px-1 py-0 text-center">
-              <span className="tabular-nums px-2 py-1 block" style={{ fontSize: 11, color }}>
+              <span className="tabular-nums px-2 py-1 block" style={{ fontSize: 11, color: realVal === 0 ? '#4a5a4f' : 'rgba(255,255,255,0.55)' }}>
                 {realVal === 0 ? '\u2014' : fmtVal(Math.round(realVal * 100) / 100, row.format)}
               </span>
             </td>
@@ -1364,7 +1389,7 @@ function SFRow({ row, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado
         </td>
         {columns.map(col => {
           const prevVal = col.months.length === 1 ? (getDisplayValue(channel, col.months[0], row.key) ?? 0) : (getQuarterValue(col.months) ?? 0)
-          const realVal = col.months.length === 1 ? getSFRealVal(col.months[0]) : getSFRealAgg(col.months)
+          const realVal = col.months.length === 1 ? getRealVal(col.months[0]) : getRealAgg(col.months)
           return (
             <td key={col.key} className="px-1 py-0 text-center">
               <VarianceBadge previsto={prevVal} realizado={realVal} type={realType} invertColor={realInvert} />
@@ -1384,9 +1409,9 @@ function SFRow({ row, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado
 // Sales Forecast Editable Cell
 // ============================================================
 
-function SFEditableCell({ value, format, isSaving, onSave }: {
+function SFEditableCell({ value, format, isSaving, onSave, isRealizado }: {
   value: number | null; format: string; isSaving: boolean
-  onSave: (v: number | null) => void
+  onSave: (v: number | null) => void; isRealizado?: boolean
 }) {
   const [editing, setEditing] = useState(false)
   const [inputValue, setInputValue] = useState('')
@@ -1447,8 +1472,8 @@ function SFEditableCell({ value, format, isSaving, onSave }: {
 
   return (
     <button onClick={startEdit}
-      className="w-full tabular-nums px-2 py-2 rounded hover:bg-bg-hover transition-colors text-text-primary cursor-text text-center block relative"
-      style={{ fontSize: 12 }}>
+      className="w-full tabular-nums px-2 py-2 rounded hover:bg-bg-hover transition-colors cursor-text text-center block relative"
+      style={{ fontSize: isRealizado ? 11 : 12, color: isRealizado ? (value ? 'rgba(255,255,255,0.55)' : '#4a5a4f') : undefined }}>
       {fmtDisplay(value)}
       {isSaving && <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-brand-gold animate-pulse" />}
     </button>
@@ -1704,8 +1729,8 @@ function SectionGroup({
   onToggleMode,
   children,
   showRealizado,
-  realizado,
-  year,
+  realizadoCells,
+  onUpdateRealizadoCell,
 }: {
   section: typeof SECTIONS[number]
   metrics: MetricDef[]
@@ -1720,8 +1745,8 @@ function SectionGroup({
   onToggleMode: (key: string, month: number) => void
   children?: React.ReactNode
   showRealizado?: boolean
-  realizado?: Record<string, MonthRealizado>
-  year?: number
+  realizadoCells?: Record<string, Record<number, number | null>>
+  onUpdateRealizadoCell?: (key: string, month: number, value: number | null) => void
 }) {
   return (
     <>
@@ -1765,8 +1790,8 @@ function SectionGroup({
           onUpdateCell={onUpdateCell}
           onToggleMode={onToggleMode}
           showRealizado={showRealizado}
-          realizado={realizado}
-          year={year}
+          realizadoCells={realizadoCells}
+          onUpdateRealizadoCell={onUpdateRealizadoCell}
         />
       ))}
       {children}
@@ -1788,8 +1813,8 @@ function MetricRow({
   onUpdateCell,
   onToggleMode,
   showRealizado,
-  realizado,
-  year,
+  realizadoCells,
+  onUpdateRealizadoCell,
 }: {
   def: MetricDef
   getCellValue: (key: string, month: number) => number
@@ -1800,12 +1825,11 @@ function MetricRow({
   onUpdateCell: (key: string, month: number, value: number | null, mode?: 'value' | 'delta_pct') => void
   onToggleMode: (key: string, month: number) => void
   showRealizado?: boolean
-  realizado?: Record<string, MonthRealizado>
-  year?: number
+  realizadoCells?: Record<string, Record<number, number | null>>
+  onUpdateRealizadoCell?: (key: string, month: number, value: number | null) => void
 }) {
   const isResult = !def.isKey
-  const mapping = REALIZADO_MAP[def.key]
-  const hasRealizado = showRealizado && mapping && realizado && year
+  const hasRealizado = showRealizado && realizadoCells
 
   // Row background: result rows get gradient
   const rowBg = isResult
@@ -1821,14 +1845,11 @@ function MetricRow({
 
   // Helper to get realizado value for a single month
   const getRealVal = (month: number): number => {
-    if (!mapping || !realizado || !year) return 0
-    const key = getRealizadoMonthKey(year, month)
-    return realizado[key]?.[mapping.field] ?? 0
+    return realizadoCells?.[def.key]?.[month] ?? 0
   }
 
   // Helper to get realizado for multi-month (quarter)
   const getRealAgg = (months: number[]): number => {
-    if (!mapping || !realizado || !year) return 0
     if (def.format === 'percent' || def.format === 'decimal') {
       const vals = months.map(m => getRealVal(m)).filter(v => v !== 0)
       return vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : 0
@@ -1838,6 +1859,10 @@ function MetricRow({
 
   // Annual realizado
   const annualReal = hasRealizado ? getRealAgg([...MONTHS]) : 0
+
+  // Variance types
+  const varType = def.format === 'currency' ? 'currency' as const : def.format === 'percent' || def.format === 'decimal' ? 'pct' as const : 'number' as const
+  const invertColor = def.key.startsWith('SPEND') || def.key === 'CPS'
 
   return (
     <>
@@ -1938,14 +1963,25 @@ function MetricRow({
       </td>
     </tr>
 
-    {/* Realizado sub-row */}
+    {/* Realizado sub-row — editable */}
     {hasRealizado && (
       <tr className="border-t border-border/20" style={{ background: 'rgba(201,151,26,0.02)' }}>
         <td className="sticky left-0 z-10 px-4 py-0 border-r border-border" style={{ background: '#0b1a0f', borderLeft: leftBorder }}>
-          <span className="italic text-text-muted" style={{ fontSize: 10, paddingLeft: def.isKey ? 14 : 0 }}>Real</span>
+          <span className="italic" style={{ fontSize: 10, paddingLeft: def.isKey ? 14 : 0, color: '#c9a84c' }}>Real</span>
         </td>
         {columns.map(col => {
-          const realVal = col.months.length === 1 ? getRealVal(col.months[0]) : getRealAgg(col.months)
+          if (col.months.length === 1) {
+            const m = col.months[0]
+            const realVal = getRealVal(m)
+            const sfFmt = def.format === 'decimal' ? 'percent' : def.format
+            return (
+              <td key={col.key} className="px-1 py-0 text-center">
+                <SFEditableCell value={realVal || null} format={sfFmt} isSaving={false}
+                  onSave={v => onUpdateRealizadoCell?.(def.key, m, v)} isRealizado />
+              </td>
+            )
+          }
+          const realVal = getRealAgg(col.months)
           return (
             <td key={col.key} className="px-1 py-0 text-center">
               <span className="tabular-nums px-2 py-1 block" style={{ fontSize: 11, color: realVal === 0 ? '#4a5a4f' : 'rgba(255,255,255,0.55)' }}>
@@ -1973,12 +2009,12 @@ function MetricRow({
           const realVal = col.months.length === 1 ? getRealVal(col.months[0]) : getRealAgg(col.months)
           return (
             <td key={col.key} className="px-1 py-0 text-center">
-              <VarianceBadge previsto={prevVal} realizado={realVal} type={mapping.type} invertColor={mapping.invertColor} />
+              <VarianceBadge previsto={prevVal} realizado={realVal} type={varType} invertColor={invertColor} />
             </td>
           )
         })}
         <td className="px-3 py-0 text-center border-l border-border">
-          <VarianceBadge previsto={annual} realizado={annualReal} type={mapping.type} invertColor={mapping.invertColor} />
+          <VarianceBadge previsto={annual} realizado={annualReal} type={varType} invertColor={invertColor} />
         </td>
       </tr>
     )}

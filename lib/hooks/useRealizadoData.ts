@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-
+// Legacy type export — kept for backwards compatibility
+// Realizado is now manual input stored in media_plan_metrics (is_realizado=true)
+// and sales_forecast (is_realizado=true)
 export interface MonthRealizado {
   receita_captada: number
   receita_faturada: number
@@ -17,24 +18,4 @@ export interface MonthRealizado {
   paid_sessions: number
   roas: number
   cac: number
-}
-
-export function useRealizadoData(workspaceId: string, year: number) {
-  const [data, setData] = useState<Record<string, MonthRealizado>>({})
-  const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    setLoading(true)
-    fetch('/api/business-plan/realizado', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workspace_id: workspaceId, year }),
-    })
-      .then(r => r.json())
-      .then(d => { if (d && !d.error) setData(d) })
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [workspaceId, year])
-
-  return { realizado: data, loadingRealizado: loading }
 }

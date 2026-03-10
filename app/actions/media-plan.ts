@@ -152,7 +152,8 @@ export async function upsertMetrics(
     value_numeric: number | null
     delta_pct: number | null
     input_mode: 'value' | 'delta_pct'
-  }>
+  }>,
+  isRealizado?: boolean
 ) {
   const { error, adminSupabase } = await requireWorkspaceMember(workspaceId)
   if (error || !adminSupabase) return { error: error ?? 'Erro' }
@@ -166,12 +167,13 @@ export async function upsertMetrics(
     value_numeric: u.value_numeric,
     delta_pct: u.delta_pct,
     input_mode: u.input_mode,
+    is_realizado: isRealizado ?? false,
     updated_at: new Date().toISOString(),
   }))
 
   const { error: upsertError } = await adminSupabase
     .from('media_plan_metrics')
-    .upsert(rows, { onConflict: 'media_plan_id,metric_key,month' })
+    .upsert(rows, { onConflict: 'media_plan_id,metric_key,month,is_realizado' })
 
   if (upsertError) return { error: upsertError.message }
 
@@ -192,7 +194,8 @@ export async function upsertMetricsAdmin(
     value_numeric: number | null
     delta_pct: number | null
     input_mode: 'value' | 'delta_pct'
-  }>
+  }>,
+  isRealizado?: boolean
 ) {
   await requireAdmin()
   const adminSupabase = createAdminClient()
@@ -206,12 +209,13 @@ export async function upsertMetricsAdmin(
     value_numeric: u.value_numeric,
     delta_pct: u.delta_pct,
     input_mode: u.input_mode,
+    is_realizado: isRealizado ?? false,
     updated_at: new Date().toISOString(),
   }))
 
   const { error: upsertError } = await adminSupabase
     .from('media_plan_metrics')
-    .upsert(rows, { onConflict: 'media_plan_id,metric_key,month' })
+    .upsert(rows, { onConflict: 'media_plan_id,metric_key,month,is_realizado' })
 
   if (upsertError) return { error: upsertError.message }
 
@@ -270,6 +274,7 @@ export async function syncMediaToFinancial(workspaceId: string, year: number) {
     .from('media_plan_metrics')
     .select('metric_key, month, value_numeric')
     .eq('media_plan_id', mediaPlan.id)
+    .eq('is_realizado', false)
     .in('metric_key', KEY_METRICS as unknown as string[])
 
   if (!mediaMetrics || mediaMetrics.length === 0) return { error: 'Nenhuma métrica encontrada no plano de mídia' }
@@ -323,7 +328,7 @@ export async function syncMediaToFinancial(workspaceId: string, year: number) {
 
   const { error: upsertError } = await adminSupabase
     .from('media_plan_metrics')
-    .upsert(rows, { onConflict: 'media_plan_id,metric_key,month' })
+    .upsert(rows.map(r => ({ ...r, is_realizado: false })), { onConflict: 'media_plan_id,metric_key,month,is_realizado' })
 
   if (upsertError) return { error: upsertError.message }
 

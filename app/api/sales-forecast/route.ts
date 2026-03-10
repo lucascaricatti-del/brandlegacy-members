@@ -38,21 +38,26 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'year, month, channel required' }, { status: 400 })
   }
 
+  const isRealizado = body.is_realizado ?? false
+
   // Get existing data to preserve fields not being updated
-  const { data: existing } = await (adminSupabase as any)
+  const existingQuery = (adminSupabase as any)
     .from('sales_forecast')
     .select('faturamento_bruto, pedidos, investimento_midia, imposto_pct, cmv_pct, taxas_pct, comissao_marketplace_pct, cancelamento_pct, logistica_rs, imported_from_midia_plan')
     .eq('workspace_id', workspace_id)
     .eq('year', year)
     .eq('month', month)
     .eq('channel', channel)
-    .single()
+    .eq('is_realizado', isRealizado)
+
+  const { data: existing } = await existingQuery.single()
 
   const upsertData: Record<string, any> = {
     workspace_id,
     year,
     month,
     channel,
+    is_realizado: isRealizado,
     faturamento_bruto: body.faturamento_bruto ?? existing?.faturamento_bruto ?? null,
     pedidos: body.pedidos ?? existing?.pedidos ?? null,
     investimento_midia: body.investimento_midia ?? existing?.investimento_midia ?? null,
@@ -68,7 +73,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await (adminSupabase as any)
     .from('sales_forecast')
-    .upsert(upsertData, { onConflict: 'workspace_id,year,month,channel' })
+    .upsert(upsertData, { onConflict: 'workspace_id,year,month,channel,is_realizado' })
     .select()
     .single()
 

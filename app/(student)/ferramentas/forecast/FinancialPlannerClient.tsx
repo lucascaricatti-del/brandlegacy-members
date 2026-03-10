@@ -7,7 +7,6 @@ import {
   type FinKeyValues as KeyValues, type FinMetricKey as MetricKey, type FinResultMetric as ResultMetric, type FinMetricDef as MetricDef,
 } from '@/lib/utils/financial-plan-calc'
 import { upsertMetrics, upsertMetricsAdmin } from '@/app/actions/media-plan'
-import { useRealizadoData, type MonthRealizado } from '@/lib/hooks/useRealizadoData'
 import { RealizadoToggle } from '@/components/business-plan/RealizadoToggle'
 import { VarianceBadge } from '@/components/business-plan/VarianceBadge'
 
@@ -18,18 +17,6 @@ import { VarianceBadge } from '@/components/business-plan/VarianceBadge'
 type ViewMode = 'completo' | 'quarters' | 'mes'
 
 type ViewColumn = { key: string; label: string; months: number[]; color?: string }
-
-// Forecast (DRE) metric key → realizado field mapping
-const FIN_REALIZADO_MAP: Record<string, { field: keyof MonthRealizado; invertColor?: boolean; type: 'currency' | 'pct' | 'number' | 'roas' }> = {
-  FATURAMENTO: { field: 'receita_faturada', type: 'currency' },
-  MIDIA_VAL: { field: 'investimento_total', invertColor: true, type: 'currency' },
-}
-
-function getRealizadoMonthKey(year: number, month: number): string {
-  return `${year}-${String(month).padStart(2, '0')}`
-}
-
-const FIN_MONTHS = [1,2,3,4,5,6,7,8,9,10,11,12]
 
 const QUARTERS: { label: string; months: number[]; color: string }[] = [
   { label: 'Q1', months: [1, 2, 3], color: '#3b82f6' },
@@ -58,6 +45,7 @@ interface Props {
     value_numeric: number | null
     delta_pct: number | null
     input_mode: string
+    is_realizado?: boolean
   }>
   isAdmin?: boolean
 }
@@ -68,17 +56,29 @@ interface Props {
 
 export default function FinancialPlannerClient({ planId, workspaceId, year, initialMetrics, isAdmin }: Props) {
   const [showRealizado, setShowRealizado] = useState(false)
-  const { realizado } = useRealizadoData(workspaceId, year)
+  const [showRealizadoBanner, setShowRealizadoBanner] = useState(true)
 
   const [cells, setCells] = useState<Record<string, Record<number, CellData>>>(() => {
     const map: Record<string, Record<number, CellData>> = {}
     for (const m of initialMetrics) {
+      if (m.is_realizado) continue
       if (!map[m.metric_key]) map[m.metric_key] = {}
       map[m.metric_key][m.month] = {
         value: m.value_numeric,
         delta_pct: m.delta_pct,
         mode: (m.input_mode as 'value' | 'delta_pct') ?? 'value',
       }
+    }
+    return map
+  })
+
+  // Realizado cells — manual input
+  const [realizadoCells, setRealizadoCells] = useState<Record<string, Record<number, number | null>>>(() => {
+    const map: Record<string, Record<number, number | null>> = {}
+    for (const m of initialMetrics) {
+      if (!m.is_realizado) continue
+      if (!map[m.metric_key]) map[m.metric_key] = {}
+      map[m.metric_key][m.month] = m.value_numeric
     }
     return map
   })
@@ -219,6 +219,43 @@ export default function FinancialPlannerClient({ planId, workspaceId, year, init
     scheduleSave()
   }, [cells, scheduleSave])
 
+  // Realizado save handlers
+  const realizadoPendingRef = useRef<Array<{ metric_key: string; month: number; value_numeric: number | null; delta_pct: number | null; input_mode: 'value' | 'delta_pct' }>>([])
+  const realizadoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const flushRealizadoSave = useCallback(async () => {
+    if (realizadoPendingRef.current.length === 0) return
+    const batch = [...realizadoPendingRef.current]
+    realizadoPendingRef.current = []
+    try {
+      if (isAdmin) {
+        await upsertMetricsAdmin(planId, batch, true)
+      } else {
+        await upsertMetrics(workspaceId, planId, batch, true)
+      }
+    } catch (e) {
+      console.error('Realizado save error:', e)
+    }
+  }, [planId, workspaceId, isAdmin])
+
+  const updateRealizadoCell = useCallback((metricKey: string, month: number, value: number | null) => {
+    setRealizadoCells(prev => {
+      const next = { ...prev }
+      if (!next[metricKey]) next[metricKey] = {}
+      next[metricKey] = { ...next[metricKey], [month]: value }
+      return next
+    })
+    realizadoPendingRef.current.push({
+      metric_key: metricKey,
+      month,
+      value_numeric: value,
+      delta_pct: null,
+      input_mode: 'value',
+    })
+    if (realizadoTimerRef.current) clearTimeout(realizadoTimerRef.current)
+    realizadoTimerRef.current = setTimeout(flushRealizadoSave, 800)
+  }, [flushRealizadoSave])
+
   const toggleSection = (key: string) => {
     setCollapsedSections((prev) => {
       const next = new Set(prev)
@@ -353,13 +390,21 @@ export default function FinancialPlannerClient({ planId, workspaceId, year, init
         </div>
       </div>
 
+      {/* Realizado info banner */}
+      {showRealizado && showRealizadoBanner && (
+        <div className="mb-4 px-4 py-3 rounded-lg border border-brand-gold/20 bg-brand-gold/5 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm text-text-secondary">
+            <span style={{ fontSize: 14 }}>&#x1F4DD;</span>
+            Preencha os valores realizados manualmente. Em breve conectaremos as metricas automaticamente.
+          </div>
+          <button onClick={() => setShowRealizadoBanner(false)} className="text-text-muted hover:text-text-primary text-xs px-2">&#x2715;</button>
+        </div>
+      )}
+
       {/* Aderência banner */}
       {showRealizado && (() => {
         const previstoTotal = MONTHS.reduce((s, m) => s + getCellValue('FATURAMENTO', m), 0)
-        const realizadoTotal = FIN_MONTHS.reduce((s, m) => {
-          const key = getRealizadoMonthKey(year, m)
-          return s + (realizado[key]?.receita_faturada ?? 0)
-        }, 0)
+        const realizadoTotal = MONTHS.reduce((s, m) => s + (realizadoCells['FATURAMENTO']?.[m] ?? 0), 0)
         const aderencia = previstoTotal > 0 ? Math.round(realizadoTotal / previstoTotal * 100) : 0
         const color = aderencia >= 90 ? '#4ade80' : aderencia >= 70 ? '#eab308' : '#ef4444'
         const bg = aderencia >= 90 ? 'rgba(34,197,94,0.08)' : aderencia >= 70 ? 'rgba(234,179,8,0.08)' : 'rgba(239,68,68,0.08)'
@@ -418,8 +463,8 @@ export default function FinancialPlannerClient({ planId, workspaceId, year, init
                     onToggleMode={toggleMode}
                     lockedKeys={lockedKeys}
                     showRealizado={showRealizado}
-                    realizado={realizado}
-                    year={year}
+                    realizadoCells={realizadoCells}
+                    onUpdateRealizadoCell={updateRealizadoCell}
                   />
                 )
               })}
@@ -462,8 +507,8 @@ function SectionGroup({
   onToggleMode,
   lockedKeys,
   showRealizado,
-  realizado,
-  year,
+  realizadoCells,
+  onUpdateRealizadoCell,
 }: {
   section: typeof SECTIONS[number]
   metrics: MetricDef[]
@@ -478,8 +523,8 @@ function SectionGroup({
   onToggleMode: (key: string, month: number) => void
   lockedKeys: Set<string>
   showRealizado?: boolean
-  realizado?: Record<string, MonthRealizado>
-  year?: number
+  realizadoCells?: Record<string, Record<number, number | null>>
+  onUpdateRealizadoCell?: (key: string, month: number, value: number | null) => void
 }) {
   return (
     <>
@@ -524,8 +569,8 @@ function SectionGroup({
           onToggleMode={onToggleMode}
           isLocked={lockedKeys.has(def.key)}
           showRealizado={showRealizado}
-          realizado={realizado}
-          year={year}
+          realizadoCells={realizadoCells}
+          onUpdateRealizadoCell={onUpdateRealizadoCell}
         />
       ))}
     </>
@@ -547,8 +592,8 @@ function MetricRow({
   onToggleMode,
   isLocked,
   showRealizado,
-  realizado,
-  year,
+  realizadoCells,
+  onUpdateRealizadoCell,
 }: {
   def: MetricDef
   getCellValue: (key: string, month: number) => number
@@ -560,12 +605,11 @@ function MetricRow({
   onToggleMode: (key: string, month: number) => void
   isLocked?: boolean
   showRealizado?: boolean
-  realizado?: Record<string, MonthRealizado>
-  year?: number
+  realizadoCells?: Record<string, Record<number, number | null>>
+  onUpdateRealizadoCell?: (key: string, month: number, value: number | null) => void
 }) {
   const isResult = !def.isKey
-  const mapping = FIN_REALIZADO_MAP[def.key]
-  const hasRealizado = showRealizado && mapping && realizado && year
+  const hasRealizado = showRealizado && realizadoCells
 
   // Row background: result rows get gradient
   const rowBg = isResult
@@ -580,13 +624,10 @@ function MetricRow({
       : undefined
 
   const getRealVal = (month: number): number => {
-    if (!mapping || !realizado || !year) return 0
-    const key = getRealizadoMonthKey(year, month)
-    return realizado[key]?.[mapping.field] ?? 0
+    return realizadoCells?.[def.key]?.[month] ?? 0
   }
 
   const getRealAgg = (months: number[]): number => {
-    if (!mapping || !realizado || !year) return 0
     if (def.format === 'percent' || def.format === 'decimal') {
       const vals = months.map(m => getRealVal(m)).filter(v => v !== 0)
       return vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : 0
@@ -594,7 +635,11 @@ function MetricRow({
     return months.reduce((s, m) => s + getRealVal(m), 0)
   }
 
-  const annualReal = hasRealizado ? getRealAgg(FIN_MONTHS) : 0
+  const annualReal = hasRealizado ? getRealAgg([...MONTHS]) : 0
+
+  // Variance types
+  const varType = def.format === 'currency' ? 'currency' as const : def.format === 'percent' || def.format === 'decimal' ? 'pct' as const : 'number' as const
+  const invertColor = def.key.includes('MIDIA') || def.key.includes('IMPOSTO') || def.key.includes('TAXA')
 
   return (
     <>
@@ -701,14 +746,24 @@ function MetricRow({
       </td>
     </tr>
 
-    {/* Realizado sub-row */}
+    {/* Realizado sub-row — editable */}
     {hasRealizado && (
       <tr className="border-t border-border/20" style={{ background: 'rgba(201,151,26,0.02)' }}>
         <td className="sticky left-0 z-10 px-4 py-0 border-r border-border" style={{ background: '#0b1a0f', borderLeft: leftBorder }}>
-          <span className="italic text-text-muted" style={{ fontSize: 10, paddingLeft: def.isKey ? 14 : 0 }}>Real</span>
+          <span className="italic" style={{ fontSize: 10, paddingLeft: def.isKey ? 14 : 0, color: '#c9a84c' }}>Real</span>
         </td>
         {columns.map(col => {
-          const realVal = col.months.length === 1 ? getRealVal(col.months[0]) : getRealAgg(col.months)
+          if (col.months.length === 1) {
+            const m = col.months[0]
+            const realVal = getRealVal(m)
+            return (
+              <td key={col.key} className="px-1 py-0 text-center">
+                <FinRealizadoCell value={realVal || null} format={def.format} decimals={def.decimals}
+                  onSave={v => onUpdateRealizadoCell?.(def.key, m, v)} />
+              </td>
+            )
+          }
+          const realVal = getRealAgg(col.months)
           return (
             <td key={col.key} className="px-1 py-0 text-center">
               <span className="tabular-nums px-2 py-1 block" style={{ fontSize: 11, color: realVal === 0 ? '#4a5a4f' : 'rgba(255,255,255,0.55)' }}>
@@ -736,12 +791,12 @@ function MetricRow({
           const realVal = col.months.length === 1 ? getRealVal(col.months[0]) : getRealAgg(col.months)
           return (
             <td key={col.key} className="px-1 py-0 text-center">
-              <VarianceBadge previsto={prevVal} realizado={realVal} type={mapping.type} invertColor={mapping.invertColor} />
+              <VarianceBadge previsto={prevVal} realizado={realVal} type={varType} invertColor={invertColor} />
             </td>
           )
         })}
         <td className="px-3 py-0 text-center border-l border-border">
-          <VarianceBadge previsto={annual} realizado={annualReal} type={mapping.type} invertColor={mapping.invertColor} />
+          <VarianceBadge previsto={annual} realizado={annualReal} type={varType} invertColor={invertColor} />
         </td>
       </tr>
     )}
@@ -916,5 +971,63 @@ function EditableCell({
         </button>
       )}
     </div>
+  )
+}
+
+// ============================================================
+// Realizado Editable Cell (for DRE)
+// ============================================================
+
+function FinRealizadoCell({ value, format, decimals, onSave }: {
+  value: number | null; format: string; decimals?: number; onSave: (v: number | null) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [inputValue, setInputValue] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const isCurrency = format === 'currency'
+  const isPct = format === 'percent' || format === 'decimal'
+
+  function startEdit() {
+    setInputValue(value != null ? String(value).replace('.', ',') : '')
+    setEditing(true)
+  }
+
+  useEffect(() => { if (editing) inputRef.current?.focus() }, [editing])
+
+  function commit() {
+    setEditing(false)
+    const trimmed = inputValue.trim()
+    const num = trimmed === '' ? null : parseFloat(trimmed.replace(',', '.'))
+    if (num !== null && isNaN(num)) return
+    onSave(num)
+  }
+
+  if (editing) {
+    return (
+      <div className="relative flex items-center">
+        {isCurrency && <span className="absolute left-1.5 text-brand-gold/60" style={{ fontSize: 10 }}>R$</span>}
+        <input ref={inputRef} type="text" value={inputValue}
+          onChange={e => setInputValue(e.target.value.replace(/[^0-9,.\-]/g, ''))}
+          onBlur={commit}
+          onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false) }}
+          className="w-full border rounded py-1 text-center outline-none tabular-nums"
+          style={{ fontSize: 11, background: 'rgba(201,168,76,0.08)', borderColor: 'rgba(201,168,76,0.4)', color: '#e8e0d0', paddingLeft: isCurrency ? 24 : 8, paddingRight: isPct ? 20 : 8 }} />
+        {isPct && <span className="absolute right-1.5 text-brand-gold/60" style={{ fontSize: 10 }}>%</span>}
+      </div>
+    )
+  }
+
+  function fmtDisplay(v: number | null): string {
+    if (v === null || v === undefined) return '\u2014'
+    return formatMetricValue(v, format as any, decimals)
+  }
+
+  return (
+    <button onClick={startEdit}
+      className="w-full tabular-nums px-2 py-1 rounded hover:bg-bg-hover transition-colors cursor-text text-center block"
+      style={{ fontSize: 11, color: value ? 'rgba(255,255,255,0.55)' : '#4a5a4f' }}>
+      {fmtDisplay(value)}
+    </button>
   )
 }

@@ -112,6 +112,7 @@ export default async function PlanejamentoFinanceiroYearPage({ params }: Props) 
         value_numeric: m.value_numeric,
         delta_pct: m.delta_pct,
         input_mode: m.input_mode,
+        is_realizado: (m as any).is_realizado ?? false,
       }))}
     />
   )
