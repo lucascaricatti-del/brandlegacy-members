@@ -68,6 +68,7 @@ export default async function AdminPlannerPage({ params, searchParams }: Props) 
           input_mode: m.input_mode,
         }))}
         isAdmin
+        initialMetadata={(planResult.plan as any).metadata ?? {}}
       />
     </div>
   )

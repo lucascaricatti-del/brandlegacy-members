@@ -63,6 +63,7 @@ export default async function PlanejamentoMidiaYearPage({ params }: Props) {
         delta_pct: m.delta_pct,
         input_mode: m.input_mode,
       }))}
+      initialMetadata={(planResult.plan as any).metadata ?? {}}
     />
   )
 }

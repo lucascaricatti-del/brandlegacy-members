@@ -7,7 +7,7 @@ import {
   isKeyMetric, calcAllMonths, resolveValue, formatMetricValue, calcAnnualSummary,
   type KeyValues, type MetricKey, type ResultMetric, type MetricDef,
 } from '@/lib/utils/media-plan-calc'
-import { upsertMetrics, upsertMetricsAdmin } from '@/app/actions/media-plan'
+import { upsertMetrics, upsertMetricsAdmin, updateMediaPlanMetadata } from '@/app/actions/media-plan'
 
 // ============================================================
 // View mode types
@@ -35,6 +35,14 @@ interface CellData {
   mode: 'value' | 'delta_pct'
 }
 
+interface MinInvestMeta {
+  enabled?: boolean
+  pct?: number // % of RECEITA_META to use as min investment
+  meta_pct?: number
+  google_pct?: number
+  influencer_pct?: number
+}
+
 interface Props {
   planId: string
   workspaceId: string
@@ -47,13 +55,14 @@ interface Props {
     input_mode: string
   }>
   isAdmin?: boolean
+  initialMetadata?: Record<string, any>
 }
 
 // ============================================================
 // Component
 // ============================================================
 
-export default function PlannerClient({ planId, workspaceId, year, initialMetrics, isAdmin }: Props) {
+export default function PlannerClient({ planId, workspaceId, year, initialMetrics, isAdmin, initialMetadata }: Props) {
   const searchParams = useSearchParams()
   const initialTab = searchParams.get('tab') === 'sales_forecast' ? 'sales_forecast' : 'midia_plan'
   const [topTab, setTopTab] = useState<TopTab>(initialTab)
@@ -69,6 +78,27 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
     }
     return map
   })
+
+  // Min investment state
+  const [minInvest, setMinInvest] = useState<MinInvestMeta>(() => {
+    const mi = initialMetadata?.min_invest
+    return {
+      enabled: mi?.enabled ?? false,
+      pct: mi?.pct ?? 10,
+      meta_pct: mi?.meta_pct ?? 50,
+      google_pct: mi?.google_pct ?? 30,
+      influencer_pct: mi?.influencer_pct ?? 20,
+    }
+  })
+  const minInvestTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const saveMinInvest = useCallback((next: MinInvestMeta) => {
+    setMinInvest(next)
+    if (minInvestTimerRef.current) clearTimeout(minInvestTimerRef.current)
+    minInvestTimerRef.current = setTimeout(async () => {
+      await updateMediaPlanMetadata(workspaceId, planId, { min_invest: next })
+    }, 800)
+  }, [workspaceId, planId])
 
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set())
   const [viewMode, setViewMode] = useState<ViewMode>('completo')
@@ -379,7 +409,17 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
                     annualSummary={annualSummary}
                     onUpdateCell={updateCell}
                     onToggleMode={toggleMode}
-                  />
+                  >
+                    {/* Min Investment toggle after INVESTIMENTOS section */}
+                    {section.key === 'investimentos' && !isCollapsed && (
+                      <MinInvestSection
+                        minInvest={minInvest}
+                        onUpdate={saveMinInvest}
+                        columns={columns}
+                        getCellValue={getCellValue}
+                      />
+                    )}
+                  </SectionGroup>
                 )
               })}
             </tbody>
@@ -409,86 +449,158 @@ export default function PlannerClient({ planId, workspaceId, year, initialMetric
 // ============================================================
 
 type SFColumn = { key: string; label: string; months: number[]; color?: string }
-type ForecastChannel = 'ecommerce' | 'marketplaces' | 'consolidado'
 type ForecastRow = {
   key: string
   label: string
   section: string
   editable: boolean
   format: 'currency' | 'number' | 'percent' | 'roas'
-  field?: string // maps to DB column for editable fields
+  field?: string
   highlight?: boolean
   resultColor?: 'gold' | 'profit'
+  imported?: boolean // shows imported badge
+  consolidadoOnly?: boolean // only in consolidado
 }
 
 const SF_MONTHS = [1,2,3,4,5,6,7,8,9,10,11,12]
 const SF_MONTH_LABELS = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
 
-const FORECAST_ROWS: ForecastRow[] = [
-  // FATURAMENTO
+// E-commerce rows
+const ECOM_ROWS: ForecastRow[] = [
+  { key: 'faturamento_bruto', label: 'Receita Faturada', section: 'faturamento', editable: true, format: 'currency', field: 'faturamento_bruto', imported: true },
+  { key: 'pedidos', label: 'Pedidos Faturados', section: 'faturamento', editable: true, format: 'number', field: 'pedidos', imported: true },
+  { key: 'ticket_medio', label: 'Ticket Medio', section: 'faturamento', editable: false, format: 'currency', resultColor: 'gold' },
+  { key: 'imposto_pct', label: 'Impostos %', section: 'taxas', editable: true, format: 'percent', field: 'imposto_pct' },
+  { key: 'imposto_rs', label: 'Impostos R$', section: 'taxas', editable: false, format: 'currency', resultColor: 'gold' },
+  { key: 'taxas_pct', label: 'Taxas %', section: 'taxas', editable: true, format: 'percent', field: 'taxas_pct' },
+  { key: 'taxas_rs', label: 'Taxas R$', section: 'taxas', editable: false, format: 'currency', resultColor: 'gold' },
+  { key: 'cmv_pct', label: 'CMV %', section: 'cmv', editable: true, format: 'percent', field: 'cmv_pct' },
+  { key: 'cmv_rs', label: 'CMV R$', section: 'cmv', editable: false, format: 'currency', resultColor: 'gold' },
+  { key: 'investimento_midia', label: 'Investimento Midia', section: 'midia', editable: false, format: 'currency', resultColor: 'gold', imported: true },
+  { key: 'roas', label: 'ROAS', section: 'midia', editable: false, format: 'roas', resultColor: 'gold' },
+  { key: 'faturamento_liquido', label: 'Faturamento Liquido', section: 'resultado', editable: false, format: 'currency', resultColor: 'gold', highlight: true },
+  { key: 'lucro_apos_aquisicao', label: 'Lucro Apos Aquisicao', section: 'resultado', editable: false, format: 'currency', resultColor: 'profit', highlight: true },
+]
+
+// Marketplace rows (custom channels)
+const MARKETPLACE_ROWS: ForecastRow[] = [
   { key: 'faturamento_bruto', label: 'Faturamento Bruto', section: 'faturamento', editable: true, format: 'currency', field: 'faturamento_bruto' },
   { key: 'pedidos', label: 'Pedidos', section: 'faturamento', editable: true, format: 'number', field: 'pedidos' },
-  { key: 'ticket_medio', label: 'Ticket Médio', section: 'faturamento', editable: false, format: 'currency', resultColor: 'gold' },
-  // TAXAS & COMISSÕES
+  { key: 'ticket_medio', label: 'Ticket Medio', section: 'faturamento', editable: false, format: 'currency', resultColor: 'gold' },
+  { key: 'comissao_marketplace_pct', label: 'Comissao Marketplace %', section: 'taxas', editable: true, format: 'percent', field: 'comissao_marketplace_pct' },
+  { key: 'comissao_marketplace_rs', label: 'Comissao R$', section: 'taxas', editable: false, format: 'currency', resultColor: 'gold' },
   { key: 'imposto_pct', label: 'Impostos %', section: 'taxas', editable: true, format: 'percent', field: 'imposto_pct' },
   { key: 'imposto_rs', label: 'Impostos R$', section: 'taxas', editable: false, format: 'currency', resultColor: 'gold' },
   { key: 'cmv_pct', label: 'CMV %', section: 'taxas', editable: true, format: 'percent', field: 'cmv_pct' },
   { key: 'cmv_rs', label: 'CMV R$', section: 'taxas', editable: false, format: 'currency', resultColor: 'gold' },
-  // MÍDIA
-  { key: 'investimento_midia', label: 'Investimento Mídia', section: 'midia', editable: true, format: 'currency', field: 'investimento_midia' },
-  { key: 'roas', label: 'ROAS', section: 'midia', editable: false, format: 'roas', resultColor: 'gold' },
-  // RESULTADO
-  { key: 'faturamento_liquido', label: 'Faturamento Líquido', section: 'resultado', editable: false, format: 'currency', resultColor: 'gold', highlight: true },
-  { key: 'lucro_apos_aquisicao', label: 'Lucro Após Aquisição', section: 'resultado', editable: false, format: 'currency', resultColor: 'profit', highlight: true },
+  { key: 'faturamento_liquido', label: 'Faturamento Liquido', section: 'resultado', editable: false, format: 'currency', resultColor: 'gold', highlight: true },
+  { key: 'lucro_apos_aquisicao', label: 'Lucro Apos Aquisicao', section: 'resultado', editable: false, format: 'currency', resultColor: 'profit', highlight: true },
 ]
 
-const SF_SECTIONS = [
-  { key: 'faturamento', label: 'FATURAMENTO', icon: '💰', color: 'text-brand-gold' },
-  { key: 'taxas', label: 'TAXAS & COMISSÕES', icon: '📊', color: 'text-yellow-400' },
-  { key: 'midia', label: 'MÍDIA', icon: '📢', color: 'text-blue-400' },
-  { key: 'resultado', label: 'RESULTADO', icon: '🎯', color: 'text-emerald-400' },
+// Consolidado rows
+const CONSOLIDADO_ROWS: ForecastRow[] = [
+  { key: 'faturamento_bruto', label: 'Faturamento Bruto Total', section: 'faturamento', editable: false, format: 'currency', resultColor: 'gold' },
+  { key: 'pedidos', label: 'Pedidos Total', section: 'faturamento', editable: false, format: 'number', resultColor: 'gold' },
+  { key: 'ticket_medio', label: 'Ticket Medio', section: 'faturamento', editable: false, format: 'currency', resultColor: 'gold' },
+  { key: 'imposto_rs', label: 'Impostos R$', section: 'taxas', editable: false, format: 'currency', resultColor: 'gold' },
+  { key: 'taxas_rs', label: 'Taxas R$', section: 'taxas', editable: false, format: 'currency', resultColor: 'gold' },
+  { key: 'comissao_marketplace_rs', label: 'Comissoes Marketplace R$', section: 'taxas', editable: false, format: 'currency', resultColor: 'gold' },
+  { key: 'cmv_rs', label: 'CMV R$', section: 'cmv', editable: false, format: 'currency', resultColor: 'gold' },
+  { key: 'cmv_pct', label: 'CMV %', section: 'cmv', editable: false, format: 'percent', resultColor: 'gold' },
+  { key: 'cancelamento_pct', label: 'Cancelamentos %', section: 'cancelamento', editable: true, format: 'percent', field: 'cancelamento_pct', consolidadoOnly: true },
+  { key: 'cancelamento_rs', label: 'Cancelamentos R$', section: 'cancelamento', editable: false, format: 'currency', resultColor: 'gold' },
+  { key: 'logistica_rs', label: 'Logistica R$', section: 'logistica', editable: true, format: 'currency', field: 'logistica_rs', consolidadoOnly: true },
+  { key: 'investimento_midia', label: 'Investimento Midia Total', section: 'midia', editable: false, format: 'currency', resultColor: 'gold' },
+  { key: 'roas', label: 'ROAS Consolidado', section: 'midia', editable: false, format: 'roas', resultColor: 'gold' },
+  { key: 'faturamento_liquido', label: 'Faturamento Liquido', section: 'resultado', editable: false, format: 'currency', resultColor: 'gold', highlight: true },
+  { key: 'lucro_apos_aquisicao', label: 'Lucro Apos Aquisicao', section: 'resultado', editable: false, format: 'currency', resultColor: 'profit', highlight: true },
+]
+
+const ECOM_SECTIONS = [
+  { key: 'faturamento', label: 'FATURAMENTO', color: 'text-brand-gold' },
+  { key: 'taxas', label: 'TAXAS & COMISSOES', color: 'text-yellow-400' },
+  { key: 'cmv', label: 'CMV', color: 'text-orange-400' },
+  { key: 'midia', label: 'MIDIA', color: 'text-blue-400' },
+  { key: 'resultado', label: 'RESULTADO', color: 'text-emerald-400' },
+]
+
+const MARKETPLACE_SECTIONS = [
+  { key: 'faturamento', label: 'FATURAMENTO', color: 'text-brand-gold' },
+  { key: 'taxas', label: 'TAXAS & COMISSOES', color: 'text-yellow-400' },
+  { key: 'resultado', label: 'RESULTADO', color: 'text-emerald-400' },
+]
+
+const CONSOLIDADO_SECTIONS = [
+  { key: 'faturamento', label: 'FATURAMENTO', color: 'text-brand-gold' },
+  { key: 'taxas', label: 'TAXAS & COMISSOES', color: 'text-yellow-400' },
+  { key: 'cmv', label: 'CMV', color: 'text-orange-400' },
+  { key: 'cancelamento', label: 'CANCELAMENTOS', color: 'text-red-400' },
+  { key: 'logistica', label: 'LOGISTICA', color: 'text-purple-400' },
+  { key: 'midia', label: 'MIDIA', color: 'text-blue-400' },
+  { key: 'resultado', label: 'RESULTADO', color: 'text-emerald-400' },
 ]
 
 type ForecastData = Record<string, Record<number, Record<string, number | null>>>
-// channel -> month -> field -> value
+
+const ALL_FIELDS = [
+  'faturamento_bruto', 'pedidos', 'investimento_midia', 'imposto_pct', 'cmv_pct',
+  'taxas_pct', 'comissao_marketplace_pct', 'cancelamento_pct', 'logistica_rs',
+  'ticket_medio', 'imposto_rs', 'cmv_rs', 'taxas_rs', 'comissao_marketplace_rs',
+  'cancelamento_rs', 'faturamento_liquido', 'lucro_apos_aquisicao', 'roas',
+  'imported_from_midia_plan',
+]
+
+function parseForecast(f: any): Record<string, number | null> {
+  const r: Record<string, number | null> = {}
+  for (const k of ALL_FIELDS) {
+    r[k] = f[k] != null ? Number(f[k]) : null
+  }
+  return r
+}
 
 function SalesForecastTab({ workspaceId, year, isAdmin }: { workspaceId: string; year: number; isAdmin?: boolean }) {
-  const [channel, setChannel] = useState<ForecastChannel>('ecommerce')
+  const [channel, setChannel] = useState('ecommerce')
   const [data, setData] = useState<ForecastData>({})
   const [loading, setLoading] = useState(true)
   const [savingCell, setSavingCell] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
   const [importMsg, setImportMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
   const [sfViewMode, setSfViewMode] = useState<'completo' | 'quarters'>('completo')
-  const [sfSelectedMonth, setSfSelectedMonth] = useState(new Date().getMonth() + 1)
+  const [addChannelOpen, setAddChannelOpen] = useState(false)
+  const [newChannelName, setNewChannelName] = useState('')
+  const [renamingChannel, setRenamingChannel] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+
+  const loadData = useCallback(async () => {
+    const r = await fetch(`/api/sales-forecast?workspace_id=${workspaceId}&year=${year}`)
+    const json = await r.json()
+    const map: ForecastData = {}
+    for (const f of json.forecasts || []) {
+      if (!map[f.channel]) map[f.channel] = {}
+      map[f.channel][f.month] = parseForecast(f)
+    }
+    setData(map)
+  }, [workspaceId, year])
 
   useEffect(() => {
     setLoading(true)
-    fetch(`/api/sales-forecast?workspace_id=${workspaceId}&year=${year}`)
-      .then(r => r.json())
-      .then(json => {
-        const map: ForecastData = {}
-        for (const f of json.forecasts || []) {
-          if (!map[f.channel]) map[f.channel] = {}
-          map[f.channel][f.month] = {
-            faturamento_bruto: f.faturamento_bruto != null ? Number(f.faturamento_bruto) : null,
-            pedidos: f.pedidos != null ? Number(f.pedidos) : null,
-            investimento_midia: f.investimento_midia != null ? Number(f.investimento_midia) : null,
-            imposto_pct: f.imposto_pct != null ? Number(f.imposto_pct) : null,
-            cmv_pct: f.cmv_pct != null ? Number(f.cmv_pct) : null,
-            ticket_medio: f.ticket_medio != null ? Number(f.ticket_medio) : null,
-            imposto_rs: f.imposto_rs != null ? Number(f.imposto_rs) : null,
-            cmv_rs: f.cmv_rs != null ? Number(f.cmv_rs) : null,
-            faturamento_liquido: f.faturamento_liquido != null ? Number(f.faturamento_liquido) : null,
-            lucro_apos_aquisicao: f.lucro_apos_aquisicao != null ? Number(f.lucro_apos_aquisicao) : null,
-            roas: f.roas != null ? Number(f.roas) : null,
-          }
-        }
-        setData(map)
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [workspaceId, year])
+    loadData().finally(() => setLoading(false))
+  }, [loadData])
+
+  // Discover all channels from data
+  const channels = useMemo(() => {
+    const all = new Set(Object.keys(data))
+    all.add('ecommerce')
+    all.delete('consolidado')
+    const sorted = ['ecommerce', ...Array.from(all).filter(c => c !== 'ecommerce').sort()]
+    sorted.push('consolidado')
+    return sorted
+  }, [data])
+
+  const isEcommerce = channel === 'ecommerce'
+  const isConsolidado = channel === 'consolidado'
+  const isMarketplace = !isEcommerce && !isConsolidado
+  const otherChannels = channels.filter(c => c !== 'consolidado')
 
   async function handleImportMidia() {
     setImporting(true)
@@ -504,33 +616,67 @@ function SalesForecastTab({ workspaceId, year, isAdmin }: { workspaceId: string;
         setImportMsg({ type: 'err', text: json.error || 'Erro ao importar' })
       } else {
         setImportMsg({ type: 'ok', text: `${json.imported} meses importados do Midia Plan!` })
-        // Reload data
-        const r2 = await fetch(`/api/sales-forecast?workspace_id=${workspaceId}&year=${year}`)
-        const j2 = await r2.json()
-        const map: ForecastData = {}
-        for (const f of j2.forecasts || []) {
-          if (!map[f.channel]) map[f.channel] = {}
-          map[f.channel][f.month] = {
-            faturamento_bruto: f.faturamento_bruto != null ? Number(f.faturamento_bruto) : null,
-            pedidos: f.pedidos != null ? Number(f.pedidos) : null,
-            investimento_midia: f.investimento_midia != null ? Number(f.investimento_midia) : null,
-            imposto_pct: f.imposto_pct != null ? Number(f.imposto_pct) : null,
-            cmv_pct: f.cmv_pct != null ? Number(f.cmv_pct) : null,
-            ticket_medio: f.ticket_medio != null ? Number(f.ticket_medio) : null,
-            imposto_rs: f.imposto_rs != null ? Number(f.imposto_rs) : null,
-            cmv_rs: f.cmv_rs != null ? Number(f.cmv_rs) : null,
-            faturamento_liquido: f.faturamento_liquido != null ? Number(f.faturamento_liquido) : null,
-            lucro_apos_aquisicao: f.lucro_apos_aquisicao != null ? Number(f.lucro_apos_aquisicao) : null,
-            roas: f.roas != null ? Number(f.roas) : null,
-          }
-        }
-        setData(map)
+        await loadData()
       }
     } catch {
       setImportMsg({ type: 'err', text: 'Erro ao importar' })
     }
     setImporting(false)
     setTimeout(() => setImportMsg(null), 4000)
+  }
+
+  async function addChannel() {
+    const name = newChannelName.trim()
+    if (!name) return
+    const slug = name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').slice(0, 50)
+    if (!slug || slug === 'ecommerce' || slug === 'consolidado') return
+    // Create an empty row for month 1 to register the channel
+    await fetch('/api/sales-forecast', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace_id: workspaceId, year, month: 1, channel: slug }),
+    })
+    await loadData()
+    setChannel(slug)
+    setAddChannelOpen(false)
+    setNewChannelName('')
+  }
+
+  async function deleteChannel(ch: string) {
+    if (!confirm(`Remover canal "${ch}" e todos os dados?`)) return
+    await fetch('/api/sales-forecast', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace_id: workspaceId, year, channel: ch }),
+    })
+    if (channel === ch) setChannel('ecommerce')
+    await loadData()
+  }
+
+  async function renameChannel(oldName: string, newName: string) {
+    const slug = newName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').slice(0, 50)
+    if (!slug || slug === oldName || slug === 'ecommerce' || slug === 'consolidado') {
+      setRenamingChannel(null)
+      return
+    }
+    // Copy all data to new channel, delete old
+    const oldData = data[oldName] || {}
+    for (const [monthStr, fields] of Object.entries(oldData)) {
+      const m = parseInt(monthStr)
+      await fetch('/api/sales-forecast', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: workspaceId, year, month: m, channel: slug, ...fields }),
+      })
+    }
+    await fetch('/api/sales-forecast', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace_id: workspaceId, year, channel: oldName }),
+    })
+    setChannel(slug)
+    setRenamingChannel(null)
+    await loadData()
   }
 
   const sfColumns = useMemo<SFColumn[]>(() => {
@@ -545,63 +691,125 @@ function SalesForecastTab({ workspaceId, year, isAdmin }: { workspaceId: string;
     return SF_MONTHS.map((m, i) => ({ key: `m${m}`, label: SF_MONTH_LABELS[i], months: [m] }))
   }, [sfViewMode])
 
-  // Get value for a cell — for consolidado, sum ecommerce + marketplaces
-  function getValue(ch: ForecastChannel, month: number, field: string): number | null {
-    if (ch === 'consolidado') {
-      const e = data['ecommerce']?.[month]?.[field] ?? null
-      const m = data['marketplaces']?.[month]?.[field] ?? null
-      if (e === null && m === null) return null
-      // For % fields, compute weighted average
-      if (field === 'imposto_pct' || field === 'cmv_pct') {
-        const eRev = data['ecommerce']?.[month]?.['faturamento_bruto'] ?? 0
-        const mRev = data['marketplaces']?.[month]?.['faturamento_bruto'] ?? 0
-        const total = eRev + mRev
-        if (total === 0) return null
-        return Math.round(((e ?? 0) * eRev + (m ?? 0) * mRev) / total * 100) / 100
-      }
-      // For ticket_medio, recalculate from sums
-      if (field === 'ticket_medio') {
-        const totalRev = (data['ecommerce']?.[month]?.['faturamento_bruto'] ?? 0) + (data['marketplaces']?.[month]?.['faturamento_bruto'] ?? 0)
-        const totalOrd = (data['ecommerce']?.[month]?.['pedidos'] ?? 0) + (data['marketplaces']?.[month]?.['pedidos'] ?? 0)
-        return totalOrd > 0 ? Math.round(totalRev / totalOrd * 100) / 100 : null
-      }
-      // For ROAS, recalculate from sums
-      if (field === 'roas') {
-        const totalRev = (data['ecommerce']?.[month]?.['faturamento_bruto'] ?? 0) + (data['marketplaces']?.[month]?.['faturamento_bruto'] ?? 0)
-        const totalSpend = (data['ecommerce']?.[month]?.['investimento_midia'] ?? 0) + (data['marketplaces']?.[month]?.['investimento_midia'] ?? 0)
-        return totalSpend > 0 ? Math.round(totalRev / totalSpend * 100) / 100 : null
-      }
-      return (e ?? 0) + (m ?? 0)
-    }
-    return data[ch]?.[month]?.[field] ?? null
-  }
-
-  // Compute derived values client-side for immediate feedback
-  function getDisplayValue(ch: ForecastChannel, month: number, field: string): number | null {
-    if (ch === 'consolidado') return getValue(ch, month, field)
-
+  // Compute derived value for a single channel (not consolidado)
+  function getDisplayValue(ch: string, month: number, field: string): number | null {
+    if (ch === 'consolidado') return getConsolidadoValue(month, field)
     const raw = data[ch]?.[month]
     if (!raw) return null
-
     const fb = raw.faturamento_bruto ?? 0
     const ped = raw.pedidos ?? 0
     const imp = raw.imposto_pct ?? 0
     const cmv = raw.cmv_pct ?? 0
     const inv = raw.investimento_midia ?? 0
+    const taxas = raw.taxas_pct ?? 0
+    const comMkt = raw.comissao_marketplace_pct ?? 0
+    const cancel = raw.cancelamento_pct ?? 0
+    const logist = raw.logistica_rs ?? 0
 
     switch (field) {
       case 'ticket_medio': return ped > 0 ? Math.round(fb / ped * 100) / 100 : null
       case 'imposto_rs': return Math.round(fb * imp / 100 * 100) / 100
+      case 'taxas_rs': return Math.round(fb * taxas / 100 * 100) / 100
+      case 'comissao_marketplace_rs': return Math.round(fb * comMkt / 100 * 100) / 100
       case 'cmv_rs': return Math.round(fb * cmv / 100 * 100) / 100
-      case 'faturamento_liquido': return Math.round(fb * (1 - imp / 100) * 100) / 100
-      case 'lucro_apos_aquisicao': return Math.round((fb * (1 - imp / 100 - cmv / 100) - inv) * 100) / 100
+      case 'cancelamento_rs': return Math.round(fb * cancel / 100 * 100) / 100
+      case 'faturamento_liquido': {
+        if (ch === 'ecommerce') return Math.round(fb * (1 - imp/100 - taxas/100) * 100) / 100
+        return Math.round(fb * (1 - imp/100 - comMkt/100) * 100) / 100
+      }
+      case 'lucro_apos_aquisicao': {
+        if (ch === 'ecommerce') return Math.round((fb * (1 - imp/100 - taxas/100 - cmv/100) - inv) * 100) / 100
+        return Math.round((fb * (1 - imp/100 - comMkt/100 - cmv/100)) * 100) / 100
+      }
       case 'roas': return inv > 0 ? Math.round(fb / inv * 100) / 100 : null
       default: return raw[field] ?? null
     }
   }
 
-  // Annual total for a row
-  function getAnnual(ch: ForecastChannel, field: string, format: string): number | null {
+  // Consolidado: aggregate all other channels
+  function getConsolidadoValue(month: number, field: string): number | null {
+    const consolData = data['consolidado']?.[month]
+
+    // Manual consolidado-only fields
+    if (field === 'cancelamento_pct') return consolData?.cancelamento_pct ?? null
+    if (field === 'logistica_rs') return consolData?.logistica_rs ?? null
+
+    // Sum across all non-consolidado channels
+    const sumField = (f: string) => {
+      let total = 0; let hasAny = false
+      for (const ch of otherChannels) {
+        const v = getDisplayValue(ch, month, f)
+        if (v !== null) { total += v; hasAny = true }
+      }
+      return hasAny ? total : null
+    }
+
+    if (field === 'faturamento_bruto' || field === 'pedidos' || field === 'imposto_rs' ||
+        field === 'cmv_rs' || field === 'investimento_midia') {
+      return sumField(field)
+    }
+
+    if (field === 'taxas_rs') {
+      // Only from ecommerce
+      return getDisplayValue('ecommerce', month, 'taxas_rs')
+    }
+
+    if (field === 'comissao_marketplace_rs') {
+      let total = 0; let hasAny = false
+      for (const ch of otherChannels) {
+        if (ch === 'ecommerce') continue
+        const v = getDisplayValue(ch, month, 'comissao_marketplace_rs')
+        if (v !== null) { total += v; hasAny = true }
+      }
+      return hasAny ? total : null
+    }
+
+    if (field === 'ticket_medio') {
+      const totalRev = sumField('faturamento_bruto')
+      const totalOrd = sumField('pedidos')
+      return totalOrd && totalOrd > 0 ? Math.round((totalRev ?? 0) / totalOrd * 100) / 100 : null
+    }
+
+    if (field === 'cmv_pct') {
+      const totalCmvRs = sumField('cmv_rs')
+      const totalRev = sumField('faturamento_bruto')
+      return totalRev && totalRev > 0 ? Math.round((totalCmvRs ?? 0) / totalRev * 100 * 100) / 100 : null
+    }
+
+    if (field === 'cancelamento_rs') {
+      const totalRev = sumField('faturamento_bruto')
+      const cancelPct = consolData?.cancelamento_pct ?? 0
+      return totalRev ? Math.round(totalRev * cancelPct / 100 * 100) / 100 : null
+    }
+
+    if (field === 'roas') {
+      const totalRev = sumField('faturamento_bruto')
+      const totalSpend = sumField('investimento_midia')
+      return totalSpend && totalSpend > 0 ? Math.round((totalRev ?? 0) / totalSpend * 100) / 100 : null
+    }
+
+    if (field === 'faturamento_liquido') {
+      const bruto = sumField('faturamento_bruto') ?? 0
+      const impostos = sumField('imposto_rs') ?? 0
+      const taxas = getDisplayValue('ecommerce', month, 'taxas_rs') ?? 0
+      const comissoes = (() => { let t = 0; for (const ch of otherChannels) { if (ch === 'ecommerce') continue; t += getDisplayValue(ch, month, 'comissao_marketplace_rs') ?? 0 } return t })()
+      const cancelPct = consolData?.cancelamento_pct ?? 0
+      const cancelRs = Math.round(bruto * cancelPct / 100 * 100) / 100
+      return Math.round((bruto - impostos - taxas - comissoes - cancelRs) * 100) / 100
+    }
+
+    if (field === 'lucro_apos_aquisicao') {
+      const liquido = getConsolidadoValue(month, 'faturamento_liquido') ?? 0
+      const cmv = sumField('cmv_rs') ?? 0
+      const logistica = consolData?.logistica_rs ?? 0
+      const midia = sumField('investimento_midia') ?? 0
+      return Math.round((liquido - cmv - logistica - midia) * 100) / 100
+    }
+
+    return null
+  }
+
+  function getAnnual(ch: string, field: string, format: string): number | null {
     const values = SF_MONTHS.map(m => getDisplayValue(ch, m, field))
     const nonNull = values.filter(v => v !== null) as number[]
     if (nonNull.length === 0) return null
@@ -611,11 +819,10 @@ function SalesForecastTab({ workspaceId, year, isAdmin }: { workspaceId: string;
     return Math.round(nonNull.reduce((s, v) => s + v, 0) * 100) / 100
   }
 
-  async function saveCell(ch: ForecastChannel, month: number, field: string, value: number | null) {
+  async function saveCell(ch: string, month: number, field: string, value: number | null) {
     const cellKey = `${ch}-${month}-${field}`
     setSavingCell(cellKey)
 
-    // Update local state immediately
     setData(prev => {
       const next = { ...prev }
       if (!next[ch]) next[ch] = {}
@@ -625,19 +832,10 @@ function SalesForecastTab({ workspaceId, year, isAdmin }: { workspaceId: string;
     })
 
     try {
-      const body: any = { workspace_id: workspaceId, year, month, channel: ch }
-      // Send all editable fields for this cell's month/channel
-      const current = data[ch]?.[month] || {}
-      body.faturamento_bruto = field === 'faturamento_bruto' ? value : (current.faturamento_bruto ?? null)
-      body.pedidos = field === 'pedidos' ? value : (current.pedidos ?? null)
-      body.investimento_midia = field === 'investimento_midia' ? value : (current.investimento_midia ?? null)
-      body.imposto_pct = field === 'imposto_pct' ? value : (current.imposto_pct ?? null)
-      body.cmv_pct = field === 'cmv_pct' ? value : (current.cmv_pct ?? null)
-
       await fetch('/api/sales-forecast', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ workspace_id: workspaceId, year, month, channel: ch, [field]: value }),
       })
     } catch {}
     setSavingCell(null)
@@ -646,22 +844,29 @@ function SalesForecastTab({ workspaceId, year, isAdmin }: { workspaceId: string;
   function fmtVal(v: number | null, format: string): string {
     if (v === null || v === undefined) return '-'
     if (format === 'currency') return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 })
-    if (format === 'percent') return `${v}%`
+    if (format === 'percent') return `${v.toFixed(1).replace('.', ',')}%`
     if (format === 'roas') return v > 0 ? `${v.toFixed(1)}x` : '-'
     if (format === 'number') return v.toLocaleString('pt-BR')
     return String(v)
   }
 
-  const isConsolidado = channel === 'consolidado'
+  const currentRows = isConsolidado ? CONSOLIDADO_ROWS : isEcommerce ? ECOM_ROWS : MARKETPLACE_ROWS
+  const currentSections = isConsolidado ? CONSOLIDADO_SECTIONS : isEcommerce ? ECOM_SECTIONS : MARKETPLACE_SECTIONS
+
+  const channelLabel = (ch: string) => {
+    if (ch === 'ecommerce') return 'E-commerce'
+    if (ch === 'consolidado') return 'Consolidado'
+    return ch.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+  }
 
   return (
     <>
-      {/* Connection banner: Midia Plan → Sales Forecast */}
+      {/* Connection banner */}
       <div className="mb-4 px-4 py-3 rounded-lg border border-brand-gold/20 bg-brand-gold/5 flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#C9971A" strokeWidth="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>
           <span className="text-text-secondary">
-            <span className="font-medium text-brand-gold">Passo 1: Midia Plan</span> → <span className="font-medium text-brand-gold">Passo 2: Sales Forecast</span> → <a href="/ferramentas/forecast" className="font-medium text-brand-gold hover:underline">Passo 3: Forecast →</a>
+            <span className="font-medium text-brand-gold">Passo 1: Midia Plan</span> → <span className="font-medium text-brand-gold">Passo 2: Sales Forecast</span> → <a href="/ferramentas/forecast" className="font-medium text-brand-gold hover:underline">Passo 3: DRE →</a>
           </span>
         </div>
       </div>
@@ -670,10 +875,9 @@ function SalesForecastTab({ workspaceId, year, isAdmin }: { workspaceId: string;
       <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-text-primary">Sales Forecast {year}</h1>
-          <p className="text-sm text-text-muted mt-1">Projeção de faturamento, custos e lucro por canal</p>
+          <p className="text-sm text-text-muted mt-1">Projecao de faturamento, custos e lucro por canal</p>
         </div>
         <div className="flex items-center gap-3">
-          {/* View mode toggle */}
           <div className="flex gap-0.5 bg-bg-card border border-border rounded-lg p-0.5">
             {(['completo', 'quarters'] as const).map((mode) => (
               <button key={mode} onClick={() => setSfViewMode(mode)}
@@ -695,15 +899,17 @@ function SalesForecastTab({ workspaceId, year, isAdmin }: { workspaceId: string;
             </a>
           </div>
 
-          <button onClick={handleImportMidia} disabled={importing}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-500/10 border border-purple-500/20 text-sm text-purple-400 hover:bg-purple-500/20 transition-colors disabled:opacity-50">
-            {importing ? (
-              <span className="w-3.5 h-3.5 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
-            )}
-            Importar do Midia Plan
-          </button>
+          {isEcommerce && (
+            <button onClick={handleImportMidia} disabled={importing}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-500/10 border border-purple-500/20 text-sm text-purple-400 hover:bg-purple-500/20 transition-colors disabled:opacity-50">
+              {importing ? (
+                <span className="w-3.5 h-3.5 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
+              )}
+              Importar do Midia Plan
+            </button>
+          )}
         </div>
       </div>
 
@@ -713,15 +919,75 @@ function SalesForecastTab({ workspaceId, year, isAdmin }: { workspaceId: string;
         </div>
       )}
 
-      {/* Channel sub-tabs */}
-      <div className="flex gap-1 bg-bg-card border border-border rounded-xl p-1 mb-4">
-        {([['ecommerce', 'E-commerce'], ['marketplaces', 'Marketplaces'], ['consolidado', 'Consolidado']] as [ForecastChannel, string][]).map(([k, l]) => (
-          <button key={k} onClick={() => setChannel(k)}
-            className={`flex-1 px-3 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${
-              channel === k ? 'bg-brand-gold text-bg-base shadow-sm' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'
-            }`}>{l}{k === 'consolidado' && <span className="text-[10px] ml-1 opacity-70">(soma)</span>}</button>
+      {/* Channel tabs */}
+      <div className="flex gap-1 bg-bg-card border border-border rounded-xl p-1 mb-4 flex-wrap">
+        {channels.map(ch => (
+          <div key={ch} className="relative group flex items-center">
+            {renamingChannel === ch ? (
+              <input
+                autoFocus
+                value={renameValue}
+                onChange={e => setRenameValue(e.target.value)}
+                onBlur={() => renameChannel(ch, renameValue)}
+                onKeyDown={e => { if (e.key === 'Enter') renameChannel(ch, renameValue); if (e.key === 'Escape') setRenamingChannel(null) }}
+                className="px-3 py-2 text-sm rounded-lg bg-bg-hover border border-brand-gold/40 text-text-primary outline-none"
+                style={{ minWidth: 80 }}
+              />
+            ) : (
+              <button
+                onClick={() => setChannel(ch)}
+                onDoubleClick={() => {
+                  if (ch !== 'ecommerce' && ch !== 'consolidado') {
+                    setRenamingChannel(ch)
+                    setRenameValue(ch)
+                  }
+                }}
+                className={`px-3 py-2 text-sm font-medium rounded-lg transition-all cursor-pointer ${
+                  channel === ch ? 'bg-brand-gold text-bg-base shadow-sm' : 'text-text-secondary hover:bg-bg-hover hover:text-text-primary'
+                }`}
+              >
+                {channelLabel(ch)}
+                {ch === 'consolidado' && <span className="text-[10px] ml-1 opacity-70">(soma)</span>}
+              </button>
+            )}
+            {ch !== 'ecommerce' && ch !== 'consolidado' && channel !== ch && (
+              <button
+                onClick={() => deleteChannel(ch)}
+                className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500/80 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                style={{ fontSize: 10 }}
+                title="Remover canal"
+              >
+                x
+              </button>
+            )}
+          </div>
         ))}
+        <button onClick={() => setAddChannelOpen(true)}
+          className="px-3 py-2 text-sm font-medium rounded-lg text-brand-gold hover:bg-brand-gold/10 transition-colors cursor-pointer">
+          + Adicionar
+        </button>
       </div>
+
+      {/* Add channel modal */}
+      {addChannelOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setAddChannelOpen(false)}>
+          <div className="bg-bg-card border border-border rounded-xl p-6 w-full max-w-sm" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-text-primary mb-4">Adicionar Canal</h3>
+            <input
+              autoFocus
+              value={newChannelName}
+              onChange={e => setNewChannelName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') addChannel() }}
+              placeholder="Ex: Mercado Livre, Shopee, Amazon..."
+              className="w-full px-3 py-2 rounded-lg bg-bg-base border border-border text-text-primary placeholder:text-text-muted outline-none focus:border-brand-gold/40 mb-4"
+            />
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setAddChannelOpen(false)} className="px-4 py-2 text-sm text-text-muted hover:text-text-primary">Cancelar</button>
+              <button onClick={addChannel} className="px-4 py-2 text-sm bg-brand-gold text-bg-base rounded-lg font-medium hover:bg-brand-gold-light">Adicionar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="bg-bg-card border border-border rounded-xl p-16 text-center">
@@ -734,24 +1000,24 @@ function SalesForecastTab({ workspaceId, year, isAdmin }: { workspaceId: string;
               <thead>
                 <tr className="border-b border-border" style={{ background: 'linear-gradient(90deg, #0a1a0f, #0d2015)' }}>
                   <th className="sticky left-0 z-10 text-left px-4 py-3 font-semibold text-text-secondary min-w-[200px] border-r border-border" style={{ fontSize: 13, background: '#0a1a0f' }}>
-                    Métrica
+                    Metrica
                   </th>
                   {sfColumns.map((col) => (
                     <th key={col.key} className="px-2 py-3 text-center font-medium min-w-[100px]" style={{ fontSize: 12, color: col.color || undefined }}>{col.label}</th>
                   ))}
                   <th className="px-3 py-3 text-center font-bold min-w-[120px] border-l border-border" style={{ fontSize: 13, color: '#c9a84c' }}>
-                    Total/Média
+                    Total/Media
                   </th>
                 </tr>
               </thead>
               <tbody>
-                {SF_SECTIONS.map(section => {
-                  const rows = FORECAST_ROWS.filter(r => r.section === section.key)
+                {currentSections.map(section => {
+                  const rows = currentRows.filter(r => r.section === section.key)
                   return (
                     <SFSectionGroup key={section.key} section={section} rows={rows} channel={channel}
                       getDisplayValue={getDisplayValue} getAnnual={getAnnual} fmtVal={fmtVal}
                       isConsolidado={isConsolidado} saveCell={saveCell} savingCell={savingCell}
-                      columns={sfColumns} />
+                      columns={sfColumns} isImported={isEcommerce && data['ecommerce']?.[1]?.imported_from_midia_plan === 1} />
                   )
                 })}
               </tbody>
@@ -761,10 +1027,10 @@ function SalesForecastTab({ workspaceId, year, isAdmin }: { workspaceId: string;
       )}
 
       <div className="mt-4 flex items-center gap-6 text-xs text-text-muted flex-wrap">
-        <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-brand-gold" /> Editável</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded text-emerald-400" style={{ fontSize: 10 }}>●</span> Verde = lucro positivo</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded text-red-400" style={{ fontSize: 10 }}>●</span> Vermelho = prejuízo</span>
-        {isConsolidado && <span>Consolidado = soma de E-commerce + Marketplaces (somente leitura)</span>}
+        <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-brand-gold" /> Editavel</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded text-emerald-400" style={{ fontSize: 10 }}>*</span> Verde = lucro positivo</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded text-red-400" style={{ fontSize: 10 }}>*</span> Vermelho = prejuizo</span>
+        {isConsolidado && <span>Consolidado = soma de todos os canais (somente leitura exceto cancelamento e logistica)</span>}
       </div>
     </>
   )
@@ -774,24 +1040,24 @@ function SalesForecastTab({ workspaceId, year, isAdmin }: { workspaceId: string;
 // Sales Forecast Section Group
 // ============================================================
 
-function SFSectionGroup({ section, rows, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado, saveCell, savingCell, columns }: {
-  section: { key: string; label: string; icon: string; color: string }
+function SFSectionGroup({ section, rows, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado, saveCell, savingCell, columns, isImported }: {
+  section: { key: string; label: string; color: string }
   rows: ForecastRow[]
-  channel: ForecastChannel
-  getDisplayValue: (ch: ForecastChannel, m: number, field: string) => number | null
-  getAnnual: (ch: ForecastChannel, field: string, format: string) => number | null
+  channel: string
+  getDisplayValue: (ch: string, m: number, field: string) => number | null
+  getAnnual: (ch: string, field: string, format: string) => number | null
   fmtVal: (v: number | null, format: string) => string
   isConsolidado: boolean
-  saveCell: (ch: ForecastChannel, m: number, field: string, v: number | null) => void
+  saveCell: (ch: string, m: number, field: string, v: number | null) => void
   savingCell: string | null
   columns: SFColumn[]
+  isImported?: boolean
 }) {
   return (
     <>
       <tr className="border-t-2 border-border">
         <td colSpan={columns.length + 2} className="sticky left-0 z-10 px-4 py-3" style={{ background: '#0a1a0f' }}>
           <div className="flex items-center gap-2.5">
-            <span style={{ fontSize: 16 }}>{section.icon}</span>
             <span className={`font-bold uppercase tracking-wider ${section.color}`} style={{ fontSize: 13 }}>{section.label}</span>
           </div>
         </td>
@@ -799,7 +1065,7 @@ function SFSectionGroup({ section, rows, channel, getDisplayValue, getAnnual, fm
       {rows.map(row => (
         <SFRow key={row.key} row={row} channel={channel} getDisplayValue={getDisplayValue}
           getAnnual={getAnnual} fmtVal={fmtVal} isConsolidado={isConsolidado} saveCell={saveCell} savingCell={savingCell}
-          columns={columns} />
+          columns={columns} isImported={isImported} />
       ))}
     </>
   )
@@ -809,20 +1075,22 @@ function SFSectionGroup({ section, rows, channel, getDisplayValue, getAnnual, fm
 // Sales Forecast Row
 // ============================================================
 
-function SFRow({ row, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado, saveCell, savingCell, columns }: {
+function SFRow({ row, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado, saveCell, savingCell, columns, isImported }: {
   row: ForecastRow
-  channel: ForecastChannel
-  getDisplayValue: (ch: ForecastChannel, m: number, field: string) => number | null
-  getAnnual: (ch: ForecastChannel, field: string, format: string) => number | null
+  channel: string
+  getDisplayValue: (ch: string, m: number, field: string) => number | null
+  getAnnual: (ch: string, field: string, format: string) => number | null
   fmtVal: (v: number | null, format: string) => string
   isConsolidado: boolean
-  saveCell: (ch: ForecastChannel, m: number, field: string, v: number | null) => void
+  saveCell: (ch: string, m: number, field: string, v: number | null) => void
   savingCell: string | null
   columns: SFColumn[]
+  isImported?: boolean
 }) {
-  const canEdit = row.editable && !isConsolidado
+  const canEdit = row.editable && (isConsolidado ? !!row.consolidadoOnly : true)
   const annual = getAnnual(channel, row.key, row.format)
   const isProfit = row.resultColor === 'profit'
+  const showImportBadge = row.imported && isImported
 
   function getQuarterValue(months: number[]): number | null {
     const values = months.map(m => getDisplayValue(channel, m, row.key)).filter(v => v !== null) as number[]
@@ -844,6 +1112,9 @@ function SFRow({ row, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado
             style={{ fontSize: row.highlight ? 13 : 12, color: row.highlight && !isProfit ? '#c9a84c' : undefined }}>
             {row.label}
           </span>
+          {showImportBadge && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 font-medium whitespace-nowrap">Midia Plan</span>
+          )}
         </div>
       </td>
       {columns.map(col => {
@@ -875,7 +1146,6 @@ function SFRow({ row, channel, getDisplayValue, getAnnual, fmtVal, isConsolidado
           )
         }
 
-        // Quarter view — aggregated read-only
         const qVal = getQuarterValue(col.months)
         const color = isProfit
           ? (qVal === null ? '#6b7c6f' : qVal >= 0 ? '#4ade80' : '#ef4444')
@@ -979,6 +1249,206 @@ function SFEditableCell({ value, format, isSaving, onSave }: {
 }
 
 // ============================================================
+// Min Investment Section (inside INVESTIMENTOS)
+// ============================================================
+
+function MinInvestSection({ minInvest, onUpdate, columns, getCellValue }: {
+  minInvest: MinInvestMeta
+  onUpdate: (v: MinInvestMeta) => void
+  columns: ViewColumn[]
+  getCellValue: (key: string, month: number) => number
+}) {
+  const enabled = minInvest.enabled ?? false
+  const pct = minInvest.pct ?? 10
+  const metaPct = minInvest.meta_pct ?? 50
+  const googlePct = minInvest.google_pct ?? 30
+  const influencerPct = minInvest.influencer_pct ?? 20
+  const totalPct = metaPct + googlePct + influencerPct
+
+  const [editField, setEditField] = useState<string | null>(null)
+  const [editValue, setEditValue] = useState('')
+  const editRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (editField) editRef.current?.focus()
+  }, [editField])
+
+  function startEdit(field: string, val: number) {
+    setEditField(field)
+    setEditValue(String(val).replace('.', ','))
+  }
+
+  function commitEdit(field: string) {
+    setEditField(null)
+    const num = parseFloat(editValue.replace(',', '.'))
+    if (isNaN(num)) return
+    onUpdate({ ...minInvest, [field]: num })
+  }
+
+  // For each month/column, compute values
+  function getMinInvestForMonths(months: number[]): number {
+    const receita = months.reduce((s, m) => s + getCellValue('RECEITA_META', m), 0)
+    return Math.round(receita * pct / 100)
+  }
+
+  const subRowStyle = { background: 'rgba(201,151,26,0.03)', borderLeft: '3px solid rgba(201,151,26,0.2)' }
+  const labelStyle = { fontSize: 12, color: 'rgba(201,151,26,0.7)' }
+
+  // Editable % cell inline
+  function PctCell({ field, value }: { field: string; value: number }) {
+    if (editField === field) {
+      return (
+        <div className="relative flex items-center">
+          <input ref={editRef} type="text" value={editValue}
+            onChange={e => setEditValue(e.target.value.replace(/[^0-9,.\-]/g, ''))}
+            onBlur={() => commitEdit(field)}
+            onKeyDown={e => { if (e.key === 'Enter') commitEdit(field); if (e.key === 'Escape') setEditField(null) }}
+            className="w-full border rounded py-1 text-center outline-none tabular-nums"
+            style={{ fontSize: 12, background: 'rgba(201,168,76,0.08)', borderColor: 'rgba(201,168,76,0.4)', color: '#e8e0d0', paddingRight: 16 }} />
+          <span className="absolute right-1.5 text-brand-gold/60" style={{ fontSize: 10 }}>%</span>
+        </div>
+      )
+    }
+    return (
+      <button onClick={() => startEdit(field, value)}
+        className="w-full tabular-nums px-2 py-1.5 rounded hover:bg-bg-hover transition-colors text-text-primary cursor-text text-center block"
+        style={{ fontSize: 12 }}>
+        {value}%
+      </button>
+    )
+  }
+
+  return (
+    <>
+      {/* Toggle row */}
+      <tr className="border-t border-border/40">
+        <td colSpan={columns.length + 2} className="sticky left-0 z-10 px-4 py-2 border-r border-border" style={{ background: '#0a1a0f' }}>
+          <div className="flex items-center gap-3">
+            <span style={{ fontSize: 14 }}>🎯</span>
+            <span className="text-sm font-medium" style={{ color: '#c9a84c' }}>Minimo de Investimento</span>
+            <button
+              onClick={() => onUpdate({ ...minInvest, enabled: !enabled })}
+              className="relative w-9 h-5 rounded-full transition-colors"
+              style={{ background: enabled ? '#c9971a' : 'rgba(255,255,255,0.15)' }}
+            >
+              <span className="absolute top-0.5 transition-all rounded-full bg-white w-4 h-4"
+                style={{ left: enabled ? 18 : 2 }} />
+            </button>
+          </div>
+        </td>
+      </tr>
+
+      {enabled && (
+        <>
+          {/* % Investimento Minimo (global) */}
+          <tr className="border-t border-border/30" style={subRowStyle}>
+            <td className="sticky left-0 z-10 px-4 py-0 border-r border-border" style={{ ...subRowStyle, paddingLeft: 32 }}>
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-brand-gold shrink-0" />
+                <span style={labelStyle}>% Investimento Minimo</span>
+              </div>
+            </td>
+            {columns.map(col => (
+              <td key={col.key} className="px-1 py-0 text-center">
+                <PctCell field="pct" value={pct} />
+              </td>
+            ))}
+            <td className="px-3 py-1 text-center border-l border-border">
+              <span className="tabular-nums font-semibold" style={{ fontSize: 12, color: '#c9a84c' }}>{pct}%</span>
+            </td>
+          </tr>
+
+          {/* Investimento Minimo R$ (calculated) */}
+          <tr className="border-t border-border/30" style={subRowStyle}>
+            <td className="sticky left-0 z-10 px-4 py-0 border-r border-border" style={{ ...subRowStyle, paddingLeft: 32 }}>
+              <span style={{ ...labelStyle, fontWeight: 600 }}>Investimento Minimo R$</span>
+            </td>
+            {columns.map(col => {
+              const val = getMinInvestForMonths(col.months)
+              return (
+                <td key={col.key} className="px-1 py-0 text-center">
+                  <span className="tabular-nums px-2 py-1.5 block font-semibold" style={{ fontSize: 12, color: '#c9a84c' }}>
+                    {val > 0 ? val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '-'}
+                  </span>
+                </td>
+              )
+            })}
+            <td className="px-3 py-1 text-center border-l border-border">
+              <span className="tabular-nums font-bold" style={{ fontSize: 13, color: '#c9a84c' }}>
+                {(() => { const t = MONTHS.reduce((s, m) => s + getCellValue('RECEITA_META', m), 0) * pct / 100; return t > 0 ? Math.round(t).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '-' })()}
+              </span>
+            </td>
+          </tr>
+
+          {/* Distribution % rows */}
+          {([
+            ['meta_pct', '% Meta Ads', metaPct],
+            ['google_pct', '% Google Ads', googlePct],
+            ['influencer_pct', '% Influencers', influencerPct],
+          ] as [string, string, number][]).map(([field, label, val]) => (
+            <tr key={field} className="border-t border-border/30" style={subRowStyle}>
+              <td className="sticky left-0 z-10 px-4 py-0 border-r border-border" style={{ ...subRowStyle, paddingLeft: 44 }}>
+                <div className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-brand-gold/50 shrink-0" />
+                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>{label}</span>
+                </div>
+              </td>
+              {columns.map(col => (
+                <td key={col.key} className="px-1 py-0 text-center">
+                  <PctCell field={field} value={val} />
+                </td>
+              ))}
+              <td className="px-3 py-1 text-center border-l border-border">
+                <span className="tabular-nums" style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>{val}%</span>
+              </td>
+            </tr>
+          ))}
+
+          {/* Sum check */}
+          <tr className="border-t border-border/30" style={subRowStyle}>
+            <td className="sticky left-0 z-10 px-4 py-1.5 border-r border-border" style={{ ...subRowStyle, paddingLeft: 44 }}>
+              <span style={{ fontSize: 11, color: totalPct === 100 ? '#4ade80' : '#ef4444', fontWeight: 600 }}>
+                {totalPct === 100 ? '✓ 100%' : `⚠ ${totalPct}%`}
+              </span>
+            </td>
+            <td colSpan={columns.length + 1} />
+          </tr>
+
+          {/* Calculated R$ per channel */}
+          {([
+            ['Minimo Meta Ads', metaPct],
+            ['Minimo Google Ads', googlePct],
+            ['Minimo Influencers', influencerPct],
+          ] as [string, number][]).map(([label, distPct]) => (
+            <tr key={label} className="border-t border-border/30" style={subRowStyle}>
+              <td className="sticky left-0 z-10 px-4 py-0 border-r border-border" style={{ ...subRowStyle, paddingLeft: 44 }}>
+                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>{label}</span>
+              </td>
+              {columns.map(col => {
+                const minTotal = getMinInvestForMonths(col.months)
+                const val = Math.round(minTotal * distPct / 100)
+                return (
+                  <td key={col.key} className="px-1 py-0 text-center">
+                    <span className="tabular-nums px-2 py-1.5 block" style={{ fontSize: 11, color: 'rgba(201,168,76,0.6)' }}>
+                      {val > 0 ? val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '-'}
+                    </span>
+                  </td>
+                )
+              })}
+              <td className="px-3 py-1 text-center border-l border-border">
+                <span className="tabular-nums" style={{ fontSize: 12, color: 'rgba(201,168,76,0.6)' }}>
+                  {(() => { const t = MONTHS.reduce((s, m) => s + getCellValue('RECEITA_META', m), 0) * pct / 100 * distPct / 100; return t > 0 ? Math.round(t).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '-' })()}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </>
+      )}
+    </>
+  )
+}
+
+// ============================================================
 // Section Group
 // ============================================================
 
@@ -994,6 +1464,7 @@ function SectionGroup({
   annualSummary,
   onUpdateCell,
   onToggleMode,
+  children,
 }: {
   section: typeof SECTIONS[number]
   metrics: MetricDef[]
@@ -1006,6 +1477,7 @@ function SectionGroup({
   annualSummary: Record<MetricKey, number>
   onUpdateCell: (key: string, month: number, value: number | null, mode?: 'value' | 'delta_pct') => void
   onToggleMode: (key: string, month: number) => void
+  children?: React.ReactNode
 }) {
   return (
     <>
@@ -1050,6 +1522,7 @@ function SectionGroup({
           onToggleMode={onToggleMode}
         />
       ))}
+      {children}
     </>
   )
 }

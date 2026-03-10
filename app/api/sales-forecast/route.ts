@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { workspace_id, year, month, channel, faturamento_bruto, pedidos, investimento_midia, imposto_pct, cmv_pct } = body
+  const { workspace_id, year, month, channel } = body
 
   const auth = await verifyWorkspaceAccess(workspace_id)
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
@@ -38,23 +38,63 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'year, month, channel required' }, { status: 400 })
   }
 
+  // Get existing data to preserve fields not being updated
+  const { data: existing } = await (adminSupabase as any)
+    .from('sales_forecast')
+    .select('faturamento_bruto, pedidos, investimento_midia, imposto_pct, cmv_pct, taxas_pct, comissao_marketplace_pct, cancelamento_pct, logistica_rs, imported_from_midia_plan')
+    .eq('workspace_id', workspace_id)
+    .eq('year', year)
+    .eq('month', month)
+    .eq('channel', channel)
+    .single()
+
+  const upsertData: Record<string, any> = {
+    workspace_id,
+    year,
+    month,
+    channel,
+    faturamento_bruto: body.faturamento_bruto ?? existing?.faturamento_bruto ?? null,
+    pedidos: body.pedidos ?? existing?.pedidos ?? null,
+    investimento_midia: body.investimento_midia ?? existing?.investimento_midia ?? null,
+    imposto_pct: body.imposto_pct ?? existing?.imposto_pct ?? null,
+    cmv_pct: body.cmv_pct ?? existing?.cmv_pct ?? null,
+    taxas_pct: body.taxas_pct ?? existing?.taxas_pct ?? null,
+    comissao_marketplace_pct: body.comissao_marketplace_pct ?? existing?.comissao_marketplace_pct ?? null,
+    cancelamento_pct: body.cancelamento_pct ?? existing?.cancelamento_pct ?? null,
+    logistica_rs: body.logistica_rs ?? existing?.logistica_rs ?? null,
+    imported_from_midia_plan: body.imported_from_midia_plan ?? existing?.imported_from_midia_plan ?? false,
+    updated_at: new Date().toISOString(),
+  }
+
   const { data, error } = await (adminSupabase as any)
     .from('sales_forecast')
-    .upsert({
-      workspace_id,
-      year,
-      month,
-      channel,
-      faturamento_bruto: faturamento_bruto ?? null,
-      pedidos: pedidos ?? null,
-      investimento_midia: investimento_midia ?? null,
-      imposto_pct: imposto_pct ?? null,
-      cmv_pct: cmv_pct ?? null,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'workspace_id,year,month,channel' })
+    .upsert(upsertData, { onConflict: 'workspace_id,year,month,channel' })
     .select()
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ forecast: data })
+}
+
+/** DELETE a channel's data for a workspace/year */
+export async function DELETE(req: NextRequest) {
+  const body = await req.json()
+  const { workspace_id, year, channel } = body
+
+  const auth = await verifyWorkspaceAccess(workspace_id)
+  if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
+  if (!year || !channel || channel === 'ecommerce' || channel === 'consolidado') {
+    return NextResponse.json({ error: 'Cannot delete this channel' }, { status: 400 })
+  }
+
+  const { error } = await (adminSupabase as any)
+    .from('sales_forecast')
+    .delete()
+    .eq('workspace_id', workspace_id)
+    .eq('year', year)
+    .eq('channel', channel)
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true })
 }

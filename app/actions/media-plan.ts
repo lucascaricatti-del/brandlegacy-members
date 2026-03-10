@@ -369,3 +369,24 @@ export async function getMediaPlanGoals(workspaceId: string, year: number, month
 
   return { revenueGoal, investmentGoal }
 }
+
+// ============================================================
+// UPDATE MEDIA PLAN METADATA (for min investment settings, etc.)
+// ============================================================
+
+export async function updateMediaPlanMetadata(
+  workspaceId: string,
+  planId: string,
+  metadata: Record<string, any>,
+) {
+  const { error, adminSupabase } = await requireWorkspaceMember(workspaceId)
+  if (error || !adminSupabase) return { error: error ?? 'Erro' }
+
+  const { error: updateErr } = await adminSupabase
+    .from('media_plans')
+    .update({ metadata, updated_at: new Date().toISOString() })
+    .eq('id', planId)
+
+  if (updateErr) return { error: updateErr.message }
+  return { success: true }
+}
