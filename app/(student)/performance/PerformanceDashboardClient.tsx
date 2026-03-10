@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { maskBRL, unmaskBRL, numberToBRL, maskPct, unmaskPct, numberToPct } from '@/lib/masks'
 
 type Props = {
   workspaceId: string
@@ -881,48 +882,60 @@ function GoalsModal({
   daysInMonth: number; currentDay: number
   onSave: (g: Goals) => void; onClose: () => void
 }) {
-  const [receita, setReceita] = useState(currentGoals?.meta_receita ? String(currentGoals.meta_receita) : '')
-  const [investimento, setInvestimento] = useState(currentGoals?.meta_investimento ? String(currentGoals.meta_investimento) : '')
-  const [roas, setRoas] = useState(currentGoals?.meta_roas ? String(currentGoals.meta_roas) : '')
-  const [ticket, setTicket] = useState(currentGoals?.meta_ticket ? String(currentGoals.meta_ticket) : '')
-  const [conversao, setConversao] = useState(currentGoals?.meta_conversao ? String(currentGoals.meta_conversao) : '')
-  const [cps, setCps] = useState(currentGoals?.meta_cps ? String(currentGoals.meta_cps) : '')
+  // Store display strings (masked)
+  const [receita, setReceita] = useState(() => numberToBRL(currentGoals?.meta_receita ?? 0))
+  const [investimento, setInvestimento] = useState(() => numberToBRL(currentGoals?.meta_investimento ?? 0))
+  const [roas, setRoas] = useState(() => { const v = currentGoals?.meta_roas ?? 0; return v > 0 ? String(v).replace('.', ',') : '' })
+  const [ticket, setTicket] = useState(() => numberToBRL(currentGoals?.meta_ticket ?? 0))
+  const [conversao, setConversao] = useState(() => numberToPct(currentGoals?.meta_conversao ?? 0))
+  const [cps, setCps] = useState(() => numberToBRL(currentGoals?.meta_cps ?? 0))
   const [imported, setImported] = useState(false)
 
   const hasPlan = planGoals && (planGoals.meta_receita > 0 || planGoals.meta_investimento > 0)
 
   function importFromPlan() {
     if (!planGoals) return
-    if (planGoals.meta_receita > 0) setReceita(String(planGoals.meta_receita))
-    if (planGoals.meta_investimento > 0) setInvestimento(String(planGoals.meta_investimento))
-    if (planGoals.meta_roas > 0) setRoas(String(planGoals.meta_roas))
-    if (planGoals.meta_ticket > 0) setTicket(String(planGoals.meta_ticket))
-    if (planGoals.meta_conversao > 0) setConversao(String(planGoals.meta_conversao))
-    if (planGoals.meta_cps > 0) setCps(String(planGoals.meta_cps))
+    if (planGoals.meta_receita > 0) setReceita(numberToBRL(planGoals.meta_receita))
+    if (planGoals.meta_investimento > 0) setInvestimento(numberToBRL(planGoals.meta_investimento))
+    if (planGoals.meta_roas > 0) setRoas(String(planGoals.meta_roas).replace('.', ','))
+    if (planGoals.meta_ticket > 0) setTicket(numberToBRL(planGoals.meta_ticket))
+    if (planGoals.meta_conversao > 0) setConversao(numberToPct(planGoals.meta_conversao))
+    if (planGoals.meta_cps > 0) setCps(numberToBRL(planGoals.meta_cps))
     setImported(true)
   }
 
   function handleSave() {
     onSave({
-      meta_receita: Number(receita) || 0,
-      meta_investimento: Number(investimento) || 0,
-      meta_roas: Number(roas) || 0,
-      meta_ticket: Number(ticket) || 0,
-      meta_conversao: Number(conversao) || 0,
-      meta_cps: Number(cps) || 0,
+      meta_receita: unmaskBRL(receita),
+      meta_investimento: unmaskBRL(investimento),
+      meta_roas: unmaskPct(roas),
+      meta_ticket: unmaskBRL(ticket),
+      meta_conversao: unmaskPct(conversao),
+      meta_cps: unmaskBRL(cps),
       days_in_month: daysInMonth,
       current_day: currentDay,
     })
   }
 
-  const fields: { label: string; value: string; setter: (v: string) => void; placeholder: string; suffix?: string; planKey: keyof NonNullable<Goals> }[] = [
-    { label: 'Meta Receita', value: receita, setter: setReceita, placeholder: 'Ex: 500000', suffix: 'R$', planKey: 'meta_receita' },
-    { label: 'Meta Investimento', value: investimento, setter: setInvestimento, placeholder: 'Ex: 50000', suffix: 'R$', planKey: 'meta_investimento' },
-    { label: 'Meta ROAS', value: roas, setter: setRoas, placeholder: 'Ex: 3.5', planKey: 'meta_roas' },
-    { label: 'Meta Ticket Médio', value: ticket, setter: setTicket, placeholder: 'Ex: 250', suffix: 'R$', planKey: 'meta_ticket' },
-    { label: 'Meta Taxa Conversão', value: conversao, setter: setConversao, placeholder: 'Ex: 1.5', suffix: '%', planKey: 'meta_conversao' },
-    { label: 'Meta CPS', value: cps, setter: setCps, placeholder: 'Ex: 2.50', suffix: 'R$', planKey: 'meta_cps' },
+  type FieldDef = { label: string; value: string; onChange: (v: string) => void; placeholder: string; type: 'brl' | 'pct' | 'decimal'; planKey: keyof NonNullable<Goals> }
+  const fields: FieldDef[] = [
+    { label: 'Meta Receita', value: receita, onChange: v => setReceita(maskBRL(v)), placeholder: 'R$ 0,00', type: 'brl', planKey: 'meta_receita' },
+    { label: 'Meta Investimento', value: investimento, onChange: v => setInvestimento(maskBRL(v)), placeholder: 'R$ 0,00', type: 'brl', planKey: 'meta_investimento' },
+    { label: 'Meta ROAS', value: roas, onChange: v => setRoas(maskPct(v)), placeholder: '0,00x', type: 'decimal', planKey: 'meta_roas' },
+    { label: 'Meta Ticket Médio', value: ticket, onChange: v => setTicket(maskBRL(v)), placeholder: 'R$ 0,00', type: 'brl', planKey: 'meta_ticket' },
+    { label: 'Meta Taxa Conversão', value: conversao, onChange: v => setConversao(maskPct(v)), placeholder: '0,0%', type: 'pct', planKey: 'meta_conversao' },
+    { label: 'Meta CPS', value: cps, onChange: v => setCps(maskBRL(v)), placeholder: 'R$ 0,00', type: 'brl', planKey: 'meta_cps' },
   ]
+
+  const suffixLabel = (type: FieldDef['type']) => type === 'brl' ? 'R$' : type === 'pct' ? '%' : 'x'
+
+  function isPlanValue(f: FieldDef): boolean {
+    if (!imported || !planGoals) return false
+    const planVal = Number(planGoals[f.planKey]) || 0
+    if (planVal <= 0) return false
+    const currentNum = f.type === 'brl' ? unmaskBRL(f.value) : unmaskPct(f.value)
+    return Math.abs(currentNum - planVal) < 0.01
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -947,16 +960,16 @@ function GoalsModal({
           {fields.map(f => (
             <div key={f.label}>
               <label className="flex items-center gap-2 text-text-secondary text-xs font-medium mb-1.5">
-                {f.label} {f.suffix && <span className="text-text-muted/50">({f.suffix})</span>}
-                {imported && planGoals && Number(planGoals[f.planKey]) > 0 && f.value === String(planGoals[f.planKey]) && (
+                {f.label} <span className="text-text-muted/50">({suffixLabel(f.type)})</span>
+                {isPlanValue(f) && (
                   <span className="text-brand-gold/60 text-[10px]">(do Mídia Plan)</span>
                 )}
               </label>
               <input
-                type="number"
-                step="any"
+                type="text"
+                inputMode="decimal"
                 value={f.value}
-                onChange={e => f.setter(e.target.value)}
+                onChange={e => f.onChange(e.target.value)}
                 placeholder={f.placeholder}
                 className="w-full bg-bg-base border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder-text-muted/50 focus:outline-none focus:border-brand-gold/50"
               />

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo, useCallback } from 'react'
+import { maskBRL, unmaskBRL, numberToBRL, maskPct, unmaskPct, numberToPct } from '@/lib/masks'
 
 // ============================================================
 // Types
@@ -12,6 +13,10 @@ interface Product {
   price: number
   cost: number
   salesPct: number
+  // Display strings (masked)
+  priceDisplay: string
+  costDisplay: string
+  salesPctDisplay: string
 }
 
 interface FreteInputs {
@@ -60,6 +65,15 @@ function fmt(n: number) {
   return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+function makeProduct(name: string, price: number, cost: number, salesPct: number): Product {
+  return {
+    id: uid(), name, price, cost, salesPct,
+    priceDisplay: price > 0 ? numberToBRL(price) : '',
+    costDisplay: cost > 0 ? numberToBRL(cost) : '',
+    salesPctDisplay: salesPct > 0 ? numberToPct(salesPct) : '',
+  }
+}
+
 // ============================================================
 // Main Component
 // ============================================================
@@ -68,40 +82,53 @@ export default function StrategicCalculator() {
   // --- Curva A ---
   const [useCurvaA, setUseCurvaA] = useState(true)
   const [products, setProducts] = useState<Product[]>([
-    { id: uid(), name: 'Produto Principal', price: 160, cost: 19.2, salesPct: 100 },
+    makeProduct('Produto Principal', 160, 19.2, 100),
   ])
 
   // --- Manual inputs (when Curva A off) ---
-  const [manualTicket, setManualTicket] = useState(160)
-  const [manualCmv, setManualCmv] = useState(12)
+  const [manualTicket, setManualTicket] = useState('')
+  const [manualCmv, setManualCmv] = useState('')
 
-  // --- Frete ---
-  const [frete, setFrete] = useState<FreteInputs>({
-    custoTransporte: 0,
-    insumos: 0,
-    picking: 0,
-    freteGratisPct: 0,
-    devolucao: 0,
+  // --- Frete (display strings) ---
+  const [freteDisplay, setFreteDisplay] = useState({
+    custoTransporte: '', insumos: '', picking: '', freteGratisPct: '', devolucao: '',
   })
+  const frete: FreteInputs = useMemo(() => ({
+    custoTransporte: unmaskBRL(freteDisplay.custoTransporte),
+    insumos: unmaskBRL(freteDisplay.insumos),
+    picking: unmaskBRL(freteDisplay.picking),
+    freteGratisPct: unmaskPct(freteDisplay.freteGratisPct),
+    devolucao: unmaskBRL(freteDisplay.devolucao),
+  }), [freteDisplay])
 
-  // --- Taxas ---
-  const [taxas, setTaxas] = useState<TaxasInputs>({
-    pixPct: 55,
-    taxaPix: 0.5,
-    taxaCartao: 2,
-    taxaAntecipacao: 1.5,
-    mediaParcelas: 2,
+  // --- Taxas (display strings) ---
+  const [taxasDisplay, setTaxasDisplay] = useState({
+    pixPct: numberToPct(55), taxaPix: numberToPct(0.5),
+    taxaCartao: numberToPct(2), taxaAntecipacao: numberToPct(1.5),
+    mediaParcelas: '2',
   })
+  const taxas: TaxasInputs = useMemo(() => ({
+    pixPct: unmaskPct(taxasDisplay.pixPct),
+    taxaPix: unmaskPct(taxasDisplay.taxaPix),
+    taxaCartao: unmaskPct(taxasDisplay.taxaCartao),
+    taxaAntecipacao: unmaskPct(taxasDisplay.taxaAntecipacao),
+    mediaParcelas: Number(taxasDisplay.mediaParcelas) || 0,
+  }), [taxasDisplay])
 
-  // --- Desconto ---
-  const [desconto, setDesconto] = useState<DescontoInputs>({
-    totalFaturado: 100000,
-    totalCupons: 5000,
+  // --- Desconto (display strings) ---
+  const [descontoDisplay, setDescontoDisplay] = useState({
+    totalFaturado: numberToBRL(100000), totalCupons: numberToBRL(5000),
   })
+  const desconto: DescontoInputs = useMemo(() => ({
+    totalFaturado: unmaskBRL(descontoDisplay.totalFaturado),
+    totalCupons: unmaskBRL(descontoDisplay.totalCupons),
+  }), [descontoDisplay])
 
-  // --- Other ---
-  const [impostosPct, setImpostosPct] = useState(10)
-  const [lucroDesejadoPct, setLucroDesejadoPct] = useState(20)
+  // --- Other (display strings) ---
+  const [impostosPctDisplay, setImpostosPctDisplay] = useState(numberToPct(10))
+  const [lucroDesejadoPctDisplay, setLucroDesejadoPctDisplay] = useState(numberToPct(20))
+  const impostosPct = unmaskPct(impostosPctDisplay)
+  const lucroDesejadoPct = unmaskPct(lucroDesejadoPctDisplay)
 
   // --- Collapsible sections ---
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
@@ -121,7 +148,7 @@ export default function StrategicCalculator() {
 
   const curvaA = useMemo(() => {
     if (!useCurvaA || products.length === 0) {
-      return { ticketMedio: manualTicket, cmvPct: manualCmv }
+      return { ticketMedio: unmaskBRL(manualTicket), cmvPct: unmaskPct(manualCmv) }
     }
     const totalSales = products.reduce((s, p) => s + p.salesPct, 0) || 1
     const ticketMedio = products.reduce(
@@ -188,13 +215,25 @@ export default function StrategicCalculator() {
 
   // --- Product handlers ---
   const updateProduct = useCallback(
-    (id: string, field: keyof Product, value: string | number) => {
+    (id: string, field: 'name' | 'priceDisplay' | 'costDisplay' | 'salesPctDisplay', value: string) => {
       setProducts(prev =>
-        prev.map(p =>
-          p.id === id
-            ? { ...p, [field]: field === 'name' ? value : Number(value) || 0 }
-            : p
-        )
+        prev.map(p => {
+          if (p.id !== id) return p
+          if (field === 'name') return { ...p, name: value }
+          if (field === 'priceDisplay') {
+            const masked = maskBRL(value)
+            return { ...p, priceDisplay: masked, price: unmaskBRL(masked) }
+          }
+          if (field === 'costDisplay') {
+            const masked = maskBRL(value)
+            return { ...p, costDisplay: masked, cost: unmaskBRL(masked) }
+          }
+          if (field === 'salesPctDisplay') {
+            const masked = maskPct(value)
+            return { ...p, salesPctDisplay: masked, salesPct: unmaskPct(masked) }
+          }
+          return p
+        })
       )
     },
     []
@@ -203,7 +242,7 @@ export default function StrategicCalculator() {
   const addProduct = useCallback(() => {
     setProducts(prev => [
       ...prev,
-      { id: uid(), name: `Produto ${prev.length + 1}`, price: 100, cost: 12, salesPct: 10 },
+      makeProduct(`Produto ${prev.length + 1}`, 0, 0, 0),
     ])
   }, [])
 
@@ -211,17 +250,9 @@ export default function StrategicCalculator() {
     setProducts(prev => (prev.length <= 1 ? prev : prev.filter(p => p.id !== id)))
   }, [])
 
-  const updateFrete = useCallback((field: keyof FreteInputs, value: number) => {
-    setFrete(prev => ({ ...prev, [field]: value }))
-  }, [])
-
-  const updateTaxas = useCallback((field: keyof TaxasInputs, value: number) => {
-    setTaxas(prev => ({ ...prev, [field]: value }))
-  }, [])
-
-  const updateDesconto = useCallback((field: keyof DescontoInputs, value: number) => {
-    setDesconto(prev => ({ ...prev, [field]: value }))
-  }, [])
+  // % Vendas sum warning
+  const salesPctSum = products.reduce((s, p) => s + p.salesPct, 0)
+  const salesPctWarning = useCurvaA && products.length > 1 && Math.abs(salesPctSum - 100) > 0.5
 
   // ============================================================
   // Render
@@ -296,7 +327,7 @@ export default function StrategicCalculator() {
           {useCurvaA ? (
             <p className="text-2xl font-bold text-text-primary">R$ {fmt(ticketMedio)}</p>
           ) : (
-            <InputField label="Ticket Médio (R$)" value={manualTicket} onChange={setManualTicket} />
+            <MaskedInput label="Ticket Médio (R$)" type="brl" value={manualTicket} onChange={setManualTicket} />
           )}
           <p className="text-xs text-text-muted mt-1">
             {useCurvaA ? 'Calculado pela Curva A' : 'Valor manual'}
@@ -307,7 +338,7 @@ export default function StrategicCalculator() {
           {useCurvaA ? (
             <p className="text-2xl font-bold text-text-primary">{cmvPct.toFixed(1)}%</p>
           ) : (
-            <InputField label="CMV (%)" value={manualCmv} onChange={setManualCmv} />
+            <MaskedInput label="CMV (%)" type="pct" value={manualCmv} onChange={setManualCmv} />
           )}
           <p className="text-xs text-text-muted mt-1">
             {useCurvaA ? 'Calculado pela Curva A' : 'Valor manual'}
@@ -318,14 +349,10 @@ export default function StrategicCalculator() {
       {/* 4. Impostos + Lucro Desejado */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Card>
-          <InputField label="Impostos (%)" value={impostosPct} onChange={setImpostosPct} />
+          <MaskedInput label="Impostos (%)" type="pct" value={impostosPctDisplay} onChange={setImpostosPctDisplay} />
         </Card>
         <Card>
-          <InputField
-            label="Lucro após Aquisição Desejado (%)"
-            value={lucroDesejadoPct}
-            onChange={setLucroDesejadoPct}
-          />
+          <MaskedInput label="Lucro após Aquisição Desejado (%)" type="pct" value={lucroDesejadoPctDisplay} onChange={setLucroDesejadoPctDisplay} />
         </Card>
       </div>
 
@@ -355,8 +382,8 @@ export default function StrategicCalculator() {
                 <thead>
                   <tr className="text-left text-[11px] text-text-muted uppercase tracking-wide">
                     <th className="pb-2 pr-2">Produto</th>
-                    <th className="pb-2 pr-2 w-28">Preço (R$)</th>
-                    <th className="pb-2 pr-2 w-28">Custo (R$)</th>
+                    <th className="pb-2 pr-2 w-32">Preço (R$)</th>
+                    <th className="pb-2 pr-2 w-32">Custo (R$)</th>
                     <th className="pb-2 pr-2 w-24">% Vendas</th>
                     <th className="pb-2 pr-2 w-20 text-right">CMV%</th>
                     <th className="pb-2 w-10" />
@@ -377,28 +404,31 @@ export default function StrategicCalculator() {
                         </td>
                         <td className="py-2 pr-2">
                           <input
-                            type="number"
-                            step="0.01"
-                            value={p.price}
-                            onChange={e => updateProduct(p.id, 'price', e.target.value)}
+                            type="text"
+                            inputMode="decimal"
+                            value={p.priceDisplay}
+                            onChange={e => updateProduct(p.id, 'priceDisplay', e.target.value)}
+                            placeholder="R$ 0,00"
                             className="w-full bg-bg-surface/50 hover:bg-bg-hover border border-border rounded px-2 py-1.5 text-text-primary text-sm text-right focus:outline-none focus:border-brand-gold/50"
                           />
                         </td>
                         <td className="py-2 pr-2">
                           <input
-                            type="number"
-                            step="0.01"
-                            value={p.cost}
-                            onChange={e => updateProduct(p.id, 'cost', e.target.value)}
+                            type="text"
+                            inputMode="decimal"
+                            value={p.costDisplay}
+                            onChange={e => updateProduct(p.id, 'costDisplay', e.target.value)}
+                            placeholder="R$ 0,00"
                             className="w-full bg-bg-surface/50 hover:bg-bg-hover border border-border rounded px-2 py-1.5 text-text-primary text-sm text-right focus:outline-none focus:border-brand-gold/50"
                           />
                         </td>
                         <td className="py-2 pr-2">
                           <input
-                            type="number"
-                            step="1"
-                            value={p.salesPct}
-                            onChange={e => updateProduct(p.id, 'salesPct', e.target.value)}
+                            type="text"
+                            inputMode="decimal"
+                            value={p.salesPctDisplay}
+                            onChange={e => updateProduct(p.id, 'salesPctDisplay', e.target.value)}
+                            placeholder="0,00"
                             className="w-full bg-bg-surface/50 hover:bg-bg-hover border border-border rounded px-2 py-1.5 text-text-primary text-sm text-right focus:outline-none focus:border-brand-gold/50"
                           />
                         </td>
@@ -421,6 +451,12 @@ export default function StrategicCalculator() {
                 </tbody>
               </table>
             </div>
+
+            {salesPctWarning && (
+              <p className="text-yellow-400 text-xs flex items-center gap-1">
+                <span>&#9888;</span> % Vendas soma {salesPctSum.toFixed(1)}% (deveria ser 100%)
+              </p>
+            )}
 
             <button
               onClick={addProduct}
@@ -454,31 +490,16 @@ export default function StrategicCalculator() {
           onToggle={() => toggleSection('frete')}
         >
           <div className="space-y-3">
-            <InputField
-              label="Custo transporte (R$)"
-              value={frete.custoTransporte}
-              onChange={v => updateFrete('custoTransporte', v)}
-            />
-            <InputField
-              label="Insumos / embalagem (R$)"
-              value={frete.insumos}
-              onChange={v => updateFrete('insumos', v)}
-            />
-            <InputField
-              label="Picking / manuseio (R$)"
-              value={frete.picking}
-              onChange={v => updateFrete('picking', v)}
-            />
-            <InputField
-              label="% Pedidos com frete grátis"
-              value={frete.freteGratisPct}
-              onChange={v => updateFrete('freteGratisPct', v)}
-            />
-            <InputField
-              label="Custo devolução médio (R$)"
-              value={frete.devolucao}
-              onChange={v => updateFrete('devolucao', v)}
-            />
+            <MaskedInput label="Custo transporte (R$)" type="brl" value={freteDisplay.custoTransporte}
+              onChange={v => setFreteDisplay(p => ({ ...p, custoTransporte: v }))} />
+            <MaskedInput label="Insumos / embalagem (R$)" type="brl" value={freteDisplay.insumos}
+              onChange={v => setFreteDisplay(p => ({ ...p, insumos: v }))} />
+            <MaskedInput label="Picking / manuseio (R$)" type="brl" value={freteDisplay.picking}
+              onChange={v => setFreteDisplay(p => ({ ...p, picking: v }))} />
+            <MaskedInput label="% Pedidos com frete grátis" type="pct" value={freteDisplay.freteGratisPct}
+              onChange={v => setFreteDisplay(p => ({ ...p, freteGratisPct: v }))} />
+            <MaskedInput label="Custo devolução médio (R$)" type="brl" value={freteDisplay.devolucao}
+              onChange={v => setFreteDisplay(p => ({ ...p, devolucao: v }))} />
             <MiniResult
               rows={[
                 {
@@ -504,34 +525,16 @@ export default function StrategicCalculator() {
           onToggle={() => toggleSection('taxas')}
         >
           <div className="space-y-3">
-            <InputField
-              label="% Vendas via PIX"
-              value={taxas.pixPct}
-              onChange={v => updateTaxas('pixPct', v)}
-            />
-            <InputField
-              label="Taxa PIX (%)"
-              value={taxas.taxaPix}
-              onChange={v => updateTaxas('taxaPix', v)}
-              step={0.1}
-            />
-            <InputField
-              label="Taxa cartão (%)"
-              value={taxas.taxaCartao}
-              onChange={v => updateTaxas('taxaCartao', v)}
-              step={0.1}
-            />
-            <InputField
-              label="Taxa antecipação (%)"
-              value={taxas.taxaAntecipacao}
-              onChange={v => updateTaxas('taxaAntecipacao', v)}
-              step={0.1}
-            />
-            <InputField
-              label="Média de parcelas"
-              value={taxas.mediaParcelas}
-              onChange={v => updateTaxas('mediaParcelas', v)}
-            />
+            <MaskedInput label="% Vendas via PIX" type="pct" value={taxasDisplay.pixPct}
+              onChange={v => setTaxasDisplay(p => ({ ...p, pixPct: v }))} />
+            <MaskedInput label="Taxa PIX (%)" type="pct" value={taxasDisplay.taxaPix}
+              onChange={v => setTaxasDisplay(p => ({ ...p, taxaPix: v }))} />
+            <MaskedInput label="Taxa cartão (%)" type="pct" value={taxasDisplay.taxaCartao}
+              onChange={v => setTaxasDisplay(p => ({ ...p, taxaCartao: v }))} />
+            <MaskedInput label="Taxa antecipação (%)" type="pct" value={taxasDisplay.taxaAntecipacao}
+              onChange={v => setTaxasDisplay(p => ({ ...p, taxaAntecipacao: v }))} />
+            <MaskedInput label="Média de parcelas" type="number" value={taxasDisplay.mediaParcelas}
+              onChange={v => setTaxasDisplay(p => ({ ...p, mediaParcelas: v }))} />
             <MiniResult
               rows={[
                 {
@@ -555,16 +558,10 @@ export default function StrategicCalculator() {
           onToggle={() => toggleSection('desconto')}
         >
           <div className="space-y-3">
-            <InputField
-              label="Total faturado no período (R$)"
-              value={desconto.totalFaturado}
-              onChange={v => updateDesconto('totalFaturado', v)}
-            />
-            <InputField
-              label="Total em cupons / descontos (R$)"
-              value={desconto.totalCupons}
-              onChange={v => updateDesconto('totalCupons', v)}
-            />
+            <MaskedInput label="Total faturado no período (R$)" type="brl" value={descontoDisplay.totalFaturado}
+              onChange={v => setDescontoDisplay(p => ({ ...p, totalFaturado: v }))} />
+            <MaskedInput label="Total em cupons / descontos (R$)" type="brl" value={descontoDisplay.totalCupons}
+              onChange={v => setDescontoDisplay(p => ({ ...p, totalCupons: v }))} />
             <MiniResult
               rows={[
                 { label: '% Desconto médio', value: `${descontoPct.toFixed(1)}%` },
@@ -711,27 +708,42 @@ function ResultCard({
   )
 }
 
-function InputField({
+function MaskedInput({
   label,
+  type,
   value,
   onChange,
   disabled,
-  step,
 }: {
   label: string
-  value: number
-  onChange: (v: number) => void
+  type: 'brl' | 'pct' | 'number'
+  value: string
+  onChange: (v: string) => void
   disabled?: boolean
-  step?: number
 }) {
+  const handleChange = (raw: string) => {
+    if (type === 'brl') {
+      onChange(maskBRL(raw))
+    } else if (type === 'pct') {
+      onChange(maskPct(raw))
+    } else {
+      // plain number: allow digits only
+      const clean = raw.replace(/[^0-9]/g, '')
+      onChange(clean)
+    }
+  }
+
+  const placeholder = type === 'brl' ? 'R$ 0,00' : type === 'pct' ? '0,00' : '0'
+
   return (
     <label className="block">
       <span className="text-xs text-text-muted mb-1 block">{label}</span>
       <input
-        type="number"
-        step={step ?? 'any'}
+        type="text"
+        inputMode="decimal"
         value={value}
-        onChange={e => onChange(Number(e.target.value) || 0)}
+        onChange={e => handleChange(e.target.value)}
+        placeholder={placeholder}
         disabled={disabled}
         className={[
           'w-full rounded px-3 py-2 text-sm text-text-primary border border-border focus:outline-none focus:border-brand-gold/50 tabular-nums',
