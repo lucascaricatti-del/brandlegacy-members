@@ -80,6 +80,7 @@ export async function POST(req: NextRequest) {
       is_active: i.is_active,
       has_ga4: i.provider === 'google_ads' && !!i.metadata?.ga4_property_id,
       last_sync: i.last_sync,
+      last_ga4_sync: i.provider === 'google_ads' ? i.metadata?.last_ga4_sync ?? null : undefined,
     })),
     ...(goals ? { goals } : {}),
   })

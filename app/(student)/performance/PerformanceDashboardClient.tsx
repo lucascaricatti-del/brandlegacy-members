@@ -47,6 +47,7 @@ type Goals = {
 
 type Integration = {
   provider: string; is_active: boolean; has_ga4: boolean; last_sync: string | null
+  last_ga4_sync?: string | null
 }
 
 type SyncSourceStatus = 'idle' | 'syncing' | 'success' | 'error'
@@ -162,6 +163,8 @@ export default function PerformanceDashboardClient(props: Props) {
   const [isStale, setIsStale] = useState(false)
   const [showInsights, setShowInsights] = useState(false)
   const [planGoals, setPlanGoals] = useState<Goals>(null) // from Mídia Plan API (for import suggestion)
+  const [ga4SyncLabel, setGa4SyncLabel] = useState<string | null>(null)
+  const ga4SyncedRef = useRef(false)
 
   const fetchIdRef = useRef(0)
 
@@ -248,6 +251,45 @@ export default function PerformanceDashboardClient(props: Props) {
   useEffect(() => {
     fetchMetrics()
   }, [fetchMetrics])
+
+  // Auto-sync GA4 if stale (> 6 hours since last sync)
+  useEffect(() => {
+    if (ga4SyncedRef.current || integrations.length === 0) return
+    const ga4Int = integrations.find(i => i.has_ga4)
+    if (!ga4Int) return
+
+    const lastGa4 = ga4Int.last_ga4_sync
+    const sixHoursMs = 6 * 60 * 60 * 1000
+
+    // If last sync is a date string (YYYY-MM-DD), compare with today
+    let isStaleGa4 = !lastGa4
+    if (lastGa4) {
+      const lastDate = new Date(lastGa4 + 'T00:00:00Z').getTime()
+      isStaleGa4 = Date.now() - lastDate > sixHoursMs
+    }
+
+    if (!isStaleGa4) {
+      // Show last sync time
+      if (lastGa4) setGa4SyncLabel(`GA4: ${lastGa4}`)
+      return
+    }
+
+    ga4SyncedRef.current = true
+    // Silent background sync
+    fetch('/api/integrations/ga4/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace_id: workspaceId }),
+    })
+      .then(res => {
+        if (res.ok) {
+          const now = new Date()
+          setGa4SyncLabel(`GA4 atualizado ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`)
+          fetchMetrics() // refresh data
+        }
+      })
+      .catch(() => { /* silent fail */ })
+  }, [integrations, workspaceId, fetchMetrics])
 
   // Prev month label
   const now = new Date()
@@ -456,6 +498,11 @@ export default function PerformanceDashboardClient(props: Props) {
         <span className={`px-2 py-1 rounded-md bg-bg-card border text-[10px] font-medium ${current.has_ga4 ? 'border-orange-500/30 text-orange-400' : 'border-border text-text-muted'}`}>
           Sessões: {current.has_ga4 ? 'GA4' : 'Shopify'}
         </span>
+        {ga4SyncLabel && (
+          <span className="px-2 py-1 rounded-md bg-bg-card border border-green-500/20 text-[10px] text-green-400/70 font-medium">
+            {ga4SyncLabel}
+          </span>
+        )}
       </div>
 
       {/* Period filter pills */}
@@ -760,8 +807,6 @@ function SyncModal({
     if (toSync.length === 0) return
 
     setAnySyncing(true)
-    const dateFrom = new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0]
-    const dateTo = new Date().toISOString().split('T')[0]
 
     const updates = [...sources]
     for (const src of toSync) {
@@ -775,14 +820,12 @@ function SyncModal({
         const controller = new AbortController()
         const timeout = setTimeout(() => controller.abort(), 60000)
         try {
-          const body = src.key === 'ga4'
-            ? JSON.stringify({ workspace_id: workspaceId })
-            : JSON.stringify({ workspace_id: workspaceId, date_from: dateFrom, date_to: dateTo })
-
+          // Don't send date_from/date_to — let API smart sync decide the range
+          // Send force: true to bypass 2-hour cache
           const res = await fetch(syncEndpoints[src.key], {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body,
+            body: JSON.stringify({ workspace_id: workspaceId, force: true }),
             signal: controller.signal,
           })
           clearTimeout(timeout)
