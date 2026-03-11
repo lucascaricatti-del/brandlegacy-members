@@ -50,6 +50,28 @@ export default function StudentLayoutShell({
   const [navigating, setNavigating] = useState(false)
   useEffect(() => { setNavigating(false) }, [pathname])
 
+  // Password setup banner + modal
+  const [showPwdBanner, setShowPwdBanner] = useState(false)
+  const [showPwdModal, setShowPwdModal] = useState(false)
+  const [pwdToast, setPwdToast] = useState(false)
+
+  useEffect(() => {
+    const supabase = createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    )
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return
+      const hasSet = user.user_metadata?.has_set_password === true
+      const lsSet = localStorage.getItem(`bl_pwd_${user.id}`)
+      if (hasSet || lsSet) return
+      // Check if dismissed recently (7 days)
+      const dismissed = localStorage.getItem(`bl_pwd_remind_${user.id}`)
+      if (dismissed && Date.now() - Number(dismissed) < 7 * 86400000) return
+      setShowPwdBanner(true)
+    })
+  }, [])
+
   function canSee(href: string): boolean {
     if (!permissions) return true // no permissions = show all (backward compat)
     const permKey = SIDEBAR_PERMISSION_MAP[href]
@@ -293,6 +315,44 @@ export default function StudentLayoutShell({
           </div>
         )}
 
+        {/* Password setup banner */}
+        {showPwdBanner && (
+          <div
+            className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 px-4 py-2.5 shrink-0 z-30"
+            style={{ background: T.gold, color: '#050D07' }}
+          >
+            <p className="text-sm font-medium flex items-center gap-2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+              </svg>
+              Defina uma senha para facilitar seus próximos acessos.
+            </p>
+            <div className="flex items-center gap-3 flex-shrink-0">
+              <button
+                onClick={() => setShowPwdModal(true)}
+                className="text-xs font-semibold px-3 py-1 rounded-lg transition-colors"
+                style={{ background: 'rgba(5,13,7,0.2)' }}
+                onMouseOver={e => { e.currentTarget.style.background = 'rgba(5,13,7,0.35)' }}
+                onMouseOut={e => { e.currentTarget.style.background = 'rgba(5,13,7,0.2)' }}
+              >
+                Definir agora
+              </button>
+              <button
+                onClick={() => {
+                  setShowPwdBanner(false)
+                  const supabase = createBrowserClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!)
+                  supabase.auth.getUser().then(({ data: { user } }) => {
+                    if (user) localStorage.setItem(`bl_pwd_remind_${user.id}`, String(Date.now()))
+                  })
+                }}
+                className="text-xs opacity-70 hover:opacity-100 transition-opacity"
+              >
+                Lembrar depois &times;
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Mobile top bar */}
         <header
           className="flex md:hidden sticky top-0 z-30 items-center gap-3 px-4 h-14 shrink-0"
@@ -317,6 +377,27 @@ export default function StudentLayoutShell({
           </div>
         </main>
       </div>
+
+      {/* Password setup modal */}
+      {showPwdModal && (
+        <SetPasswordModal
+          onClose={() => setShowPwdModal(false)}
+          onSuccess={() => {
+            setShowPwdModal(false)
+            setShowPwdBanner(false)
+            setPwdToast(true)
+            setTimeout(() => setPwdToast(false), 3000)
+          }}
+        />
+      )}
+
+      {/* Password toast */}
+      {pwdToast && (
+        <div className="fixed bottom-6 right-6 z-[100] px-4 py-3 rounded-lg shadow-lg text-sm font-medium"
+          style={{ background: '#122014', border: `1px solid rgba(34,197,94,0.3)`, color: '#22c55e', animation: 'fadeIn 0.2s ease-out' }}>
+          Senha definida com sucesso!
+        </div>
+      )}
     </div>
   )
 }
@@ -470,6 +551,113 @@ function SoonItem({ label, tooltip }: { label: string; tooltip?: string }) {
           {tooltip}
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Password setup modal ──
+
+function SetPasswordModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [showPwd, setShowPwd] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  const strength = password.length === 0 ? 0 : password.length < 8 ? 1 : password.length < 12 && /[^a-zA-Z0-9]/.test(password) ? 3 : password.length >= 8 ? 2 : 1
+  const strengthLabel = ['', 'Fraca', 'Média', 'Forte'][strength]
+  const strengthColor = ['', '#ef4444', '#eab308', '#22c55e'][strength]
+  const canSubmit = password.length >= 8 && password === confirm && !saving
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!canSubmit) return
+    setError(null)
+    setSaving(true)
+
+    const supabase = createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    )
+
+    const { error: updateErr } = await supabase.auth.updateUser({ password })
+    if (updateErr) {
+      setError(updateErr.message)
+      setSaving(false)
+      return
+    }
+
+    // Mark as set
+    await supabase.auth.updateUser({ data: { has_set_password: true } })
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) localStorage.setItem(`bl_pwd_${user.id}`, 'true')
+
+    onSuccess()
+  }
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="relative bg-bg-card border border-border rounded-xl p-6 w-full max-w-sm shadow-2xl" style={{ animation: 'fadeIn 0.15s ease-out' }}>
+        <h3 className="text-text-primary font-semibold text-lg mb-1">Defina sua senha</h3>
+        <p className="text-text-muted text-xs mb-5">Use para acessar a plataforma no futuro sem precisar de link.</p>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">Nova senha</label>
+            <div className="relative">
+              <input
+                type={showPwd ? 'text' : 'password'}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder="Mínimo 8 caracteres"
+                className="w-full bg-bg-base border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary placeholder-text-muted/50 focus:outline-none focus:border-brand-gold/50 pr-10"
+              />
+              <button type="button" onClick={() => setShowPwd(!showPwd)} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary">
+                {showPwd ? <IcoEyeOff /> : <IcoEye />}
+              </button>
+            </div>
+            {password.length > 0 && (
+              <div className="mt-2 flex items-center gap-2">
+                <div className="flex-1 h-1 rounded-full bg-bg-base overflow-hidden">
+                  <div className="h-full rounded-full transition-all duration-300" style={{ width: `${(strength / 3) * 100}%`, background: strengthColor }} />
+                </div>
+                <span className="text-[10px] font-medium" style={{ color: strengthColor }}>{strengthLabel}</span>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-text-secondary mb-1.5">Confirmar senha</label>
+            <div className="relative">
+              <input
+                type={showConfirm ? 'text' : 'password'}
+                value={confirm}
+                onChange={e => setConfirm(e.target.value)}
+                placeholder="Repita a senha"
+                className="w-full bg-bg-base border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary placeholder-text-muted/50 focus:outline-none focus:border-brand-gold/50 pr-10"
+              />
+              <button type="button" onClick={() => setShowConfirm(!showConfirm)} className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary">
+                {showConfirm ? <IcoEyeOff /> : <IcoEye />}
+              </button>
+            </div>
+            {confirm.length > 0 && password !== confirm && (
+              <p className="text-red-400 text-[11px] mt-1">As senhas não coincidem</p>
+            )}
+          </div>
+
+          {error && <p className="text-red-400 text-xs">{error}</p>}
+
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            className="w-full py-2.5 rounded-lg bg-brand-gold text-bg-base text-sm font-semibold hover:opacity-90 transition-opacity disabled:opacity-40"
+          >
+            {saving ? 'Salvando...' : 'Salvar senha'}
+          </button>
+        </form>
+      </div>
     </div>
   )
 }
@@ -633,6 +821,22 @@ function IcoLock() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+  )
+}
+// Eye
+function IcoEye() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
+    </svg>
+  )
+}
+function IcoEyeOff() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+      <line x1="1" y1="1" x2="23" y2="23" />
     </svg>
   )
 }
