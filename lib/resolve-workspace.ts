@@ -3,7 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 
 /**
  * Resolves the current workspace for a user.
- * Checks admin impersonation cookie first, then falls back to workspace_members lookup.
+ * Checks admin impersonation cookie first (verifying admin role), then falls back to workspace_members lookup.
  * Returns workspace info or null if no workspace found.
  */
 export async function resolveWorkspace(userId: string): Promise<{
@@ -19,12 +19,22 @@ export async function resolveWorkspace(userId: string): Promise<{
   const adminSupabase = createAdminClient()
 
   if (impersonateWsId) {
-    const { data: ws } = await adminSupabase
-      .from('workspaces')
-      .select('id, name, plan_type, slug, is_active')
-      .eq('id', impersonateWsId)
+    // Verify user is actually an admin before honoring the cookie
+    const { data: profile } = await adminSupabase
+      .from('profiles')
+      .select('role')
+      .eq('id', userId)
       .single()
-    if (ws) return ws
+
+    if (profile?.role === 'admin') {
+      const { data: ws } = await adminSupabase
+        .from('workspaces')
+        .select('id, name, plan_type, slug, is_active')
+        .eq('id', impersonateWsId)
+        .single()
+      if (ws) return ws
+    }
+    // If not admin, ignore the cookie and fall through to normal flow
   }
 
   // Normal flow: get from workspace_members

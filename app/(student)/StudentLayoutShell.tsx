@@ -300,7 +300,7 @@ export default function StudentLayoutShell({
             <button
               onClick={async () => {
                 await fetch('/api/admin/impersonate', { method: 'DELETE' })
-                router.push('/admin/workspaces')
+                router.push('/admin')
               }}
               className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-colors"
               style={{ background: 'rgba(5,13,7,0.2)', color: '#050D07' }}
