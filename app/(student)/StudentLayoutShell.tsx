@@ -210,15 +210,6 @@ export default function StudentLayoutShell({
             </>
           )}
 
-          {/* Studio */}
-          <Divider />
-          <SectionLabel>Studio</SectionLabel>
-          <div className="px-2 space-y-0.5">
-            <SidebarItem href="/metricas?tab=influenciadores" icon={<IcoSearch />} label="Creator Finder" active={false} onClick={nav} />
-            <SoonItem label="Social Listening" tooltip={"Capture e organize UGC de influencers\nautomaticamente. Galeria, filtros, pastas\ne análise por agente. Em breve."} />
-            <SoonItem label="Creative Lab" tooltip={"Esteira completa de criativos: UGC →\nedição → gerador IA → publicação Meta.\nEm breve."} />
-          </div>
-
           {/* Marketplaces */}
           {canSee('/marketplaces') && (
             <>
@@ -228,6 +219,15 @@ export default function StudentLayoutShell({
               </div>
             </>
           )}
+
+          {/* Studio */}
+          <Divider />
+          <SectionLabel>Studio</SectionLabel>
+          <div className="px-2 space-y-0.5">
+            <SoonItem label="Creator Finder" tooltip={"Encontre creators alinhados com sua\nmarca e histórico de conversão.\nEm breve."} />
+            <SoonItem label="Social Listening" tooltip={"Capture e organize UGC de influencers\nautomaticamente. Galeria, filtros, pastas\ne análise por agente. Em breve."} />
+            <SoonItem label="Creative Lab" tooltip={"Esteira completa de criativos: UGC →\nedição → gerador IA → publicação Meta.\nEm breve."} />
+          </div>
 
           {/* Settings */}
           {(canSee('/team') || canSee('/integracoes')) && (
