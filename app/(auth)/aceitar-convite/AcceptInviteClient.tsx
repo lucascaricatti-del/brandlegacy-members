@@ -57,7 +57,45 @@ export default function AcceptInviteClient({
       }
     }
 
-    // Listen for ANY auth state change (magic link auto-fires SIGNED_IN)
+    async function init() {
+      try {
+        // 1. Manually parse and exchange hash fragment tokens
+        const hash = window.location.hash
+        if (hash && hash.includes('access_token')) {
+          const params = new URLSearchParams(hash.substring(1))
+          const access_token = params.get('access_token')
+          const refresh_token = params.get('refresh_token')
+
+          if (access_token && refresh_token) {
+            const { data, error } = await supabase.auth.setSession({
+              access_token,
+              refresh_token,
+            })
+            if (data.session && !error) {
+              // Clean hash from URL
+              window.history.replaceState(null, '', window.location.pathname + window.location.search)
+              doAccept()
+              return
+            }
+          }
+        }
+
+        // 2. Check if already logged in
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session) {
+          doAccept()
+          return
+        }
+
+        // 3. No hash, no session — show email form
+        setStatus('need_email')
+      } catch {
+        // 4. Fallback timeout — show email form on any error
+        setStatus('need_email')
+      }
+    }
+
+    // Also listen for auth state changes as backup
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -67,21 +105,17 @@ export default function AcceptInviteClient({
       }
     })
 
-    // Also check if already logged in right now
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        // Already authenticated — accept immediately
-        doAccept()
-        return
-      }
-      // Not logged in yet — if no hash fragment, show email form
-      if (!window.location.hash.includes('access_token')) {
-        setStatus('need_email')
-      }
-      // If hash exists: onAuthStateChange above will fire automatically
-    })
+    // Timeout fallback — if still loading after 4s, show email form
+    const timeout = setTimeout(() => {
+      if (!accepted) setStatus(prev => prev === 'loading' ? 'need_email' : prev)
+    }, 4000)
 
-    return () => subscription.unsubscribe()
+    init()
+
+    return () => {
+      subscription.unsubscribe()
+      clearTimeout(timeout)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inviteToken])
 
