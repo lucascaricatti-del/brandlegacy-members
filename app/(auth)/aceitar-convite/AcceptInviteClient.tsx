@@ -1,13 +1,16 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { createBrowserClient } from '@supabase/ssr'
 
 const ROLE_LABELS: Record<string, string> = {
   manager: 'Manager',
   collaborator: 'Colaborador',
   mentee: 'Mentorado',
 }
+
+type Status = 'verifying' | 'accepting' | 'accepted' | 'no_session' | 'error'
 
 export default function AcceptInviteClient({
   token,
@@ -23,42 +26,89 @@ export default function AcceptInviteClient({
   isAuthenticated: boolean
 }) {
   const router = useRouter()
-  const [status, setStatus] = useState<'idle' | 'accepting' | 'accepted' | 'error'>('idle')
+  const [status, setStatus] = useState<Status>(isAuthenticated ? 'accepting' : 'verifying')
   const [error, setError] = useState<string | null>(null)
   const [resending, setResending] = useState(false)
   const [resent, setResent] = useState(false)
+  const acceptedRef = useRef(false)
 
-  // If authenticated, auto-accept the invite
-  useEffect(() => {
-    if (!isAuthenticated) return
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  )
 
-    async function acceptInvite() {
-      setStatus('accepting')
-      try {
-        const res = await fetch('/api/team/invite/accept', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token }),
-        })
-        const data = await res.json()
+  async function acceptInvite() {
+    if (acceptedRef.current) return
+    acceptedRef.current = true
+    setStatus('accepting')
+    try {
+      const res = await fetch('/api/team/invite/accept', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      })
+      const data = await res.json()
 
-        if (!res.ok) {
-          setError(data.error || 'Erro ao aceitar convite')
-          setStatus('error')
-          return
-        }
-
-        setStatus('accepted')
-        // Redirect to dashboard after short delay
-        setTimeout(() => router.push('/dashboard'), 1500)
-      } catch {
-        setError('Erro inesperado. Tente novamente.')
+      if (!res.ok) {
+        setError(data.error || 'Erro ao aceitar convite')
         setStatus('error')
+        acceptedRef.current = false
+        return
       }
+
+      setStatus('accepted')
+      setTimeout(() => router.push('/dashboard'), 1200)
+    } catch {
+      setError('Erro inesperado. Tente novamente.')
+      setStatus('error')
+      acceptedRef.current = false
+    }
+  }
+
+  useEffect(() => {
+    // If server already confirmed auth, accept immediately
+    if (isAuthenticated) {
+      acceptInvite()
+      return
     }
 
-    acceptInvite()
-  }, [isAuthenticated, token, router])
+    // Check if URL has hash fragment with access_token (magic link)
+    const hash = window.location.hash
+    const hasHashToken = hash.includes('access_token')
+
+    if (!hasHashToken) {
+      // No hash token and not authenticated — show "use email link"
+      setStatus('no_session')
+      return
+    }
+
+    // Hash token present — Supabase will auto-exchange it via onAuthStateChange
+    setStatus('verifying')
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session) {
+          acceptInvite()
+        }
+      }
+    )
+
+    // Fallback: if onAuthStateChange doesn't fire within 5s, check manually
+    const fallbackTimer = setTimeout(async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) {
+        acceptInvite()
+      } else {
+        setStatus('no_session')
+      }
+    }, 5000)
+
+    return () => {
+      subscription.unsubscribe()
+      clearTimeout(fallbackTimer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function handleResend() {
     setResending(true)
@@ -69,9 +119,7 @@ export default function AcceptInviteClient({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token }),
       })
-      if (res.ok) {
-        setResent(true)
-      }
+      if (res.ok) setResent(true)
     } catch {
       // silently fail
     } finally {
@@ -95,72 +143,82 @@ export default function AcceptInviteClient({
         </p>
       </div>
 
-      {/* Authenticated → auto-accepting */}
-      {isAuthenticated && (
-        <div className="p-8 text-center space-y-3">
-          {status === 'accepting' && (
-            <>
-              <div className="w-8 h-8 border-2 border-brand-gold border-t-transparent rounded-full animate-spin mx-auto" />
-              <p className="text-text-primary font-medium">Aceitando convite...</p>
-            </>
-          )}
-          {status === 'accepted' && (
-            <>
-              <div className="text-4xl">&#10003;</div>
-              <p className="text-text-primary font-medium">Convite aceito!</p>
-              <p className="text-text-secondary text-sm">Redirecionando para o dashboard...</p>
-            </>
-          )}
-          {status === 'error' && (
-            <>
-              <p className="text-error font-medium">{error}</p>
-              <button
-                onClick={() => window.location.reload()}
-                className="mt-2 px-4 py-2 bg-brand-gold text-bg-base rounded-lg text-sm font-medium hover:bg-brand-gold-light transition-colors"
-              >
-                Tentar novamente
-              </button>
-            </>
-          )}
-        </div>
-      )}
+      <div className="p-8 text-center space-y-3">
+        {/* Verifying session from hash token */}
+        {status === 'verifying' && (
+          <>
+            <div className="w-8 h-8 border-2 border-brand-gold border-t-transparent rounded-full animate-spin mx-auto" />
+            <p className="text-text-primary font-medium">Verificando seu acesso...</p>
+          </>
+        )}
 
-      {/* Not authenticated → prompt to use email link */}
-      {!isAuthenticated && (
-        <div className="p-8 text-center space-y-4">
-          <div className="text-4xl">&#9993;&#65039;</div>
-          <p className="text-text-primary font-medium">Use o link enviado para seu email</p>
-          <p className="text-text-secondary text-sm">
-            Enviamos um link de acesso para{' '}
-            <strong className="text-brand-gold">{email}</strong>.
-            <br />
-            Clique no link no seu email para aceitar o convite.
-          </p>
+        {/* Accepting invite */}
+        {status === 'accepting' && (
+          <>
+            <div className="w-8 h-8 border-2 border-brand-gold border-t-transparent rounded-full animate-spin mx-auto" />
+            <p className="text-text-primary font-medium">Aceitando convite...</p>
+          </>
+        )}
 
-          <div className="pt-2">
-            {resent ? (
-              <p className="text-emerald-400 text-sm">Convite reenviado!</p>
-            ) : (
-              <button
-                onClick={handleResend}
-                disabled={resending}
-                className="text-brand-gold hover:underline text-sm disabled:opacity-50"
-              >
-                {resending ? 'Reenviando...' : 'Reenviar convite'}
-              </button>
-            )}
-          </div>
+        {/* Success */}
+        {status === 'accepted' && (
+          <>
+            <div className="text-4xl text-emerald-400">&#10003;</div>
+            <p className="text-text-primary font-medium">Convite aceito!</p>
+            <p className="text-text-secondary text-sm">Bem-vindo a {workspaceName}! Redirecionando...</p>
+          </>
+        )}
 
-          <div className="pt-2 border-t border-border">
-            <a
-              href="/login"
-              className="text-text-muted text-xs hover:text-text-secondary transition-colors"
+        {/* Error */}
+        {status === 'error' && (
+          <>
+            <p className="text-error font-medium">{error}</p>
+            <button
+              onClick={() => { acceptedRef.current = false; acceptInvite() }}
+              className="mt-2 px-4 py-2 bg-brand-gold text-bg-base rounded-lg text-sm font-medium hover:bg-brand-gold-light transition-colors"
             >
-              Já tem uma conta? Fazer login
-            </a>
+              Tentar novamente
+            </button>
+          </>
+        )}
+
+        {/* No session — user arrived without magic link hash */}
+        {status === 'no_session' && (
+          <div className="space-y-4">
+            <div className="text-4xl">&#9993;&#65039;</div>
+            <p className="text-text-primary font-medium">Use o link enviado para seu email</p>
+            <p className="text-text-secondary text-sm">
+              Enviamos um link de acesso para{' '}
+              <strong className="text-brand-gold">{email}</strong>.
+              <br />
+              Clique no link no seu email para aceitar o convite.
+            </p>
+
+            <div className="pt-2">
+              {resent ? (
+                <p className="text-emerald-400 text-sm">Convite reenviado!</p>
+              ) : (
+                <button
+                  onClick={handleResend}
+                  disabled={resending}
+                  className="text-brand-gold hover:underline text-sm disabled:opacity-50"
+                >
+                  {resending ? 'Reenviando...' : 'Reenviar convite'}
+                </button>
+              )}
+            </div>
+
+            <div className="pt-2 border-t border-border">
+              <a
+                href="/login"
+                className="text-text-muted text-xs hover:text-text-secondary transition-colors"
+              >
+                Já tem uma conta? Fazer login
+              </a>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }
