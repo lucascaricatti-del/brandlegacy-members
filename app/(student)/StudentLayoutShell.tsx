@@ -141,23 +141,39 @@ export default function StudentLayoutShell({
           className="flex-1 overflow-y-auto py-3"
           style={{ scrollbarWidth: 'none' } as React.CSSProperties}
         >
-          {/* Top items */}
+          {/* Academy */}
           <div className="px-2 space-y-0.5">
             {canSee('/academy') && <SidebarItem href="/academy" icon={<IcoGraduationCap />} label="Academy" active={isActive('/academy')} onClick={nav} />}
-            {canSee('/dashboard') && <SidebarItem href="/dashboard" icon={<IcoDashboard />} label="Dashboard" active={isActive('/dashboard')} onClick={nav} />}
           </div>
 
-          {(canSee('/entregas') || canSee('/workspace/tasks')) && (
+          {/* Operations */}
+          {(canSee('/dashboard') || canSee('/entregas') || canSee('/workspace/tasks')) && (
             <>
               <Divider />
               <SectionLabel>Operations</SectionLabel>
               <div className="px-2 space-y-0.5">
+                {canSee('/dashboard') && <SidebarItem href="/dashboard" icon={<IcoDashboard />} label="Dashboard" active={isActive('/dashboard')} onClick={nav} />}
                 {canSee('/entregas') && <SidebarItem href="/entregas" icon={<IcoGitBranch />} label="Workflow" active={isActive('/entregas')} onClick={nav} />}
                 {canSee('/workspace/tasks') && <SidebarItem href="/workspace/tasks" icon={<IcoCheckSquare />} label="Tasks" active={isActive('/workspace/tasks')} onClick={nav} />}
               </div>
             </>
           )}
 
+          {/* Business Plan */}
+          {(canSee('/ferramentas/calculadora-cenarios') || canSee('/ferramentas/planejamento-midia') || canSee('/ferramentas/planejamento-midia?tab=sales_forecast') || canSee('/ferramentas/forecast')) && (
+            <>
+              <Divider />
+              <SectionLabel>Business Plan</SectionLabel>
+              <div className="px-2 space-y-0.5">
+                {canSee('/ferramentas/calculadora-cenarios') && <SidebarItem href="/ferramentas/calculadora-cenarios" icon={<IcoCalculator />} label="ROAS/CAC Planner" active={isActive('/ferramentas/calculadora-cenarios')} onClick={nav} />}
+                {canSee('/ferramentas/planejamento-midia') && <SidebarItem href="/ferramentas/planejamento-midia" icon={<IcoBarChart />} label="Mídia Plan" active={isActive('/ferramentas/planejamento-midia')} onClick={nav} />}
+                {canSee('/ferramentas/planejamento-midia?tab=sales_forecast') && <SidebarItem href="/ferramentas/planejamento-midia?tab=sales_forecast" icon={<IcoDollarSign />} label="Sales Forecast" active={isActive('/ferramentas/planejamento-midia?tab=sales_forecast')} onClick={nav} />}
+                {canSee('/ferramentas/forecast') && <SidebarItem href="/ferramentas/forecast" icon={<IcoFileText />} label="Forecast" active={isActive('/ferramentas/forecast')} onClick={nav} />}
+              </div>
+            </>
+          )}
+
+          {/* Mídia Analytics */}
           {(canSee('/performance') || canSee('/metricas?tab=meta') || canSee('/metricas?tab=google') || canSee('/metricas?tab=yampi') || canSee('/metricas?tab=influenciadores')) && (
             <>
               <Divider />
@@ -172,19 +188,16 @@ export default function StudentLayoutShell({
             </>
           )}
 
-          {(canSee('/ferramentas/calculadora-cenarios') || canSee('/ferramentas/planejamento-midia') || canSee('/ferramentas/planejamento-midia?tab=sales_forecast') || canSee('/ferramentas/forecast')) && (
-            <>
-              <Divider />
-              <SectionLabel>Business Plan</SectionLabel>
-              <div className="px-2 space-y-0.5">
-                {canSee('/ferramentas/calculadora-cenarios') && <SidebarItem href="/ferramentas/calculadora-cenarios" icon={<IcoCalculator />} label="ROAS/CAC Planner" active={isActive('/ferramentas/calculadora-cenarios')} onClick={nav} />}
-                {canSee('/ferramentas/planejamento-midia') && <SidebarItem href="/ferramentas/planejamento-midia" icon={<IcoBarChart />} label="Midia Plan" active={isActive('/ferramentas/planejamento-midia')} onClick={nav} />}
-                {canSee('/ferramentas/planejamento-midia?tab=sales_forecast') && <SidebarItem href="/ferramentas/planejamento-midia?tab=sales_forecast" icon={<IcoDollarSign />} label="Sales Forecast" active={isActive('/ferramentas/planejamento-midia?tab=sales_forecast')} onClick={nav} />}
-                {canSee('/ferramentas/forecast') && <SidebarItem href="/ferramentas/forecast" icon={<IcoFileText />} label="Forecast" active={isActive('/ferramentas/forecast')} onClick={nav} />}
-              </div>
-            </>
-          )}
+          {/* Studio */}
+          <Divider />
+          <SectionLabel>Studio</SectionLabel>
+          <div className="px-2 space-y-0.5">
+            <SidebarItem href="/metricas?tab=influenciadores" icon={<IcoSearch />} label="Creator Finder" active={false} onClick={nav} />
+            <SoonItem label="Social Listening" tooltip={"Capture e organize UGC de influencers\nautomaticamente. Galeria, filtros, pastas\ne análise por agente. Em breve."} />
+            <SoonItem label="Creative Lab" tooltip={"Esteira completa de criativos: UGC →\nedição → gerador IA → publicação Meta.\nEm breve."} />
+          </div>
 
+          {/* Marketplaces */}
           {canSee('/marketplaces') && (
             <>
               <Divider />
@@ -194,22 +207,17 @@ export default function StudentLayoutShell({
             </>
           )}
 
-          <Divider />
-
-          {/* EM BREVE — always visible */}
-          <SectionLabel>Em breve</SectionLabel>
-          <div className="px-2 space-y-0.5">
-            <SoonItem label="Gerador de LP" />
-            <SoonItem label="Funil de Vendas" />
-          </div>
-
-          <Divider />
-
-          {/* Bottom */}
-          <div className="px-2 space-y-0.5">
-            {canSee('/team') && <SidebarItem href="/team" icon={<IcoTeam />} label="Equipe" active={isActive('/team')} onClick={nav} />}
-            {canSee('/integracoes') && <SidebarItem href="/integracoes" icon={<IcoLink />} label="Integrações" active={isActive('/integracoes')} onClick={nav} />}
-          </div>
+          {/* Settings */}
+          {(canSee('/team') || canSee('/integracoes')) && (
+            <>
+              <Divider />
+              <SectionLabel>Settings</SectionLabel>
+              <div className="px-2 space-y-0.5">
+                {canSee('/team') && <SidebarItem href="/team" icon={<IcoTeam />} label="Team" active={isActive('/team')} onClick={nav} />}
+                {canSee('/integracoes') && <SidebarItem href="/integracoes" icon={<IcoLink />} label="Integrations" active={isActive('/integracoes')} onClick={nav} />}
+              </div>
+            </>
+          )}
 
           {profile?.role === 'admin' && (
             <>
@@ -410,10 +418,10 @@ function Divider() {
   return <div style={{ height: 1, background: T.divider, margin: '8px 16px' }} />
 }
 
-function SoonItem({ label }: { label: string }) {
+function SoonItem({ label, tooltip }: { label: string; tooltip?: string }) {
   return (
     <div
-      className="flex items-center rounded-lg"
+      className="group relative flex items-center rounded-lg"
       style={{
         height: 36,
         padding: '0 12px 0 16px',
@@ -421,12 +429,13 @@ function SoonItem({ label }: { label: string }) {
         fontSize: 13,
         fontWeight: 500,
         color: T.textNav,
-        opacity: 0.5,
-        cursor: 'default',
+        opacity: 0.6,
+        cursor: 'not-allowed',
       }}
+      onClick={e => e.preventDefault()}
     >
       <span style={{ display: 'flex', opacity: 0.6 }}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
+        <IcoLock />
       </span>
       {label}
       <span
@@ -442,6 +451,25 @@ function SoonItem({ label }: { label: string }) {
       >
         em breve
       </span>
+      {tooltip && (
+        <div
+          className="pointer-events-none absolute left-full ml-2 top-1/2 -translate-y-1/2 z-[60] hidden group-hover:block"
+          style={{
+            background: '#1A2B1E',
+            border: `1px solid ${T.border}`,
+            borderRadius: 8,
+            padding: '10px 14px',
+            width: 240,
+            whiteSpace: 'pre-line',
+            fontSize: 12,
+            lineHeight: 1.5,
+            color: 'rgba(255,255,255,0.7)',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+          }}
+        >
+          {tooltip}
+        </div>
+      )}
     </div>
   )
 }
@@ -589,6 +617,22 @@ function IcoLogout() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
+    </svg>
+  )
+}
+// Search
+function IcoSearch() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  )
+}
+// Lock
+function IcoLock() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
     </svg>
   )
 }
