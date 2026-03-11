@@ -155,8 +155,10 @@ export default function InfluencersTab({ workspaceId, yampiConnected = true, ini
   const [renewSaving, setRenewSaving] = useState(false)
   // Seq popover
   const [seqPopoverId, setSeqPopoverId] = useState<string | null>(null)
-  // Yampi banner
+  // Yampi banner + sync
   const [yampiDismissed, setYampiDismissed] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [syncMsg, setSyncMsg] = useState<string | null>(null)
   // GA4 attribution
   const [ga4Data, setGa4Data] = useState<Map<string, { sessions: number; conversions: number; conversion_rate: number }>>(new Map())
 
@@ -204,6 +206,33 @@ export default function InfluencersTab({ workspaceId, yampiConnected = true, ini
       })
       .catch(() => {})
   }, [data, view, workspaceId, period, appliedFrom, appliedTo])
+
+  // Yampi sync (refresh coupon orders)
+  async function handleYampiSync() {
+    setSyncing(true)
+    setSyncMsg(null)
+    try {
+      const range = getRange(period, appliedFrom, appliedTo)
+      const res = await fetch('/api/integrations/yampi/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workspace_id: workspaceId, date_from: range.date_from, date_to: range.date_to }),
+      })
+      const json = await res.json()
+      if (res.ok) {
+        setSyncMsg(`${json.total_orders ?? 0} pedidos sincronizados`)
+        setTimeout(() => setSyncMsg(null), 4000)
+        fetchPerformance()
+      } else {
+        setSyncMsg(json.error || 'Erro ao sincronizar')
+        setTimeout(() => setSyncMsg(null), 4000)
+      }
+    } catch {
+      setSyncMsg('Erro ao sincronizar')
+      setTimeout(() => setSyncMsg(null), 4000)
+    }
+    setSyncing(false)
+  }
 
   // Coupon preview
   async function previewCoupon(code: string) {
@@ -503,6 +532,9 @@ export default function InfluencersTab({ workspaceId, yampiConnected = true, ini
       {toast && (
         <div className="fixed top-4 right-4 z-[60] bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-medium shadow-lg">{toast}</div>
       )}
+      {syncMsg && (
+        <div className={`fixed top-4 right-4 z-[60] px-4 py-2 rounded-lg text-sm font-medium shadow-lg ${syncMsg.includes('Erro') ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'}`}>{syncMsg}</div>
+      )}
 
       {/* Yampi not connected banner */}
       {!yampiConnected && !yampiDismissed && (
@@ -529,6 +561,16 @@ export default function InfluencersTab({ workspaceId, yampiConnected = true, ini
           ))}
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {yampiConnected && (
+            <button onClick={handleYampiSync} disabled={syncing}
+              className="px-3 py-1.5 text-sm rounded-lg font-medium bg-bg-card border border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary cursor-pointer flex items-center gap-1.5 disabled:opacity-50 transition-colors"
+              title="Sincronizar pedidos Yampi">
+              <svg className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span className="hidden sm:inline">{syncing ? 'Sincronizando...' : 'Sincronizar'}</span>
+            </button>
+          )}
           <button onClick={openAddModal}
             className="px-3 py-1.5 text-sm rounded-lg font-medium bg-brand-gold text-bg-base hover:opacity-90 cursor-pointer flex items-center gap-1.5">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
