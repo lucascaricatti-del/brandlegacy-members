@@ -1,4 +1,3 @@
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import AcceptInviteClient from './AcceptInviteClient'
 
@@ -72,17 +71,12 @@ export default async function AcceptInvitePage({ searchParams }: Props) {
 
   const workspaceName = (invite as any).workspaces?.name ?? 'Workspace'
 
-  // Check if user is authenticated
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-
   return (
     <AcceptInviteClient
-      token={token}
+      inviteToken={token}
       workspaceName={workspaceName}
-      email={invite.email}
+      inviteEmail={invite.email}
       role={invite.role}
-      isAuthenticated={!!user}
     />
   )
 }
