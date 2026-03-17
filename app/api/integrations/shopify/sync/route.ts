@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { verifyWorkspaceAccess } from '@/lib/api-auth'
+import { toBrazilDate, brazilDayStart, brazilDayEnd } from '@/lib/date-utils'
 
 export const maxDuration = 300 // 5 min (Vercel Pro)
 
@@ -32,15 +33,15 @@ export async function POST(req: NextRequest) {
   }
 
   const domain = integration.account_id
-  const since = date_from || new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0]
-  const until = date_to || new Date().toISOString().split('T')[0]
+  const since = date_from || toBrazilDate(new Date(Date.now() - 180 * 86400000))
+  const until = date_to || toBrazilDate()
 
   // shopify sync started
 
   try {
     const allOrders: any[] = []
     let pageUrl: string | null =
-      `https://${domain}/admin/api/2026-01/orders.json?status=any&financial_status=paid&created_at_min=${since}T00:00:00Z&created_at_max=${until}T23:59:59Z&limit=250`
+      `https://${domain}/admin/api/2026-01/orders.json?status=any&financial_status=paid&created_at_min=${brazilDayStart(since)}&created_at_max=${brazilDayEnd(until)}&limit=250`
     let pageNum = 0
     const MAX_PAGES = 100
 

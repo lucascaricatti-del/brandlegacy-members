@@ -86,7 +86,7 @@ const INITIAL_FORM: FormState = {
   utmUrl: '', utmSource: '', utmMedium: 'influencer', utmCampaign: '',
 }
 
-function toYMD(d: Date) { return d.toISOString().slice(0, 10) }
+function toYMD(d: Date) { return d.toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }) }
 function getRange(p: Period, cFrom?: string, cTo?: string) {
   const today = toYMD(new Date())
   if (p === 'mes_atual') return { date_from: today.slice(0, 7) + '-01', date_to: today }
@@ -99,7 +99,7 @@ function fmtBRL(v: number) { return v.toLocaleString('pt-BR', { style: 'currency
 function fmtNum(v: number) { return v.toLocaleString('pt-BR') }
 function daysRemaining(endDate: string | null) {
   if (!endDate) return null
-  return Math.ceil((new Date(endDate + 'T00:00:00').getTime() - Date.now()) / 86400000)
+  return Math.ceil((new Date(endDate + 'T12:00:00-03:00').getTime() - Date.now()) / 86400000)
 }
 function fmtDateBR(d: string) {
   if (!d) return ''

@@ -86,7 +86,7 @@ const PERIODS: { key: Period; label: string }[] = [
 ]
 
 function toYMD(d: Date): string {
-  return d.toISOString().slice(0, 10)
+  return d.toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' })
 }
 
 function getDateRange(period: Period, customFrom?: string, customTo?: string): { date_from: string; date_to: string } {

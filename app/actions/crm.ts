@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { toBrazilDate } from '@/lib/date-utils'
 
 async function requireAdmin() {
   const supabase = await createClient()
@@ -190,7 +191,7 @@ export async function getLeadStats(funnelId: string) {
     .eq('funnel_id', funnelId)
 
   const all = leads ?? []
-  const today = new Date().toISOString().slice(0, 10)
+  const today = toBrazilDate()
 
   const stats = {
     total: all.length,

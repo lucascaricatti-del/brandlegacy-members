@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { parseYampiOrder, aggregateOrdersToMetrics } from '@/lib/yampi/parser'
+import { toBrazilDate, brazilDayStart, brazilDayEnd } from '@/lib/date-utils'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -19,8 +20,8 @@ export async function GET(req: NextRequest) {
   const now = new Date()
   const threeDaysAgo = new Date(now)
   threeDaysAgo.setDate(threeDaysAgo.getDate() - 3)
-  const dateFrom = threeDaysAgo.toISOString().split('T')[0]
-  const dateTo = now.toISOString().split('T')[0]
+  const dateFrom = toBrazilDate(threeDaysAgo)
+  const dateTo = toBrazilDate(now)
 
   console.log(`[cron/sync-metrics] starting sync for ${dateFrom} → ${dateTo}`)
 
@@ -222,7 +223,7 @@ async function syncShopify(workspaceId: string, integration: any, since: string,
   const domain = integration.account_id
   const allOrders: any[] = []
   let pageUrl: string | null =
-    `https://${domain}/admin/api/2026-01/orders.json?status=any&financial_status=paid&created_at_min=${since}T00:00:00Z&created_at_max=${until}T23:59:59Z&limit=250`
+    `https://${domain}/admin/api/2026-01/orders.json?status=any&financial_status=paid&created_at_min=${brazilDayStart(since)}&created_at_max=${brazilDayEnd(until)}&limit=250`
 
   while (pageUrl) {
     const res: Response = await fetch(pageUrl, {

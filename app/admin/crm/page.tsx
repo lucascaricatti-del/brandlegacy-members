@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { toBrazilDate } from '@/lib/date-utils'
 import CrmPipelineClient from './CrmPipelineClient'
 
 export default async function CrmPage() {
@@ -46,7 +47,7 @@ export default async function CrmPage() {
     initialLeads = (leadsRes.data ?? []) as Array<Record<string, unknown>>
 
     const all = statsLeadsRes.data ?? []
-    const today = new Date().toISOString().slice(0, 10)
+    const today = toBrazilDate()
     initialStats = {
       total: all.length,
       novos_hoje: all.filter((l) => l.created_at.slice(0, 10) === today).length,

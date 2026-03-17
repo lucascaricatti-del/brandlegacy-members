@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { toBrazilDate, brazilDayStart, brazilDayEnd } from '@/lib/date-utils'
 import type {
   ShopifyIntegration,
   ShopifyQLResponse,
@@ -40,8 +41,8 @@ export async function GET() {
     const now = new Date()
     const thirtyDaysAgo = new Date(now)
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-    const periodStart = thirtyDaysAgo.toISOString().split('T')[0]
-    const periodEnd = now.toISOString().split('T')[0]
+    const periodStart = toBrazilDate(thirtyDaysAgo)
+    const periodEnd = toBrazilDate(now)
 
     let sessions: number | null = null
     let warning: string | undefined
@@ -101,7 +102,7 @@ export async function GET() {
         `https://${shop_domain}/admin/api/2024-01/orders.json?` +
         `financial_status=paid&status=any&limit=250` +
         `&fields=id,created_at,total_price,total_line_items_price,line_items,customer` +
-        `&created_at_min=${periodStart}T00:00:00Z&created_at_max=${periodEnd}T23:59:59Z`
+        `&created_at_min=${brazilDayStart(periodStart)}&created_at_max=${brazilDayEnd(periodEnd)}`
 
       while (pageUrl) {
         const res: Response = await fetch(pageUrl, {

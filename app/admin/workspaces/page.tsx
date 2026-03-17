@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { toBrazilDate } from '@/lib/date-utils'
 import { redirect } from 'next/navigation'
 import CreateWorkspaceForm from './CreateWorkspaceForm'
 import WorkspaceListClient from './WorkspaceListClient'
@@ -54,7 +55,7 @@ export default async function AdminWorkspacesPage() {
   }
 
   const today = new Date()
-  const todayStr = today.toISOString().split('T')[0]
+  const todayStr = toBrazilDate(today)
 
   const enriched = workspaces.map((ws) => {
     const wsTasks = tasksByWs[ws.id] ?? []

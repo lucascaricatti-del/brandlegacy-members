@@ -46,7 +46,7 @@ function groupByMonth(deliveries: DeliveryItem[]) {
 }
 
 export default function AgendaClient({ deliveries }: Props) {
-  const today = new Date().toISOString().split('T')[0]
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' })
 
   const scheduled = deliveries.filter((d) => d.scheduled_date)
   const unscheduled = deliveries.filter((d) => !d.scheduled_date)

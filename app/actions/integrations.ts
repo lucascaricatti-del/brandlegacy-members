@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { toBrazilDate } from '@/lib/date-utils'
 import type { IntegrationPlatform, Json } from '@/lib/types/database'
 
 // ============================================================
@@ -195,8 +196,8 @@ export async function syncMetaAds(workspaceId: string, days = 30) {
 
   const since = new Date()
   since.setDate(since.getDate() - days)
-  const sinceStr = since.toISOString().split('T')[0]
-  const untilStr = new Date().toISOString().split('T')[0]
+  const sinceStr = toBrazilDate(since)
+  const untilStr = toBrazilDate()
 
   try {
     const url = `https://graph.facebook.com/v18.0/${accountId}/insights?` +
@@ -589,7 +590,7 @@ export async function getMetrics(workspaceId: string, days = 30) {
 
   const since = new Date()
   since.setDate(since.getDate() - days)
-  const sinceStr = since.toISOString().split('T')[0]
+  const sinceStr = toBrazilDate(since)
 
   const { data } = await adminSupabase
     .from('integration_metrics')

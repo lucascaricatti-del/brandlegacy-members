@@ -127,13 +127,13 @@ export default function TaskFlowClient({ workspaceId, tasks, members = [], isAdm
   const [bulkMode, setBulkMode] = useState(false)
   const [viewMode, setViewMode] = useState<'lista' | 'kanban'>('lista')
 
-  const todayStr = new Date().toISOString().split('T')[0]
+  const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' })
 
   // Compute end of week (Sunday)
   const now = new Date()
   const endOfWeek = new Date(now)
   endOfWeek.setDate(now.getDate() + (7 - now.getDay()))
-  const endOfWeekStr = endOfWeek.toISOString().split('T')[0]
+  const endOfWeekStr = endOfWeek.toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' })
 
   const activeTasks = tasks.filter((t) => !t.is_archived)
   const archivedTasks = tasks.filter((t) => t.is_archived)
@@ -1165,7 +1165,7 @@ function KanbanCard({
     transform: CSS.Transform.toString(transform),
     transition,
   }
-  const todayStr = new Date().toISOString().split('T')[0]
+  const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' })
   const isOverdue = task.status !== 'concluida' && task.due_date && task.due_date < todayStr
 
   return (
@@ -1200,7 +1200,7 @@ function KanbanCard({
 }
 
 function KanbanCardOverlay({ task }: { task: TaskRow }) {
-  const todayStr = new Date().toISOString().split('T')[0]
+  const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' })
   const isOverdue = task.status !== 'concluida' && task.due_date && task.due_date < todayStr
 
   return (

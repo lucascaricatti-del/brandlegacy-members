@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { verifyWorkspaceAccess } from '@/lib/api-auth'
+import { toBrazilDate } from '@/lib/date-utils'
 
 export const maxDuration = 300 // 5 min (Vercel Pro)
 
@@ -72,9 +73,9 @@ export async function POST(req: NextRequest) {
   // Smart sync: if last_ga4_sync exists → last 3 days, else → last 90 days
   const lastSync = metadata.last_ga4_sync
   const since = lastSync
-    ? new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10)
-    : new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10)
-  const until = new Date().toISOString().slice(0, 10)
+    ? toBrazilDate(new Date(Date.now() - 3 * 86400000))
+    : toBrazilDate(new Date(Date.now() - 90 * 86400000))
+  const until = toBrazilDate()
 
   console.log(`[ga4/sync] property=${propertyId}, period=${since}→${until}, smart=${!!lastSync}`)
 

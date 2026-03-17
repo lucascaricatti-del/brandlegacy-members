@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { toBrazilDate } from '@/lib/date-utils'
 
 const PLAN_LABELS = { free: 'Free', tracao: 'Tração', club: 'Club' }
 const PLAN_COLORS = {
@@ -14,8 +15,8 @@ export default async function InternoPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const today = new Date().toISOString().slice(0, 10)
-  const in30days = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const today = toBrazilDate()
+  const in30days = toBrazilDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000))
 
   const [workspacesRes, overduePmtsRes, renewingSoonRes] = await Promise.all([
     supabase

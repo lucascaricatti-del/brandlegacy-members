@@ -49,8 +49,7 @@ type Tab = 'meta' | 'google' | 'yampi' | 'influenciadores'
 
 function normalize(d: string) { return d?.slice(0, 10) ?? '' }
 function toDateStr(d: Date) {
-  const brazil = new Date(d.getTime() - 3 * 60 * 60 * 1000)
-  return brazil.toISOString().slice(0, 10)
+  return d.toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' })
 }
 
 /* ── SVG Icons ── */

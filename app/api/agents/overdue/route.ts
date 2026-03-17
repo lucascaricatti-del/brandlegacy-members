@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { Resend } from 'resend'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { toBrazilDate } from '@/lib/date-utils'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,7 +45,7 @@ export async function GET(request: Request) {
   }
 
   const adminSupabase = createAdminClient()
-  const today = new Date().toISOString().split('T')[0]
+  const today = toBrazilDate()
 
   try {
     // 1. Busca todos os workspaces ativos

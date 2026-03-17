@@ -58,7 +58,7 @@ type SyncSource = {
 }
 
 function toDateStr(d: Date) {
-  return new Date(d.getTime() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  return d.toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' })
 }
 
 function getDateRange(period: Period, customFrom: string, customTo: string) {
@@ -98,7 +98,7 @@ function getComparisonRange(period: Period, range: { date_from: string; date_to:
 
   const prevTo = new Date(from.getTime() - 86400000)
   const prevFrom = new Date(prevTo.getTime() - (spanDays - 1) * 86400000)
-  return { date_from: prevFrom.toISOString().slice(0, 10), date_to: prevTo.toISOString().slice(0, 10) }
+  return { date_from: toDateStr(prevFrom), date_to: toDateStr(prevTo) }
 }
 
 function deriveMetrics(raw: RawMetrics) {
@@ -264,7 +264,7 @@ export default function PerformanceDashboardClient(props: Props) {
     // If last sync is a date string (YYYY-MM-DD), compare with today
     let isStaleGa4 = !lastGa4
     if (lastGa4) {
-      const lastDate = new Date(lastGa4 + 'T00:00:00Z').getTime()
+      const lastDate = new Date(lastGa4 + 'T12:00:00-03:00').getTime()
       isStaleGa4 = Date.now() - lastDate > sixHoursMs
     }
 

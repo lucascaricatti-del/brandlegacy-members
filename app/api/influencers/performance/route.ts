@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { verifyWorkspaceAccess } from '@/lib/api-auth'
+import { toBrazilDate } from '@/lib/date-utils'
 
 const adminSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,12 +11,10 @@ const adminSupabase = createClient(
 const PAID_STATUSES = ['paid', 'invoiced', 'shipped', 'delivered']
 
 function daysBetween(from: string, to: string): number {
-  const a = new Date(from + 'T00:00:00Z')
-  const b = new Date(to + 'T00:00:00Z')
+  const a = new Date(from + 'T12:00:00-03:00')
+  const b = new Date(to + 'T12:00:00-03:00')
   return Math.round((b.getTime() - a.getTime()) / 86400000)
 }
-
-function toYMD(d: Date) { return d.toISOString().slice(0, 10) }
 
 async function fetchOrders(workspace_id: string, date_from: string, date_to: string) {
   let allOrders: any[] = []
@@ -101,12 +100,12 @@ export async function GET(req: NextRequest) {
   let prevOrdersByCoupon = new Map<string, any[]>()
   if (compare) {
     const periodDays = daysBetween(date_from, date_to) + 1
-    const prevToDate = new Date(date_from + 'T00:00:00Z')
+    const prevToDate = new Date(date_from + 'T12:00:00-03:00')
     prevToDate.setDate(prevToDate.getDate() - 1)
     const prevFromDate = new Date(prevToDate)
     prevFromDate.setDate(prevFromDate.getDate() - periodDays + 1)
     try {
-      const prevOrders = await fetchOrders(auth.workspaceId, toYMD(prevFromDate), toYMD(prevToDate))
+      const prevOrders = await fetchOrders(auth.workspaceId, toBrazilDate(prevFromDate), toBrazilDate(prevToDate))
       prevOrdersByCoupon = groupByCoupon(prevOrders)
     } catch { /* ignore compare errors */ }
   }

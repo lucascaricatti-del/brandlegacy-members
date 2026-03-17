@@ -80,7 +80,7 @@ export default function ViewAsMentoradoClient({ workspace, deliveries, tasks, se
 
   const totalTasks = tasks.length
   const completedTasks = tasks.filter((t) => t.status === 'concluida').length
-  const todayStr = new Date().toISOString().split('T')[0]
+  const todayStr = new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' })
   const overdueTasks = tasks.filter((t) => t.status !== 'concluida' && t.due_date && t.due_date < todayStr).length
   const completedDeliveries = deliveries.filter((d) => d.status === 'completed').length
   const scheduledDeliveries = deliveries.filter((d) => d.status === 'scheduled')

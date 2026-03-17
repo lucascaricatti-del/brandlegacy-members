@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { verifyWorkspaceAccess } from '@/lib/api-auth'
+import { toBrazilDate } from '@/lib/date-utils'
 
 export const maxDuration = 300 // 5 min (Vercel Pro)
 
@@ -57,12 +58,12 @@ export async function POST(req: NextRequest) {
 
   // Smart sync: if last_sync exists, always re-fetch last 3 days; otherwise full 180 days
   const lastSync = (integration as any).metadata?.last_sync
-  const fallbackSince = new Date(Date.now() - 180 * 86400000).toISOString().slice(0, 10)
+  const fallbackSince = toBrazilDate(new Date(Date.now() - 180 * 86400000))
   const smartSince = lastSync
-    ? new Date(Date.now() - 3 * 86400000).toISOString().slice(0, 10)
+    ? toBrazilDate(new Date(Date.now() - 3 * 86400000))
     : fallbackSince
   const since = date_from || smartSince
-  const until = date_to || new Date().toISOString().slice(0, 10)
+  const until = date_to || toBrazilDate()
 
   console.log(`[google-ads/sync] smart sync: last_sync=${lastSync || 'none'}, period=${since}→${until}`)
 

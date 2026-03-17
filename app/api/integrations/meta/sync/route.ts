@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { verifyWorkspaceAccess } from '@/lib/api-auth'
+import { toBrazilDate } from '@/lib/date-utils'
 
 export const maxDuration = 300 // 5 min (Vercel Pro)
 
@@ -9,14 +10,10 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 )
 
-function toYMD(d: Date): string {
-  return d.toISOString().slice(0, 10)
-}
-
 function getDateChunks(since: string, until: string): { since: string; until: string }[] {
   const chunks: { since: string; until: string }[] = []
-  const start = new Date(since + 'T00:00:00Z')
-  const end = new Date(until + 'T00:00:00Z')
+  const start = new Date(since + 'T12:00:00-03:00')
+  const end = new Date(until + 'T12:00:00-03:00')
   const chunkDays = 30
 
   while (start <= end) {
@@ -25,8 +22,8 @@ function getDateChunks(since: string, until: string): { since: string; until: st
     if (chunkEnd > end) chunkEnd.setTime(end.getTime())
 
     chunks.push({
-      since: toYMD(start),
-      until: toYMD(chunkEnd),
+      since: toBrazilDate(start),
+      until: toBrazilDate(chunkEnd),
     })
 
     start.setUTCDate(start.getUTCDate() + chunkDays)
@@ -148,12 +145,12 @@ export async function POST(req: NextRequest) {
 
   // Smart sync: re-fetch last 3 days if previously synced, else full 180 days
   const lastSync = (integration as any).metadata?.last_sync
-  const fallbackSince = toYMD(new Date(Date.now() - 180 * 86400000))
+  const fallbackSince = toBrazilDate(new Date(Date.now() - 180 * 86400000))
   const smartSince = lastSync
-    ? toYMD(new Date(Date.now() - 3 * 86400000))
+    ? toBrazilDate(new Date(Date.now() - 3 * 86400000))
     : fallbackSince
   const since = date_from || smartSince
-  const until = date_to || toYMD(new Date())
+  const until = date_to || toBrazilDate()
 
   console.log(`[meta/sync] smart sync: last_sync=${lastSync || 'none'}, period=${since}→${until}`)
 
@@ -190,7 +187,7 @@ export async function POST(req: NextRequest) {
     const existingMeta = (integration as any).metadata || {}
     await supabase
       .from('workspace_integrations')
-      .update({ metadata: { ...existingMeta, last_sync: toYMD(new Date()), last_sync_ts: Date.now() } })
+      .update({ metadata: { ...existingMeta, last_sync: toBrazilDate(), last_sync_ts: Date.now() } })
       .eq('workspace_id', workspace_id)
       .eq('provider', 'meta_ads')
 

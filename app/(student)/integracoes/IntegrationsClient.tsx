@@ -222,8 +222,8 @@ function PlatformCard({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workspace_id: workspaceId,
-          date_from: new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0],
-          date_to: new Date().toISOString().split('T')[0],
+          date_from: new Date(Date.now() - 180 * 86400000).toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }),
+          date_to: new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' }),
         }),
       })
       const data = await res.json()

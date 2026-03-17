@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { toBrazilDate } from '@/lib/date-utils'
 import Anthropic from '@anthropic-ai/sdk'
 
 function extractJSON(text: string): string {
@@ -90,7 +91,7 @@ export async function getWorkspacesHealth(): Promise<WorkspaceHealth[]> {
     const allTasks = tasks ?? []
     const totalTasks = allTasks.length
     const completedTasks = allTasks.filter((t) => t.status === 'concluida').length
-    const todayStr = today.toISOString().split('T')[0]
+    const todayStr = toBrazilDate(today)
     const overdueTasks = allTasks.filter(
       (t) => t.status !== 'concluida' && t.due_date && t.due_date < todayStr,
     ).length
