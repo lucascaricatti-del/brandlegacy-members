@@ -7,15 +7,35 @@ export const PAID_STATUSES = ['paid', 'invoiced', 'shipped', 'delivered'] as con
 export const CANCELLED_STATUSES = ['cancelled', 'refused', 'refunded'] as const
 
 /**
- * Normalize a raw Yampi status alias to a consistent value.
- * - Paid statuses are kept as-is (paid, invoiced, shipped, delivered)
- * - Cancelled/refused/refunded → 'cancelled'
- * - Everything else → 'pending'
+ * Map raw Yampi status alias (Portuguese or English) to our internal status.
+ * The Yampi API returns status.data.alias in Portuguese (e.g. "aprovado", "faturado").
  */
+const STATUS_MAP: Record<string, string> = {
+  // Português → inglês (nosso padrão interno)
+  'aprovado': 'paid',
+  'pago': 'paid',
+  'faturado': 'invoiced',
+  'enviado': 'shipped',
+  'entregue': 'delivered',
+  'cancelado': 'cancelled',
+  'cancelado pelo cliente': 'cancelled',
+  'recusado': 'cancelled',
+  'reembolsado': 'cancelled',
+  'estornado': 'cancelled',
+  'em análise': 'pending',
+  'aguardando pagamento': 'pending',
+  // Inglês direto (caso já venha normalizado)
+  'paid': 'paid',
+  'invoiced': 'invoiced',
+  'shipped': 'shipped',
+  'delivered': 'delivered',
+  'cancelled': 'cancelled',
+  'refused': 'cancelled',
+  'refunded': 'cancelled',
+}
+
 export function normalizeStatus(rawStatus: string): string {
-  if ((PAID_STATUSES as readonly string[]).includes(rawStatus)) return rawStatus
-  if ((CANCELLED_STATUSES as readonly string[]).includes(rawStatus)) return 'cancelled'
-  return 'pending'
+  return STATUS_MAP[rawStatus?.toLowerCase()?.trim()] ?? 'pending'
 }
 
 export type ParsedYampiOrder = {

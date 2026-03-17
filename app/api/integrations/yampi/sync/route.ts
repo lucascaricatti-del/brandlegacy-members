@@ -88,6 +88,10 @@ export async function POST(req: NextRequest) {
       })
     }
 
+    // ── Log distinct raw status aliases (debug — remove after confirming) ──
+    const rawAliases = new Set(allOrders.map((o: any) => o.status?.data?.alias ?? o.status_alias ?? 'unknown'))
+    console.log(`[yampi/sync] distinct raw status aliases (${rawAliases.size}):`, [...rawAliases])
+
     // ── 2. Parse and upsert individual orders ──
     const orderRows = allOrders.map((order: any) => parseYampiOrder(order, workspace_id))
 
