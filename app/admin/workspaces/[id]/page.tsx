@@ -97,9 +97,17 @@ export default async function AdminWorkspacePage({ params }: Props) {
               <span className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${PLAN_COLORS[ws.plan_type as keyof typeof PLAN_COLORS]}`}>
                 {PLAN_LABELS[ws.plan_type as keyof typeof PLAN_LABELS]}
               </span>
-              <span className={`text-xs px-2.5 py-0.5 rounded-full ${ws.is_active ? 'bg-success/15 text-success' : 'bg-error/15 text-error'}`}>
-                {ws.is_active ? 'Ativo' : 'Inativo'}
-              </span>
+              {(() => {
+                const today = new Date()
+                const start = financialInfo?.start_date ? new Date(financialInfo.start_date + 'T00:00:00-03:00') : null
+                const end = financialInfo?.renewal_date ? new Date(financialInfo.renewal_date + 'T23:59:59-03:00') : null
+                const active = start && end ? today >= start && today <= end : false
+                return (
+                  <span className={`text-xs px-2.5 py-0.5 rounded-full ${active ? 'bg-success/15 text-success' : 'bg-error/15 text-error'}`}>
+                    {active ? 'Ativo' : 'Inativo'}
+                  </span>
+                )
+              })()}
               <span className="text-xs text-text-muted">{ws.slug}</span>
             </div>
           </div>

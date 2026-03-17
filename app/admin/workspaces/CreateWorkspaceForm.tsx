@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { createWorkspace } from '@/app/actions/workspace'
+import { createWorkspaceWithInvite } from '@/app/actions/workspace'
 import { useRouter } from 'next/navigation'
 
 export default function CreateWorkspaceForm() {
@@ -28,7 +28,7 @@ export default function CreateWorkspaceForm() {
     const formData = new FormData(e.currentTarget)
 
     startTransition(async () => {
-      const result = await createWorkspace(formData)
+      const result = await createWorkspaceWithInvite(formData)
       if (result.error) {
         setError(result.error)
       } else {
@@ -38,48 +38,83 @@ export default function CreateWorkspaceForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-      <div>
-        <label className="block text-sm font-medium text-text-secondary mb-1.5">Nome da empresa *</label>
-        <input
-          name="name"
-          required
-          placeholder="Ex: Studio Marca X"
-          onChange={handleNameChange}
-          className="w-full px-4 py-2.5 rounded-lg bg-bg-surface border border-border text-text-primary placeholder:text-text-muted focus:outline-none focus:border-brand-gold focus:ring-1 focus:ring-brand-gold transition-colors text-sm"
-        />
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-text-secondary mb-1.5">Nome da empresa *</label>
+          <input
+            name="name"
+            required
+            placeholder="Ex: Studio Marca X"
+            onChange={handleNameChange}
+            className="w-full px-4 py-2.5 rounded-lg bg-bg-surface border border-border text-text-primary placeholder:text-text-muted focus:outline-none focus:border-brand-gold focus:ring-1 focus:ring-brand-gold transition-colors text-sm"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-text-secondary mb-1.5">Slug (ID único) *</label>
+          <input
+            name="slug"
+            required
+            placeholder="studio-marca-x"
+            className="w-full px-4 py-2.5 rounded-lg bg-bg-surface border border-border text-text-primary placeholder:text-text-muted focus:outline-none focus:border-brand-gold focus:ring-1 focus:ring-brand-gold transition-colors text-sm"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-text-secondary mb-1.5">Plano</label>
+          <select
+            name="plan_type"
+            className="w-full px-4 py-2.5 rounded-lg bg-bg-surface border border-border text-text-primary focus:outline-none focus:border-brand-gold focus:ring-1 focus:ring-brand-gold transition-colors text-sm"
+          >
+            <option value="free">Free</option>
+            <option value="tracao">Tração</option>
+            <option value="club">Club</option>
+          </select>
+        </div>
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-text-secondary mb-1.5">Slug (ID único) *</label>
-        <input
-          name="slug"
-          required
-          placeholder="studio-marca-x"
-          className="w-full px-4 py-2.5 rounded-lg bg-bg-surface border border-border text-text-primary placeholder:text-text-muted focus:outline-none focus:border-brand-gold focus:ring-1 focus:ring-brand-gold transition-colors text-sm"
-        />
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-text-secondary mb-1.5">Email do owner *</label>
+          <input
+            name="owner_email"
+            type="email"
+            required
+            placeholder="owner@empresa.com"
+            className="w-full px-4 py-2.5 rounded-lg bg-bg-surface border border-border text-text-primary placeholder:text-text-muted focus:outline-none focus:border-brand-gold focus:ring-1 focus:ring-brand-gold transition-colors text-sm"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-text-secondary mb-1.5">Data de início *</label>
+          <input
+            name="start_date"
+            type="date"
+            required
+            className="w-full px-4 py-2.5 rounded-lg bg-bg-surface border border-border text-text-primary focus:outline-none focus:border-brand-gold focus:ring-1 focus:ring-brand-gold transition-colors text-sm"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-text-secondary mb-1.5">Data de fim *</label>
+          <input
+            name="end_date"
+            type="date"
+            required
+            className="w-full px-4 py-2.5 rounded-lg bg-bg-surface border border-border text-text-primary focus:outline-none focus:border-brand-gold focus:ring-1 focus:ring-brand-gold transition-colors text-sm"
+          />
+        </div>
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-text-secondary mb-1.5">Plano</label>
-        <select
-          name="plan_type"
-          className="w-full px-4 py-2.5 rounded-lg bg-bg-surface border border-border text-text-primary focus:outline-none focus:border-brand-gold focus:ring-1 focus:ring-brand-gold transition-colors text-sm"
-        >
-          <option value="free">Free</option>
-          <option value="tracao">Tração</option>
-          <option value="club">Club</option>
-        </select>
-      </div>
-
-      <div className="sm:col-span-3 flex items-center justify-end gap-3">
+      <div className="flex items-center justify-end gap-3">
         {error && <p className="text-error text-sm flex-1">{error}</p>}
         <button
           type="submit"
           disabled={isPending}
           className="px-5 py-2.5 rounded-lg bg-brand-gold hover:bg-brand-gold-light text-bg-base text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          {isPending ? 'Criando...' : 'Criar Workspace'}
+          {isPending ? 'Criando...' : 'Criar e Convidar Owner'}
         </button>
       </div>
     </form>

@@ -20,7 +20,7 @@ export default async function AdminWorkspacesPage() {
       .order('name'),
     adminSupabase
       .from('financial_info')
-      .select('workspace_id, status'),
+      .select('workspace_id, status, start_date, renewal_date'),
     adminSupabase
       .from('tasks')
       .select('workspace_id, status, due_date, is_archived')
@@ -37,7 +37,16 @@ export default async function AdminWorkspacesPage() {
   const allSessions = sessionsRes.data ?? []
   const financialInfos = fiRes.data ?? []
 
-  const fiMap = Object.fromEntries(financialInfos.map((fi) => [fi.workspace_id, fi]))
+  const fiMap = Object.fromEntries(financialInfos.map((fi: any) => [fi.workspace_id, fi]))
+
+  // Calculate workspace active status from financial_info dates
+  function isWorkspaceActive(wsId: string): boolean {
+    const fi = fiMap[wsId] as any
+    if (!fi?.start_date || !fi?.renewal_date) return false
+    const start = new Date(fi.start_date + 'T00:00:00-03:00')
+    const end = new Date(fi.renewal_date + 'T23:59:59-03:00')
+    return today >= start && today <= end
+  }
 
   // Group tasks by workspace
   const tasksByWs: Record<string, typeof allTasks> = {}
@@ -76,13 +85,14 @@ export default async function AdminWorkspacesPage() {
 
     const fi = fiMap[ws.id]
     const financialStatus = fi?.status ?? null
+    const active = isWorkspaceActive(ws.id)
 
     return {
       id: ws.id,
       name: ws.name,
       slug: ws.slug,
       plan_type: ws.plan_type,
-      is_active: ws.is_active,
+      is_active: active,
       task_progress: taskProgress,
       total_tasks: total,
       completed_tasks: completed,
@@ -100,7 +110,7 @@ export default async function AdminWorkspacesPage() {
         <div>
           <h1 className="text-2xl font-bold text-text-primary">Mentorados</h1>
           <p className="text-text-secondary mt-1">
-            {workspaces.filter((w) => w.is_active).length} mentorado{workspaces.filter((w) => w.is_active).length !== 1 ? 's' : ''} ativo{workspaces.filter((w) => w.is_active).length !== 1 ? 's' : ''}
+            {enriched.filter((w) => w.is_active).length} mentorado{enriched.filter((w) => w.is_active).length !== 1 ? 's' : ''} ativo{enriched.filter((w) => w.is_active).length !== 1 ? 's' : ''}
           </p>
         </div>
       </div>

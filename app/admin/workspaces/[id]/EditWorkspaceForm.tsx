@@ -47,18 +47,6 @@ export default function EditWorkspaceForm({ workspace: ws }: { workspace: Worksp
         </select>
       </div>
 
-      <label className="flex items-center gap-2.5 cursor-pointer">
-        <input type="hidden" name="is_active" value="false" />
-        <input
-          type="checkbox"
-          name="is_active"
-          value="true"
-          defaultChecked={ws.is_active}
-          className="w-4 h-4 accent-brand-gold"
-        />
-        <span className="text-sm text-text-secondary">Workspace ativo</span>
-      </label>
-
       {error && <p className="text-error text-sm">{error}</p>}
       {success && <p className="text-success text-sm">Salvo!</p>}
 

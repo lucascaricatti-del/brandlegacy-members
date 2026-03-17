@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { sendWorkspaceInvite } from '@/lib/invite'
 import type { WorkspaceRole, PlanType } from '@/lib/types/database'
 
 async function requireAdmin() {
@@ -52,6 +53,95 @@ export async function createWorkspace(formData: FormData) {
   return { success: true, id: data.id }
 }
 
+export async function createWorkspaceWithInvite(formData: FormData) {
+  const { user } = await requireAdmin()
+
+  const name = formData.get('name') as string
+  const slug = (formData.get('slug') as string)
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+  const ownerEmail = (formData.get('owner_email') as string)?.trim().toLowerCase()
+  const startDate = formData.get('start_date') as string
+  const endDate = formData.get('end_date') as string
+  const planType = (formData.get('plan_type') as PlanType) || 'free'
+
+  if (!ownerEmail) return { error: 'Email do owner é obrigatório.' }
+  if (!startDate || !endDate) return { error: 'Datas de início e fim são obrigatórias.' }
+
+  const adminSupabase = createAdminClient()
+
+  // 1. Create workspace
+  const { error: wsError, data: wsData } = await adminSupabase
+    .from('workspaces')
+    .insert({
+      name,
+      slug,
+      plan_type: planType,
+      is_active: true,
+      created_by: user.id,
+    })
+    .select()
+    .single()
+
+  if (wsError) {
+    if (wsError.message.includes('slug')) return { error: 'Slug já em uso. Use outro identificador.' }
+    return { error: wsError.message }
+  }
+
+  const workspaceId = wsData.id
+
+  // 2. Create financial_info with dates
+  await adminSupabase.from('financial_info').upsert({
+    workspace_id: workspaceId,
+    plan_name: planType,
+    status: 'active',
+    start_date: startDate,
+    renewal_date: endDate,
+  }, { onConflict: 'workspace_id' })
+
+  // 3. Create kanban board
+  const { data: newBoard } = await adminSupabase
+    .from('kanban_boards')
+    .insert({ workspace_id: workspaceId, title: 'Board Principal' })
+    .select('id')
+    .single()
+
+  if (newBoard) {
+    await adminSupabase.from('kanban_columns').insert([
+      { board_id: newBoard.id, title: 'A fazer', order_index: 1 },
+      { board_id: newBoard.id, title: 'Em andamento', order_index: 2 },
+      { board_id: newBoard.id, title: 'Em revisão', order_index: 3 },
+      { board_id: newBoard.id, title: 'Concluído', order_index: 4 },
+    ])
+  }
+
+  // 4. Get inviter name
+  const { data: inviterProfile } = await adminSupabase
+    .from('profiles')
+    .select('name')
+    .eq('id', user.id)
+    .single()
+
+  // 5. Send invite to owner
+  const inviteResult = await sendWorkspaceInvite({
+    workspace_id: workspaceId,
+    email: ownerEmail,
+    role: 'owner',
+    invited_by: user.id,
+    workspace_name: name,
+    inviter_name: inviterProfile?.name ?? 'BrandLegacy',
+  })
+
+  if ('error' in inviteResult) {
+    console.error('[createWorkspaceWithInvite] invite error:', inviteResult.error)
+    // Workspace was created, just warn about invite failure
+  }
+
+  revalidatePath('/admin/workspaces')
+  return { success: true, id: workspaceId }
+}
+
 export async function updateWorkspace(id: string, formData: FormData) {
   const { supabase } = await requireAdmin()
 
@@ -60,7 +150,6 @@ export async function updateWorkspace(id: string, formData: FormData) {
     .update({
       name: formData.get('name') as string,
       plan_type: formData.get('plan_type') as PlanType,
-      is_active: formData.get('is_active') !== 'false',
     })
     .eq('id', id)
 
