@@ -245,6 +245,13 @@ export default function LoginPage() {
           Cadastre-se
         </Link>
       </p>
+
+      <p className="text-center text-text-muted text-xs mt-4">
+        Ao entrar, você concorda com nossa{' '}
+        <Link href="/privacidade" className="text-brand-gold hover:underline">
+          Política de Privacidade
+        </Link>
+      </p>
     </div>
   )
 }
