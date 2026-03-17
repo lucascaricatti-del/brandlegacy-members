@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
   const params = new URLSearchParams({
     client_id: process.env.FACEBOOK_APP_ID!,
     redirect_uri: `${req.nextUrl.origin}/api/integrations/meta/callback`,
-    scope: 'ads_read,ads_management',
+    scope: 'ads_read,business_management,public_profile',
     state: workspaceId,
     response_type: 'code',
   })
