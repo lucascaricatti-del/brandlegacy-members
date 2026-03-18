@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveWorkspace } from '@/lib/resolve-workspace'
 import type { TaskPriority } from '@/lib/types/database'
+import MarketplaceConsolidated from '@/components/dashboard/MarketplaceConsolidated'
 
 const PRIORITY_COLORS: Record<TaskPriority, string> = {
   baixa: 'text-success bg-success/10',
@@ -37,6 +38,19 @@ export default async function DashboardPage() {
   // Busca workspace ativo do usuário (com suporte a impersonação admin)
   const resolvedWs = await resolveWorkspace(user.id)
   const workspaceId = resolvedWs?.id
+
+  // Verifica se ML está conectado
+  let mlConnected = false
+  if (workspaceId) {
+    const { data: mlIntegration } = await (adminSupabase as any)
+      .from('workspace_integrations')
+      .select('id')
+      .eq('workspace_id', workspaceId)
+      .eq('provider', 'mercadolivre')
+      .eq('status', 'active')
+      .maybeSingle()
+    mlConnected = !!mlIntegration
+  }
 
   // Busca entregas do workspace
   let deliveries: { id: string; status: string }[] = []
@@ -207,6 +221,11 @@ export default async function DashboardPage() {
           </div>
         )}
       </div>
+
+      {/* Consolidado Marketplaces */}
+      {workspaceId && (
+        <MarketplaceConsolidated workspaceId={workspaceId} mlConnected={mlConnected} />
+      )}
     </div>
   )
 }

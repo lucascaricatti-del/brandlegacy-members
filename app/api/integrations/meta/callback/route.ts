@@ -46,6 +46,29 @@ export async function GET(req: NextRequest) {
     const accountsData = await accountsRes.json()
     const firstAccount = accountsData.data?.[0]
 
+    // Buscar IG Business Account ID via Pages
+    let igUserId: string | null = null
+    try {
+      const pagesRes = await fetch(
+        `https://graph.facebook.com/v21.0/me/accounts?access_token=${accessToken}`
+      )
+      const pagesData = await pagesRes.json()
+      const pages = pagesData.data || []
+
+      for (const page of pages) {
+        const igRes = await fetch(
+          `https://graph.facebook.com/v21.0/${page.id}?fields=instagram_business_account&access_token=${accessToken}`
+        )
+        const igData = await igRes.json()
+        if (igData.instagram_business_account?.id) {
+          igUserId = igData.instagram_business_account.id
+          break
+        }
+      }
+    } catch (igErr) {
+      console.warn('Failed to fetch IG Business Account:', igErr)
+    }
+
     await supabase.from('workspace_integrations').upsert({
       workspace_id: workspaceId,
       provider: 'meta_ads',
@@ -57,6 +80,7 @@ export async function GET(req: NextRequest) {
       metadata: {
         accounts: accountsData.data || [],
         currency: firstAccount?.currency || 'BRL',
+        ig_user_id: igUserId,
       },
       updated_at: new Date().toISOString(),
     }, { onConflict: 'workspace_id,provider' })
