@@ -3,69 +3,55 @@
 import { useState, useEffect, useCallback } from 'react'
 
 // --- Types ---
-type Period = '7d' | '30d' | 'mes_atual' | 'custom'
+type Period = 'today' | 'yesterday' | '7d' | 'month'
 type MarketplaceKey = 'mercadolivre' | 'shopee' | 'magalu' | 'netshoes' | 'tiktok_shop'
 
-type MarketplaceMetrics = {
+type MarketplaceData = {
   marketplace: MarketplaceKey
-  gross_revenue: number
-  net_revenue: number
-  orders_count: number
-  units_sold: number
-  avg_ticket: number
-  ad_spend?: number
-  shipping_cost?: number
-  returns_count?: number
-  returns_value?: number
-  commission?: number
-  shipping?: number
+  grossRevenue: number
+  netRevenue: number
+  orders: number
+  avgTicket: number
+  totalCosts: number
+  contributionMargin: number
+  auto: boolean
 }
 
-type TaxConfig = {
-  marketplace: string
-  effective_tax_pct: number
-  simples_nacional_pct: number
-  icms_pct: number
-  pis_cofins_pct: number
-}
+type TaxConfig = Record<string, { tax_rate_percent: number; shipping_rate_percent: number }>
 
-type ConsolidatedData = {
-  mercadolivre: MarketplaceMetrics
-  manual_marketplaces: MarketplaceMetrics[]
-  tax_config: TaxConfig[]
+type ConsolidatedResponse = {
+  marketplaces: MarketplaceData[]
+  totals: {
+    grossRevenue: number
+    netRevenue: number
+    orders: number
+    avgTicket: number
+    totalCosts: number
+    contributionMargin: number
+  }
+  taxConfig: TaxConfig
+  period: string
+  date_from: string
+  date_to: string
 }
 
 // --- Constants ---
 const PERIODS: { key: Period; label: string }[] = [
+  { key: 'today', label: 'Hoje' },
+  { key: 'yesterday', label: 'Ontem' },
   { key: '7d', label: '7 dias' },
-  { key: '30d', label: '30 dias' },
-  { key: 'mes_atual', label: 'Mês Atual' },
-  { key: 'custom', label: 'Personalizado' },
+  { key: 'month', label: 'Mes Atual' },
 ]
 
-const MARKETPLACE_CONFIG: Record<MarketplaceKey, { name: string; color: string; textColor: string; icon: string; auto: boolean }> = {
-  mercadolivre: { name: 'Mercado Livre', color: '#FFE600', textColor: '#2D3277', icon: 'ML', auto: true },
-  shopee: { name: 'Shopee', color: '#EE4D2D', textColor: '#fff', icon: 'SP', auto: false },
-  magalu: { name: 'Magalu', color: '#0086FF', textColor: '#fff', icon: 'MG', auto: false },
-  netshoes: { name: 'Netshoes', color: '#000000', textColor: '#fff', icon: 'NS', auto: false },
-  tiktok_shop: { name: 'TikTok Shop', color: '#000000', textColor: '#69C9D0', icon: 'TK', auto: false },
+const MARKETPLACE_CONFIG: Record<MarketplaceKey, { name: string; color: string; textColor: string; icon: string }> = {
+  mercadolivre: { name: 'Mercado Livre', color: '#FFE600', textColor: '#2D3277', icon: 'ML' },
+  shopee: { name: 'Shopee', color: '#EE4D2D', textColor: '#fff', icon: 'SP' },
+  magalu: { name: 'Magalu', color: '#0086FF', textColor: '#fff', icon: 'MG' },
+  netshoes: { name: 'Netshoes', color: '#000000', textColor: '#fff', icon: 'NS' },
+  tiktok_shop: { name: 'TikTok Shop', color: '#000000', textColor: '#69C9D0', icon: 'TK' },
 }
 
 const MANUAL_MARKETPLACES: MarketplaceKey[] = ['shopee', 'magalu', 'netshoes', 'tiktok_shop']
-
-function toYMD(d: Date): string {
-  return d.toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' })
-}
-
-function getDateRange(period: Period, customFrom?: string, customTo?: string): { date_from: string; date_to: string } {
-  const today = toYMD(new Date())
-  if (period === 'mes_atual') return { date_from: today.slice(0, 7) + '-01', date_to: today }
-  if (period === 'custom' && customFrom && customTo) return { date_from: customFrom, date_to: customTo }
-  const daysMap: Record<string, number> = { '7d': 7, '30d': 30 }
-  const days = daysMap[period] ?? 30
-  const since = new Date(); since.setDate(since.getDate() - days)
-  return { date_from: toYMD(since), date_to: today }
-}
 
 function formatBRL(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -79,90 +65,35 @@ export default function MarketplaceConsolidated({
   workspaceId: string
   mlConnected: boolean
 }) {
-  const [period, setPeriod] = useState<Period>('30d')
-  const [customFrom, setCustomFrom] = useState('')
-  const [customTo, setCustomTo] = useState('')
-  const [consolidatedData, setConsolidatedData] = useState<ConsolidatedData | null>(null)
+  const [period, setPeriod] = useState<Period>('7d')
+  const [data, setData] = useState<ConsolidatedResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [showManualEntry, setShowManualEntry] = useState(false)
   const [showTaxConfig, setShowTaxConfig] = useState(false)
-  const [taxConfig, setTaxConfig] = useState<TaxConfig>({
-    marketplace: '_all',
-    effective_tax_pct: 0,
-    simples_nacional_pct: 0,
-    icms_pct: 0,
-    pis_cofins_pct: 0,
-  })
+  const [taxConfig, setTaxConfig] = useState<TaxConfig>({})
 
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      const { date_from, date_to } = getDateRange(period, customFrom, customTo)
       const res = await fetch(
-        `/api/marketplace/consolidated?workspace_id=${workspaceId}&date_from=${date_from}&date_to=${date_to}`
+        `/api/marketplaces/consolidated?workspace_id=${workspaceId}&period=${period}`
       )
       if (res.ok) {
-        const data = await res.json()
-        setConsolidatedData(data)
+        const json = await res.json()
+        setData(json)
+        setTaxConfig(json.taxConfig || {})
       }
     } catch (e) {
       console.error('Failed to fetch consolidated data', e)
     } finally {
       setLoading(false)
     }
-  }, [workspaceId, period, customFrom, customTo])
+  }, [workspaceId, period])
 
-  const fetchTaxConfig = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/marketplace/tax-config?workspace_id=${workspaceId}`)
-      if (res.ok) {
-        const data = await res.json()
-        setTaxConfig(data)
-      }
-    } catch (e) {
-      console.error('Failed to fetch tax config', e)
-    }
-  }, [workspaceId])
+  useEffect(() => { fetchData() }, [fetchData])
 
-  useEffect(() => {
-    fetchData()
-    fetchTaxConfig()
-  }, [fetchData, fetchTaxConfig])
-
-  // Build all marketplace metrics for cards
-  const allMarketplaces: MarketplaceMetrics[] = []
-  if (consolidatedData) {
-    // ML data
-    if (consolidatedData.mercadolivre) {
-      allMarketplaces.push({ ...consolidatedData.mercadolivre, marketplace: 'mercadolivre' })
-    }
-    // Manual marketplaces — ensure all 4 show even if no data
-    for (const mk of MANUAL_MARKETPLACES) {
-      const found = consolidatedData.manual_marketplaces?.find((m) => m.marketplace === mk)
-      allMarketplaces.push(
-        found || {
-          marketplace: mk,
-          gross_revenue: 0,
-          net_revenue: 0,
-          orders_count: 0,
-          units_sold: 0,
-          avg_ticket: 0,
-        }
-      )
-    }
-  }
-
-  // Totals
-  const totals = allMarketplaces.reduce(
-    (acc, m) => ({
-      gross_revenue: acc.gross_revenue + Number(m.gross_revenue || 0),
-      net_revenue: acc.net_revenue + Number(m.net_revenue || 0),
-      orders_count: acc.orders_count + Number(m.orders_count || 0),
-      units_sold: acc.units_sold + Number(m.units_sold || 0),
-    }),
-    { gross_revenue: 0, net_revenue: 0, orders_count: 0, units_sold: 0 }
-  )
-  const totalAvgTicket = totals.orders_count > 0 ? totals.gross_revenue / totals.orders_count : 0
+  const marketplaces = data?.marketplaces || []
+  const totals = data?.totals || { grossRevenue: 0, netRevenue: 0, orders: 0, avgTicket: 0, totalCosts: 0, contributionMargin: 0 }
 
   return (
     <div className="mt-10">
@@ -180,21 +111,27 @@ export default function MarketplaceConsolidated({
             onClick={() => setShowTaxConfig(true)}
             className="px-3 py-1.5 text-xs font-medium rounded-lg bg-bg-surface text-text-secondary hover:bg-bg-surface/80 transition-colors border border-border"
           >
-            Configurar Impostos
+            Configurar Taxas
           </button>
         </div>
       </div>
 
       {/* Period Filter */}
-      <PeriodFilter
-        period={period}
-        setPeriod={setPeriod}
-        customFrom={customFrom}
-        setCustomFrom={setCustomFrom}
-        customTo={customTo}
-        setCustomTo={setCustomTo}
-        onSearch={fetchData}
-      />
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        {PERIODS.map((p) => (
+          <button
+            key={p.key}
+            onClick={() => setPeriod(p.key)}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+              period === p.key
+                ? 'bg-brand-gold text-bg-base'
+                : 'bg-bg-surface text-text-secondary hover:text-text-primary'
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
 
       {/* Cards Grid */}
       {loading ? (
@@ -202,16 +139,16 @@ export default function MarketplaceConsolidated({
           <div className="w-6 h-6 border-2 border-brand-gold border-t-transparent rounded-full animate-spin" />
         </div>
       ) : (
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
-          {allMarketplaces.map((m) => {
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+          {marketplaces.map((m) => {
             const config = MARKETPLACE_CONFIG[m.marketplace]
             return (
               <MarketplaceCard
                 key={m.marketplace}
-                metrics={m}
+                data={m}
                 config={config}
                 mlConnected={mlConnected}
-                onEdit={config.auto ? undefined : () => setShowManualEntry(true)}
+                onEdit={m.auto ? undefined : () => setShowManualEntry(true)}
               />
             )
           })}
@@ -224,10 +161,15 @@ export default function MarketplaceConsolidated({
               <span className="text-sm font-semibold text-text-primary">Total</span>
             </div>
             <div className="space-y-2">
-              <MetricRow label="Fat. Bruto" value={formatBRL(totals.gross_revenue)} />
-              <MetricRow label="Fat. Liquido" value={formatBRL(totals.net_revenue)} />
-              <MetricRow label="Pedidos" value={String(totals.orders_count)} />
-              <MetricRow label="Ticket Medio" value={formatBRL(totalAvgTicket)} />
+              <MetricRow label="Fat. Bruto" value={formatBRL(totals.grossRevenue)} />
+              <MetricRow label="Fat. Liquido" value={formatBRL(totals.netRevenue)} />
+              <MetricRow label="Pedidos" value={String(totals.orders)} />
+              <MetricRow label="Ticket Medio" value={formatBRL(totals.avgTicket)} />
+              <MetricRow
+                label="Margem"
+                value={`${totals.contributionMargin.toFixed(1)}%`}
+                highlight={totals.contributionMargin > 0}
+              />
             </div>
           </div>
         </div>
@@ -238,10 +180,7 @@ export default function MarketplaceConsolidated({
         <ManualEntryModal
           workspaceId={workspaceId}
           onClose={() => setShowManualEntry(false)}
-          onSaved={() => {
-            setShowManualEntry(false)
-            fetchData()
-          }}
+          onSaved={() => { setShowManualEntry(false); fetchData() }}
         />
       )}
       {showTaxConfig && (
@@ -249,11 +188,7 @@ export default function MarketplaceConsolidated({
           workspaceId={workspaceId}
           taxConfig={taxConfig}
           onClose={() => setShowTaxConfig(false)}
-          onSaved={() => {
-            setShowTaxConfig(false)
-            fetchTaxConfig()
-            fetchData()
-          }}
+          onSaved={() => { setShowTaxConfig(false); fetchData() }}
         />
       )}
     </div>
@@ -262,78 +197,17 @@ export default function MarketplaceConsolidated({
 
 // --- Sub-components ---
 
-function PeriodFilter({
-  period,
-  setPeriod,
-  customFrom,
-  setCustomFrom,
-  customTo,
-  setCustomTo,
-  onSearch,
-}: {
-  period: Period
-  setPeriod: (p: Period) => void
-  customFrom: string
-  setCustomFrom: (v: string) => void
-  customTo: string
-  setCustomTo: (v: string) => void
-  onSearch: () => void
-}) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      {PERIODS.map((p) => (
-        <button
-          key={p.key}
-          onClick={() => setPeriod(p.key)}
-          className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
-            period === p.key
-              ? 'bg-brand-gold text-bg-base'
-              : 'bg-bg-surface text-text-secondary hover:text-text-primary'
-          }`}
-        >
-          {p.label}
-        </button>
-      ))}
-      {period === 'custom' && (
-        <>
-          <input
-            type="date"
-            value={customFrom}
-            onChange={(e) => setCustomFrom(e.target.value)}
-            className="px-2 py-1 text-xs rounded-lg bg-bg-surface border border-border text-text-primary"
-          />
-          <input
-            type="date"
-            value={customTo}
-            onChange={(e) => setCustomTo(e.target.value)}
-            className="px-2 py-1 text-xs rounded-lg bg-bg-surface border border-border text-text-primary"
-          />
-          <button
-            onClick={onSearch}
-            className="px-3 py-1.5 text-xs font-medium rounded-lg bg-brand-gold text-bg-base"
-          >
-            Buscar
-          </button>
-        </>
-      )}
-    </div>
-  )
-}
-
 function MarketplaceCard({
-  metrics,
+  data,
   config,
   mlConnected,
   onEdit,
 }: {
-  metrics: MarketplaceMetrics
-  config: { name: string; color: string; textColor: string; icon: string; auto: boolean }
+  data: MarketplaceData
+  config: { name: string; color: string; textColor: string; icon: string }
   mlConnected: boolean
   onEdit?: () => void
 }) {
-  const avgTicket = Number(metrics.avg_ticket || 0) ||
-    (Number(metrics.orders_count) > 0 ? Number(metrics.gross_revenue) / Number(metrics.orders_count) : 0)
-
   return (
     <div className="bg-bg-card border border-border rounded-xl p-4 hover:border-brand-gold/20 transition-colors">
       <div className="flex items-center justify-between mb-3">
@@ -346,7 +220,7 @@ function MarketplaceCard({
           </div>
           <span className="text-sm font-semibold text-text-primary">{config.name}</span>
         </div>
-        {config.auto ? (
+        {data.auto ? (
           <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${mlConnected ? 'bg-success/10 text-success' : 'bg-bg-surface text-text-muted'}`}>
             {mlConnected ? 'Automatico' : 'Desconectado'}
           </span>
@@ -357,20 +231,25 @@ function MarketplaceCard({
         ) : null}
       </div>
       <div className="space-y-2">
-        <MetricRow label="Fat. Bruto" value={formatBRL(Number(metrics.gross_revenue || 0))} />
-        <MetricRow label="Fat. Liquido" value={formatBRL(Number(metrics.net_revenue || 0))} />
-        <MetricRow label="Pedidos" value={String(Number(metrics.orders_count || 0))} />
-        <MetricRow label="Ticket Medio" value={formatBRL(avgTicket)} />
+        <MetricRow label="Fat. Bruto" value={formatBRL(data.grossRevenue)} />
+        <MetricRow label="Fat. Liquido" value={formatBRL(data.netRevenue)} />
+        <MetricRow label="Pedidos" value={String(data.orders)} />
+        <MetricRow label="Ticket Medio" value={formatBRL(data.avgTicket)} />
+        <MetricRow
+          label="Margem"
+          value={`${data.contributionMargin.toFixed(1)}%`}
+          highlight={data.contributionMargin > 0}
+        />
       </div>
     </div>
   )
 }
 
-function MetricRow({ label, value }: { label: string; value: string }) {
+function MetricRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div className="flex items-center justify-between">
       <span className="text-xs text-text-muted">{label}</span>
-      <span className="text-xs font-semibold text-text-primary">{value}</span>
+      <span className={`text-xs font-semibold ${highlight ? 'text-success' : 'text-text-primary'}`}>{value}</span>
     </div>
   )
 }
@@ -386,45 +265,26 @@ function ManualEntryModal({
   onSaved: () => void
 }) {
   const [marketplace, setMarketplace] = useState<string>('shopee')
-  const [periodStart, setPeriodStart] = useState('')
-  const [periodEnd, setPeriodEnd] = useState('')
-  const [grossRevenue, setGrossRevenue] = useState('')
-  const [netRevenue, setNetRevenue] = useState('')
-  const [ordersCount, setOrdersCount] = useState('')
-  const [unitsSold, setUnitsSold] = useState('')
-  const [adSpend, setAdSpend] = useState('')
-  const [shippingCost, setShippingCost] = useState('')
-  const [returnsCount, setReturnsCount] = useState('')
-  const [returnsValue, setReturnsValue] = useState('')
-  const [notes, setNotes] = useState('')
+  const [date, setDate] = useState('')
+  const [revenue, setRevenue] = useState('')
+  const [orders, setOrders] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   const handleSave = async () => {
-    if (!periodStart || !periodEnd) {
-      setError('Preencha as datas do periodo.')
-      return
-    }
+    if (!date) { setError('Preencha a data.'); return }
     setSaving(true)
     setError('')
     try {
-      const res = await fetch('/api/marketplace/manual-entry', {
+      const res = await fetch('/api/marketplaces/manual-entry', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workspace_id: workspaceId,
           marketplace,
-          period_start: periodStart,
-          period_end: periodEnd,
-          gross_revenue: parseFloat(grossRevenue) || 0,
-          net_revenue: parseFloat(netRevenue) || 0,
-          orders_count: parseInt(ordersCount) || 0,
-          units_sold: parseInt(unitsSold) || 0,
-          ad_spend: parseFloat(adSpend) || 0,
-          shipping_cost: parseFloat(shippingCost) || 0,
-          returns_count: parseInt(returnsCount) || 0,
-          returns_value: parseFloat(returnsValue) || 0,
-          notes: notes || null,
+          date,
+          revenue: parseFloat(revenue) || 0,
+          orders: parseInt(orders) || 0,
         }),
       })
       if (!res.ok) {
@@ -442,16 +302,15 @@ function ManualEntryModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-bg-card border border-border rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
+      <div className="bg-bg-card border border-border rounded-xl w-full max-w-md p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-semibold text-text-primary">Lancar Dados Manual</h3>
+          <h3 className="text-base font-semibold text-text-primary">Lancar Dados</h3>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-lg">&times;</button>
         </div>
 
         {error && <p className="text-xs text-error mb-3">{error}</p>}
 
         <div className="space-y-3">
-          {/* Marketplace selector */}
           <div>
             <label className="text-xs text-text-muted block mb-1">Marketplace</label>
             <select
@@ -464,63 +323,17 @@ function ManualEntryModal({
               ))}
             </select>
           </div>
-
-          {/* Dates */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-text-muted block mb-1">Data Inicio</label>
-              <input
-                type="date"
-                value={periodStart}
-                onChange={(e) => setPeriodStart(e.target.value)}
-                className="w-full px-3 py-2 text-sm rounded-lg bg-bg-surface border border-border text-text-primary"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-text-muted block mb-1">Data Fim</label>
-              <input
-                type="date"
-                value={periodEnd}
-                onChange={(e) => setPeriodEnd(e.target.value)}
-                className="w-full px-3 py-2 text-sm rounded-lg bg-bg-surface border border-border text-text-primary"
-              />
-            </div>
-          </div>
-
-          {/* Revenue */}
-          <div className="grid grid-cols-2 gap-3">
-            <NumericField label="Faturamento Bruto (R$)" value={grossRevenue} onChange={setGrossRevenue} />
-            <NumericField label="Faturamento Liquido (R$)" value={netRevenue} onChange={setNetRevenue} />
-          </div>
-
-          {/* Orders / Units */}
-          <div className="grid grid-cols-2 gap-3">
-            <NumericField label="Pedidos" value={ordersCount} onChange={setOrdersCount} />
-            <NumericField label="Unidades Vendidas" value={unitsSold} onChange={setUnitsSold} />
-          </div>
-
-          {/* Costs */}
-          <div className="grid grid-cols-2 gap-3">
-            <NumericField label="Gasto Ads (R$)" value={adSpend} onChange={setAdSpend} />
-            <NumericField label="Custo Frete (R$)" value={shippingCost} onChange={setShippingCost} />
-          </div>
-
-          {/* Returns */}
-          <div className="grid grid-cols-2 gap-3">
-            <NumericField label="Devoluções (qtd)" value={returnsCount} onChange={setReturnsCount} />
-            <NumericField label="Valor Devoluções (R$)" value={returnsValue} onChange={setReturnsValue} />
-          </div>
-
-          {/* Notes */}
           <div>
-            <label className="text-xs text-text-muted block mb-1">Observações</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={2}
-              className="w-full px-3 py-2 text-sm rounded-lg bg-bg-surface border border-border text-text-primary resize-none"
+            <label className="text-xs text-text-muted block mb-1">Data</label>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-full px-3 py-2 text-sm rounded-lg bg-bg-surface border border-border text-text-primary"
             />
           </div>
+          <NumericField label="Faturamento (R$)" value={revenue} onChange={setRevenue} />
+          <NumericField label="Pedidos" value={orders} onChange={setOrders} />
         </div>
 
         <div className="flex justify-end gap-2 mt-5">
@@ -555,27 +368,34 @@ function TaxConfigModal({
   onClose: () => void
   onSaved: () => void
 }) {
-  const [effectiveTax, setEffectiveTax] = useState(String(taxConfig.effective_tax_pct || ''))
-  const [simplesNacional, setSimplesNacional] = useState(String(taxConfig.simples_nacional_pct || ''))
-  const [icms, setIcms] = useState(String(taxConfig.icms_pct || ''))
-  const [pisCofins, setPisCofins] = useState(String(taxConfig.pis_cofins_pct || ''))
+  const [config, setConfig] = useState<TaxConfig>(() => {
+    const initial: TaxConfig = {}
+    for (const mk of MANUAL_MARKETPLACES) {
+      initial[mk] = {
+        tax_rate_percent: taxConfig[mk]?.tax_rate_percent || 0,
+        shipping_rate_percent: taxConfig[mk]?.shipping_rate_percent || 0,
+      }
+    }
+    return initial
+  })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
+  const updateField = (mk: string, field: 'tax_rate_percent' | 'shipping_rate_percent', value: string) => {
+    setConfig((prev) => ({
+      ...prev,
+      [mk]: { ...prev[mk], [field]: parseFloat(value) || 0 },
+    }))
+  }
 
   const handleSave = async () => {
     setSaving(true)
     setError('')
     try {
-      const res = await fetch('/api/marketplace/tax-config', {
+      const res = await fetch('/api/marketplaces/tax-config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          workspace_id: workspaceId,
-          effective_tax_pct: parseFloat(effectiveTax) || 0,
-          simples_nacional_pct: parseFloat(simplesNacional) || 0,
-          icms_pct: parseFloat(icms) || 0,
-          pis_cofins_pct: parseFloat(pisCofins) || 0,
-        }),
+        body: JSON.stringify({ workspace_id: workspaceId, config }),
       })
       if (!res.ok) {
         const data = await res.json()
@@ -592,23 +412,47 @@ function TaxConfigModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-bg-card border border-border rounded-xl w-full max-w-md p-6">
+      <div className="bg-bg-card border border-border rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-semibold text-text-primary">Configurar Impostos</h3>
+          <h3 className="text-base font-semibold text-text-primary">Configurar Taxas</h3>
           <button onClick={onClose} className="text-text-muted hover:text-text-primary text-lg">&times;</button>
         </div>
 
         {error && <p className="text-xs text-error mb-3">{error}</p>}
 
         <p className="text-xs text-text-muted mb-4">
-          Configure as aliquotas de impostos aplicadas ao faturamento. A taxa efetiva sera usada para calculos gerais.
+          Configure as taxas de cada marketplace. Serao aplicadas automaticamente nos lancamentos.
         </p>
 
-        <div className="space-y-3">
-          <NumericField label="Taxa Efetiva (%)" value={effectiveTax} onChange={setEffectiveTax} />
-          <NumericField label="Simples Nacional (%)" value={simplesNacional} onChange={setSimplesNacional} />
-          <NumericField label="ICMS (%)" value={icms} onChange={setIcms} />
-          <NumericField label="PIS/COFINS (%)" value={pisCofins} onChange={setPisCofins} />
+        <div className="space-y-4">
+          {MANUAL_MARKETPLACES.map((mk) => {
+            const mkCfg = MARKETPLACE_CONFIG[mk]
+            return (
+              <div key={mk} className="bg-bg-surface rounded-lg p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <div
+                    className="w-6 h-6 rounded flex items-center justify-center text-[10px] font-bold"
+                    style={{ backgroundColor: mkCfg.color, color: mkCfg.textColor }}
+                  >
+                    {mkCfg.icon}
+                  </div>
+                  <span className="text-xs font-semibold text-text-primary">{mkCfg.name}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <NumericField
+                    label="Taxa plataforma (%)"
+                    value={String(config[mk]?.tax_rate_percent || '')}
+                    onChange={(v) => updateField(mk, 'tax_rate_percent', v)}
+                  />
+                  <NumericField
+                    label="Taxa frete (%)"
+                    value={String(config[mk]?.shipping_rate_percent || '')}
+                    onChange={(v) => updateField(mk, 'shipping_rate_percent', v)}
+                  />
+                </div>
+              </div>
+            )
+          })}
         </div>
 
         <div className="flex justify-end gap-2 mt-5">
@@ -631,7 +475,6 @@ function TaxConfigModal({
   )
 }
 
-// --- Shared field ---
 function NumericField({
   label,
   value,
